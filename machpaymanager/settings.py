@@ -19,7 +19,6 @@ DEBUG = os.getenv("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -34,7 +33,7 @@ INSTALLED_APPS = [
     'monitoring',
     'parameterization',
     'payroll',
-    'requests',
+    'service_requests',
     'users',
     'rest_framework'
 ]
