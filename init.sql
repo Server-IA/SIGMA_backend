@@ -1,0 +1,6 @@
+CREATE DATABASE machpaydb;
+
+CREATE DATABASE usersdb;
+
+GRANT ALL PRIVILEGES ON DATABASE machpaydb TO postgres;
+GRANT ALL PRIVILEGES ON DATABASE usersdb TO postgres;
