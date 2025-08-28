@@ -30,7 +30,3 @@ services:
 
 volumes:
   machpay_postgres_data:
-
-networks:
-  shared_net:
-    external: true
