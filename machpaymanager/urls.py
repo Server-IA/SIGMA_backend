@@ -3,12 +3,12 @@ from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/', include('machinery.urls')),
-    path('api/', include('maintenance.urls')),
-    path('api/', include('monitoring.urls')),
-    path('api/', include('parameterization.urls')),
-    path('api/', include('payroll.urls')),
-    path('api/', include('service_requests.urls')),
-    path('api/', include('users.urls')),
+    path('main/', include('machinery.urls')),
+    path('main/', include('maintenance.urls')),
+    path('main/', include('monitoring.urls')),
+    path('main/', include('parameterization.urls')),
+    path('main/', include('payroll.urls')),
+    path('main/', include('service_requests.urls')),
+    path('main/', include('users.urls')),
 
 ]
