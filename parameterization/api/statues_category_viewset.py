@@ -15,6 +15,19 @@ class StatuesCategoryViewSet(viewsets.ViewSet):
                             status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    def update(self, request, pk=None):
+        try:
+            categoria = StatuesCategory.objects.get(pk=pk)
+        except StatuesCategory.DoesNotExist:
+            return Response({"error": "Categoría no encontrada"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StatuesCategoryCreateSerializer(categoria, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Categoría de estado actualizada exitosamente"},
+                            status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=False, methods=['get'], url_path='list')
     def listar_categorias(self, request):
         categorias = StatuesCategory.objects.all()
