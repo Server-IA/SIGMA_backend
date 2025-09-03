@@ -13,7 +13,7 @@ class UserVisualParameterizationCreateSerializer(serializers.ModelSerializer):
         queryset=VisualParameterization.objects.all(), write_only=True, source='id_visual_parameterization'
     )
     user_visual_parameterization_status = serializers.PrimaryKeyRelatedField(
-        queryset=Statues.objects.all(), write_only=True
+        queryset=Statues.objects.all(), write_only=True, required=False
     )
     responsible_user = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), write_only=True
@@ -33,7 +33,7 @@ class UserVisualParameterizationCreateSerializer(serializers.ModelSerializer):
         Validación personalizada para asegurar que todos los campos requeridos estén presentes
         """
         required_fields = [
-            'id_user', 'id_visual_parameterization', 'user_visual_parameterization_status', 'responsible_user'
+            'id_user', 'id_visual_parameterization', 'responsible_user'
         ]
         
         errors = {}
@@ -45,12 +45,20 @@ class UserVisualParameterizationCreateSerializer(serializers.ModelSerializer):
             elif data[field] is None:
                 errors[field] = f"El campo '{field}' no puede estar vacío"
         
+        # Si el cliente envía un estado distinto de 1 en POST, marcar error
+        if 'user_visual_parameterization_status' in data and data['user_visual_parameterization_status'] is not None:
+            provided_status = getattr(data['user_visual_parameterization_status'], 'pk', None)
+            if provided_status != 1:
+                errors['user_visual_parameterization_status'] = "En creación el estado debe ser 1."
+        
         if errors:
             raise ValidationError(errors)
         
         return data
 
     def create(self, validated_data):
+        # Forzar estado = 1 en POST
+        validated_data['user_visual_parameterization_status'] = Statues.objects.get(pk=1)
         responsible_user = validated_data.pop('responsible_user')
         validated_data['id_responsible_user'] = responsible_user
         validated_data['registration_date'] = timezone.now()

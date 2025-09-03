@@ -11,7 +11,7 @@ class VisualParameterizationCreateSerializer(serializers.ModelSerializer):
         queryset=User.objects.all(), write_only=True
     )
     visual_parameterization_status = serializers.PrimaryKeyRelatedField(
-        queryset=Statues.objects.all(), write_only=True
+        queryset=Statues.objects.all(), write_only=True, required=False
     )
 
     class Meta:
@@ -37,7 +37,8 @@ class VisualParameterizationCreateSerializer(serializers.ModelSerializer):
         required_fields = [
             'name', 'description', 'background_color', 'text_color', 
             'font', 'font_size', 'border_thickness', 'border_color',
-            'visual_parameterization_status', 'responsible_user'
+            # 'visual_parameterization_status' ya no es requerido en POST
+            'responsible_user'
         ]
         
         errors = {}
@@ -48,6 +49,12 @@ class VisualParameterizationCreateSerializer(serializers.ModelSerializer):
                 errors[field] = f"El campo '{field}' es requerido"
             elif data[field] is None or str(data[field]).strip() == '':
                 errors[field] = f"El campo '{field}' no puede estar vacío"
+        
+        # Si el cliente envía un estado distinto de 1 en POST, marcar error
+        if 'visual_parameterization_status' in data and data['visual_parameterization_status'] is not None:
+            provided_status = getattr(data['visual_parameterization_status'], 'pk', None)
+            if provided_status != 1:
+                errors['visual_parameterization_status'] = "En creación el estado debe ser 1."
         
         # Validaciones específicas para campos de texto
         text_fields = ['name', 'description', 'background_color', 'text_color', 'font', 'font_size', 'border_thickness', 'border_color']
@@ -89,6 +96,8 @@ class VisualParameterizationCreateSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
+        # Forzar estado = 1 en POST
+        validated_data['visual_parameterization_status'] = Statues.objects.get(pk=1)
         responsible_user = validated_data.pop('responsible_user')
         validated_data['id_responsible_user'] = responsible_user
         validated_data['creation_date'] = timezone.now()
