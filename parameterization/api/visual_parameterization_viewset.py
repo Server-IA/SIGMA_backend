@@ -29,6 +29,17 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
                 "status": "error"
             }, status=status.HTTP_400_BAD_REQUEST)
 
+    def retrieve(self, request, pk=None):
+        try:
+            instance = VisualParameterization.objects.get(pk=pk)
+        except VisualParameterization.DoesNotExist:
+            return Response({
+                "message": "Parametrización visual no encontrada",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+        serializer = VisualParameterizationListSerializer(instance)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
     def update(self, request, pk=None):
         try:
             instance = VisualParameterization.objects.get(pk=pk)
