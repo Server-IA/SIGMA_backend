@@ -4,10 +4,14 @@ from parameterization.models import (
     StatuesCategory,
     Types,
     TypesCategory,
+    VisualParameterization,
+    UserVisualParameterization,
 )
 
 admin.site.register(Statues)
 admin.site.register(StatuesCategory)
 admin.site.register(Types)
 admin.site.register(TypesCategory)
+admin.site.register(VisualParameterization)
+admin.site.register(UserVisualParameterization)
 

@@ -2,3 +2,5 @@ from .statues import Statues
 from .statues_category import StatuesCategory
 from .types import Types
 from .types_category import TypesCategory
+from .visual_parameterization import VisualParameterization
+from .user_visual_parameterization import UserVisualParameterization
