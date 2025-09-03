@@ -6,6 +6,8 @@ from parameterization.models import (
     TypesCategory,
     UnitsCategory,
     Units,
+    VisualParameterization,
+    UserVisualParameterization,
 )
 
 admin.site.register(Statues)
@@ -14,4 +16,6 @@ admin.site.register(Types)
 admin.site.register(TypesCategory)
 admin.site.register(UnitsCategory)
 admin.site.register(Units)
+admin.site.register(VisualParameterization)
+admin.site.register(UserVisualParameterization)
 
