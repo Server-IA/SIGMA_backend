@@ -44,12 +44,7 @@ class UnitsCreateSerializer(serializers.ModelSerializer):
         responsible_user = validated_data.pop('responsible_user', None)
         if responsible_user:
             validated_data['id_responsible_user'] = responsible_user
-        # Validar que statues no cambie a un valor diferente de 1
-        statues = validated_data.get('id_statues')
-        if statues and statues.pk != 1:
-            raise serializers.ValidationError({
-                'statues': 'No se permite cambiar el estatus a un valor diferente de 1.'
-            })
+        # Permitir cambio de statues en actualizaciones
         validated_data['modification_date'] = timezone.now()
         return super().update(instance, validated_data)
 

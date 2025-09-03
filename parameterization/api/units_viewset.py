@@ -70,4 +70,18 @@ class UnitsViewSet(viewsets.ViewSet):
             "data": serializer.data
         }, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['get'], url_path=r'active/(?P<category_id>\d+)')
+    def list_active_by_category(self, request, category_id=None):
+        units = Units.objects.filter(id_units_categories_id=category_id, id_statues_id=1)
+        if not units.exists():
+            return Response({
+                "message": "No existen unidades activas registradas para esta categoría",
+                "data": []
+            }, status=status.HTTP_200_OK)
+        serializer = UnitsListSerializer(units, many=True)
+        return Response({
+            "message": "Unidades activas por categoría obtenidas exitosamente",
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)
+
 
