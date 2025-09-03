@@ -26,3 +26,10 @@ class StatuesCreateSerializer(serializers.ModelSerializer):
         validated_data['creation_date'] = timezone.now()
         validated_data['modification_date'] = timezone.now()
         return Statues.objects.create(**validated_data)
+
+    def update(self, instance, validated_data):
+        instance.name = validated_data.get('name', instance.name)
+        instance.description = validated_data.get('description', instance.description)
+        instance.modification_date = timezone.now()
+        instance.save()
+        return instance
