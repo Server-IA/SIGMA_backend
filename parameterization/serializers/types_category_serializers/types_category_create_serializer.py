@@ -1,15 +1,16 @@
 from rest_framework import serializers
-from parameterization.models import StatuesCategory
+from parameterization.models import TypesCategory
 from users.models.user import User
 from django.utils import timezone
 
-class StatuesCategoryCreateSerializer(serializers.ModelSerializer):
+
+class TypesCategoryCreateSerializer(serializers.ModelSerializer):
     responsible_user = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), write_only=True
     )
 
     class Meta:
-        model = StatuesCategory
+        model = TypesCategory
         fields = [
             'name',
             'description',
@@ -18,7 +19,7 @@ class StatuesCategoryCreateSerializer(serializers.ModelSerializer):
 
     def validate_name(self, value):
         instance = getattr(self, "instance", None)
-        qs = StatuesCategory.objects.filter(name__iexact=value)
+        qs = TypesCategory.objects.filter(name__iexact=value)
         if instance:
             qs = qs.exclude(pk=instance.pk)
 
@@ -31,7 +32,7 @@ class StatuesCategoryCreateSerializer(serializers.ModelSerializer):
         validated_data['id_responsible_user'] = responsible_user
         validated_data['creation_date'] = timezone.now()
         validated_data['modification_date'] = timezone.now()
-        return StatuesCategory.objects.create(**validated_data)
+        return TypesCategory.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
         instance.name = validated_data.get('name', instance.name)
