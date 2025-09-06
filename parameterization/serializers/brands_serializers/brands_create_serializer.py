@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from parameterization.models import Brands, BrandsCategory, Statues
+from parameterization.models import Brands, BrandsCategory, Statues, Models
 from users.models.user import User
 
 
@@ -23,23 +23,56 @@ class BrandsCreateSerializer(serializers.ModelSerializer):
             'brands_category',
             'statues',
             'responsible_user',
+            'models',
         ]
+        extra_kwargs = {
+            'models': {'write_only': True, 'required': False}
+        }
 
-    def validate_name(self, value):
+    def validate(self, attrs):
+        # Validar unicidad del nombre por categoría
         instance = getattr(self, "instance", None)
-        qs = Brands.objects.filter(name__iexact=value)
-        if instance:
-            qs = qs.exclude(pk=instance.pk)
-        if qs.exists():
-            raise serializers.ValidationError("Ya existe una marca con este nombre.")
-        return value
+        name = attrs.get('name', getattr(instance, 'name', None))
+        category_id = None
+        if 'id_brands_categories' in attrs:
+            category_id = getattr(attrs['id_brands_categories'], 'pk', None)
+        else:
+            category_id = getattr(instance, 'id_brands_categories_id', None)
+
+        if name and category_id:
+            qs = Brands.objects.filter(name__iexact=name, id_brands_categories_id=category_id)
+            if instance:
+                qs = qs.exclude(pk=instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError({
+                    'name': 'Ya existe una marca con este nombre en esta categoría.'
+                })
+        return attrs
 
     def create(self, validated_data):
+        models_payload = self.initial_data.get('models', [])
         responsible_user = validated_data.pop('responsible_user')
         validated_data['id_responsible_user'] = responsible_user
         validated_data['creation_date'] = timezone.now()
         validated_data['modification_date'] = timezone.now()
-        return Brands.objects.create(**validated_data)
+        brand = Brands.objects.create(**validated_data)
+
+        # Crear modelos asociados si se enviaron
+        if isinstance(models_payload, list):
+            for item in models_payload:
+                name = item.get('name')
+                if not name:
+                    continue
+                Models.objects.create(
+                    name=name,
+                    description=item.get('description', ''),
+                    id_brand=brand,
+                    id_statues=Statues.objects.get(pk=item.get('statues', 1)),
+                    id_responsible_user=responsible_user,
+                    creation_date=timezone.now(),
+                    modification_date=timezone.now()
+                )
+        return brand
 
     def update(self, instance, validated_data):
         instance.name = validated_data.get('name', instance.name)

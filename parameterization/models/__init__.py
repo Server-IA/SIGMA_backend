@@ -8,3 +8,4 @@ from .visual_parameterization import VisualParameterization
 from .user_visual_parameterization import UserVisualParameterization
 from .brands_category import BrandsCategory
 from .brands import Brands
+from .brand_model import Models

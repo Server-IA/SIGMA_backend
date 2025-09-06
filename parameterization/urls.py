@@ -10,6 +10,7 @@ from parameterization.api.visual_parameterization_viewset import VisualParameter
 from parameterization.api.user_visual_parameterization_viewset import UserVisualParameterizationViewSet
 from parameterization.api.brands_category_viewset import BrandsCategoryViewSet
 from parameterization.api.brands_viewset import BrandsViewSet
+from parameterization.api.models_viewset import ModelsViewSet
 
 router = routers.DefaultRouter()
 router.register(r'statues_categories', StatuesCategoryViewSet, basename='statues_categories')
@@ -22,6 +23,7 @@ router.register(r'visual_parameterization', VisualParameterizationViewSet, basen
 router.register(r'user_visual_parameterization', UserVisualParameterizationViewSet, basename='user_visual_parameterization')
 router.register(r'brands_categories', BrandsCategoryViewSet, basename='brands_categories')
 router.register(r'brands', BrandsViewSet, basename='brands')
+router.register(r'models', ModelsViewSet, basename='models')
 
 urlpatterns = [
     path('', include(router.urls))

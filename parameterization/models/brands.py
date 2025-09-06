@@ -3,7 +3,7 @@ from django.db import models
 
 class Brands(models.Model):
     id_brands = models.AutoField(primary_key=True)
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
     description = models.CharField(max_length=255)
     id_brands_categories = models.ForeignKey(
         'parameterization.BrandsCategory',
@@ -23,5 +23,11 @@ class Brands(models.Model):
 
     class Meta:
         db_table = 'brands'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['name', 'id_brands_categories'],
+                name='uniq_brand_name_per_category'
+            )
+        ]
 
 
