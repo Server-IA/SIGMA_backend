@@ -8,6 +8,8 @@ from parameterization.models import (
     Units,
     VisualParameterization,
     UserVisualParameterization,
+    BrandsCategory,
+    Brands,
 )
 
 admin.site.register(Statues)
@@ -18,4 +20,6 @@ admin.site.register(UnitsCategory)
 admin.site.register(Units)
 admin.site.register(VisualParameterization)
 admin.site.register(UserVisualParameterization)
+admin.site.register(BrandsCategory)
+admin.site.register(Brands)
 
