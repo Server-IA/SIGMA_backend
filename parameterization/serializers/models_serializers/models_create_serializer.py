@@ -1,41 +1,39 @@
 from rest_framework import serializers
-from parameterization.models import Types, TypesCategory, Statues
-from users.models.user import User
 from django.utils import timezone
+from parameterization.models import Models, Brands, Statues
+from users.models.user import User
 
 
-class TypesCreateSerializer(serializers.ModelSerializer):
+class ModelsCreateSerializer(serializers.ModelSerializer):
+    brand = serializers.PrimaryKeyRelatedField(
+        queryset=Brands.objects.all(), source='id_brand'
+    )
     responsible_user = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), write_only=True
     )
-    types_category = serializers.PrimaryKeyRelatedField(
-        queryset=TypesCategory.objects.all(),
-        source='id_types_categories'
-    )
 
     class Meta:
-        model = Types
+        model = Models
         fields = [
             'name',
             'description',
-            'types_category',
+            'brand',
             'responsible_user',
         ]
 
-    def validate(self, attrs):
-        category = attrs.get('id_types_categories') or getattr(self.instance, 'id_types_categories', None)
-        name = attrs.get('name') or getattr(self.instance, 'name', None)
-
-        if category and name:
-            qs = Types.objects.filter(id_types_categories=category, name__iexact=name)
-            if self.instance:  # si es update
-                qs = qs.exclude(pk=self.instance.pk)
-
+    def validate_name(self, value):
+        # Unicidad por marca
+        instance = getattr(self, "instance", None)
+        brand = self.initial_data.get('brand') or (
+            getattr(instance, 'id_brand_id', None) if instance else None
+        )
+        if brand is not None:
+            qs = Models.objects.filter(name__iexact=value, id_brand_id=brand)
+            if instance:
+                qs = qs.exclude(pk=instance.pk)
             if qs.exists():
-                raise serializers.ValidationError({
-                    'name': f"Ya existe un tipo con el nombre '{name}' en esta categoría."
-                })
-        return attrs
+                raise serializers.ValidationError("Ya existe un modelo con este nombre en esta marca.")
+        return value
 
     def create(self, validated_data):
         responsible_user = validated_data.pop('responsible_user')
@@ -50,7 +48,7 @@ class TypesCreateSerializer(serializers.ModelSerializer):
 
         validated_data['id_statues'] = default_status
 
-        return Types.objects.create(**validated_data)
+        return Models.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
         responsible_user = validated_data.pop('responsible_user', None)
@@ -61,3 +59,5 @@ class TypesCreateSerializer(serializers.ModelSerializer):
         instance.modification_date = timezone.now()
         instance.save()
         return instance
+
+
