@@ -17,6 +17,16 @@ class UnitsCategoryCreateSerializer(serializers.ModelSerializer):
             'responsible_user',
         ]
 
+    def validate_name(self, value):
+        instance = getattr(self, "instance", None)
+        qs = UnitsCategory.objects.filter(name__iexact=value)
+        if instance:
+            qs = qs.exclude(pk=instance.pk)
+
+        if qs.exists():
+            raise serializers.ValidationError("Ya existe una categoría con este nombre.")
+        return value
+
     def create(self, validated_data):
         responsible_user = validated_data.pop('responsible_user', None)
         if responsible_user:

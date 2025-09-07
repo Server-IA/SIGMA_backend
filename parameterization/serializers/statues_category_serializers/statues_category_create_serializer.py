@@ -34,6 +34,9 @@ class StatuesCategoryCreateSerializer(serializers.ModelSerializer):
         return StatuesCategory.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
+        responsible_user = validated_data.pop('responsible_user', None)
+        if responsible_user:
+            instance.id_responsible_user = responsible_user
         instance.name = validated_data.get('name', instance.name)
         instance.description = validated_data.get('description', instance.description)
         instance.modification_date = timezone.now()
