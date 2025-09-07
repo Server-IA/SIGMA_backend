@@ -11,6 +11,9 @@ class BrandsCreateSerializer(serializers.ModelSerializer):
     responsible_user = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), write_only=True
     )
+    models = serializers.ListField(
+        child=serializers.DictField(), write_only=True, required=False
+    )
 
     class Meta:
         model = Brands
@@ -39,28 +42,30 @@ class BrandsCreateSerializer(serializers.ModelSerializer):
                     'name': f"Ya existe una marca con el nombre '{name}' en esta categoría."
                 })
         return attrs
-    def validate(self, attrs):
-        # Validar unicidad del nombre por categoría
-        instance = getattr(self, "instance", None)
-        name = attrs.get('name', getattr(instance, 'name', None))
-        category_id = None
-        if 'id_brands_categories' in attrs:
-            category_id = getattr(attrs['id_brands_categories'], 'pk', None)
-        else:
-            category_id = getattr(instance, 'id_brands_categories_id', None)
 
-        if name and category_id:
-            qs = Brands.objects.filter(name__iexact=name, id_brands_categories_id=category_id)
-            if instance:
-                qs = qs.exclude(pk=instance.pk)
-            if qs.exists():
-                raise serializers.ValidationError({
-                    'name': 'Ya existe una marca con este nombre en esta categoría.'
-                })
-        return attrs
+    def validate_models(self, value):
+        if not isinstance(value, list):
+            return value
+
+        seen = set()
+        duplicates = []
+        for item in value:
+            name = item.get("name")
+            if not name:
+                continue
+            lname = name.strip().lower()
+            if lname in seen:
+                duplicates.append(name)
+            else:
+                seen.add(lname)
+        if duplicates:
+            raise serializers.ValidationError(
+                f"Los siguientes modelos están duplicados en la petición: {', '.join(duplicates)}"
+            )
+        return value
 
     def create(self, validated_data):
-        models_payload = self.initial_data.get('models', [])
+        models_payload = validated_data.pop('models', [])
         responsible_user = validated_data.pop('responsible_user')
         validated_data['id_responsible_user'] = responsible_user
         validated_data['creation_date'] = timezone.now()
@@ -73,7 +78,6 @@ class BrandsCreateSerializer(serializers.ModelSerializer):
 
         validated_data['id_statues'] = default_status
 
-        return Brands.objects.create(**validated_data)
         brand = Brands.objects.create(**validated_data)
 
         # Crear modelos asociados si se enviaron
@@ -86,7 +90,7 @@ class BrandsCreateSerializer(serializers.ModelSerializer):
                     name=name,
                     description=item.get('description', ''),
                     id_brand=brand,
-                    id_statues=Statues.objects.get(pk=item.get('statues', 1)),
+                    id_statues=default_status,
                     id_responsible_user=responsible_user,
                     creation_date=timezone.now(),
                     modification_date=timezone.now()

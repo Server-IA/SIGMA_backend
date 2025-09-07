@@ -3,7 +3,6 @@ from parameterization.models import Models
 
 
 class ModelsListSerializer(serializers.ModelSerializer):
-    brand_name = serializers.CharField(source='id_brand.name', read_only=True)
     estado = serializers.CharField(source='id_statues.name', read_only=True)
 
     class Meta:
@@ -12,7 +11,6 @@ class ModelsListSerializer(serializers.ModelSerializer):
             'id_model',
             'name',
             'description',
-            'brand_name',
             'estado',
         ]
 

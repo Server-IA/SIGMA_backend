@@ -24,16 +24,6 @@ class ModelsViewSet(viewsets.ViewSet):
             return Response({"message": "Modelo actualizado exitosamente"}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def retrieve(self, request, pk=None):
-        model = get_object_or_404(Models, pk=pk)
-        serializer = ModelsListSerializer(model)
-        return Response({"message": "Modelo obtenido exitosamente", "data": serializer.data}, status=status.HTTP_200_OK)
-
-    def destroy(self, request, pk=None):
-        model = get_object_or_404(Models, pk=pk)
-        model.delete()
-        return Response({"message": "Modelo eliminado exitosamente"}, status=status.HTTP_200_OK)
-
     @action(detail=False, methods=['get'], url_path=r'list/(?P<brand_id>\d+)')
     def list_by_brand(self, request, brand_id=None):
         if not Brands.objects.filter(pk=brand_id).exists():
