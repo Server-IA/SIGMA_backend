@@ -1,12 +1,14 @@
 from rest_framework import serializers
-from parameterization.models import EmployeeDepartments
+from parameterization.models import EmployeeDepartment
 
-class EmployeeDepartmentsListSerializer(serializers.ModelSerializer):
-    status_display=serializers.SerializerMethodField()
+class EmployeeDepartmentListSerializer(serializers.ModelSerializer):
+    estado = serializers.CharField(source='id_statues.name', read_only=True)
 
     class Meta:
-        model=EmployeeDepartments
-        fields=['id','name','description','status_display']
-
-    def get_status_display(self,obj):
-        return "Activo" if obj.status else "Inactivo"
+        model = EmployeeDepartment
+        fields = [
+            'id_employee_department',
+            'name',
+            'description',
+            'estado',
+        ]

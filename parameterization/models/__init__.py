@@ -9,3 +9,4 @@ from .visual_parameterization import VisualParameterization
 from .user_visual_parameterization import UserVisualParameterization
 from .brands_category import BrandsCategory
 from .brands import Brands
+from .employee_charges import EmployeeCharge
