@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from parameterization.models import Brands, BrandsCategory, Statues
+from parameterization.models import Brands, BrandsCategory, Statues, Models
 from users.models.user import User
 
 
@@ -11,6 +11,9 @@ class BrandsCreateSerializer(serializers.ModelSerializer):
     responsible_user = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), write_only=True
     )
+    models = serializers.ListField(
+        child=serializers.DictField(), write_only=True, required=False
+    )
 
     class Meta:
         model = Brands
@@ -19,7 +22,11 @@ class BrandsCreateSerializer(serializers.ModelSerializer):
             'description',
             'brands_category',
             'responsible_user',
+            'models',
         ]
+        extra_kwargs = {
+            'models': {'write_only': True, 'required': False}
+        }
 
     def validate(self, attrs):
         category = attrs.get('id_brands_categories') or getattr(self.instance, 'id_brands_categories', None)
@@ -36,7 +43,29 @@ class BrandsCreateSerializer(serializers.ModelSerializer):
                 })
         return attrs
 
+    def validate_models(self, value):
+        if not isinstance(value, list):
+            return value
+
+        seen = set()
+        duplicates = []
+        for item in value:
+            name = item.get("name")
+            if not name:
+                continue
+            lname = name.strip().lower()
+            if lname in seen:
+                duplicates.append(name)
+            else:
+                seen.add(lname)
+        if duplicates:
+            raise serializers.ValidationError(
+                f"Los siguientes modelos están duplicados en la petición: {', '.join(duplicates)}"
+            )
+        return value
+
     def create(self, validated_data):
+        models_payload = validated_data.pop('models', [])
         responsible_user = validated_data.pop('responsible_user')
         validated_data['id_responsible_user'] = responsible_user
         validated_data['creation_date'] = timezone.now()
@@ -49,7 +78,24 @@ class BrandsCreateSerializer(serializers.ModelSerializer):
 
         validated_data['id_statues'] = default_status
 
-        return Brands.objects.create(**validated_data)
+        brand = Brands.objects.create(**validated_data)
+
+        # Crear modelos asociados si se enviaron
+        if isinstance(models_payload, list):
+            for item in models_payload:
+                name = item.get('name')
+                if not name:
+                    continue
+                Models.objects.create(
+                    name=name,
+                    description=item.get('description', ''),
+                    id_brand=brand,
+                    id_statues=default_status,
+                    id_responsible_user=responsible_user,
+                    creation_date=timezone.now(),
+                    modification_date=timezone.now()
+                )
+        return brand
 
     def update(self, instance, validated_data):
         responsible_user = validated_data.pop('responsible_user', None)

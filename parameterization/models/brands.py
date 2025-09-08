@@ -23,5 +23,11 @@ class Brands(models.Model):
 
     class Meta:
         db_table = 'brands'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['name', 'id_brands_categories'],
+                name='uniq_brand_name_per_category'
+            )
+        ]
 
 
