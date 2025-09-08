@@ -34,35 +34,3 @@ class EmployeeDepartmentViewSet(viewsets.ViewSet):
         departments = EmployeeDepartment.objects.all()
         serializer = EmployeeDepartmentListSerializer(departments, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
-    @action(detail=False, methods=['get'], url_path='list/active')
-    def listar_activos(self, request):
-        departments = EmployeeDepartment.objects.filter(id_statues_id=1)
-        serializer = EmployeeDepartmentListSerializer(departments, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=['patch'], url_path='toggle-status')
-    def toggle_status(self, request, pk=None):
-
-        try:
-            department = EmployeeDepartment.objects.get(pk=pk)
-        except EmployeeDepartment.DoesNotExist:
-            return Response({"error": "Departamento no encontrado"}, status=status.HTTP_404_NOT_FOUND)
-
-        if department.id_statues_id == 1:
-            try:
-                department.id_statues = Statues.objects.get(pk=2)
-            except Statues.DoesNotExist:
-                return Response({"error": "El estado con id=2 no existe"},
-                                status=status.HTTP_400_BAD_REQUEST)
-            message = "Departamento desactivado exitosamente"
-        else:
-            try:
-                department.id_statues = Statues.objects.get(pk=1)
-            except Statues.DoesNotExist:
-                return Response({"error": "El estado con id=1 no existe"},
-                                status=status.HTTP_400_BAD_REQUEST)
-            message = "Departamento activado exitosamente"
-
-        department.save(update_fields=['id_statues'])
-        return Response({"message": message}, status=status.HTTP_200_OK)
