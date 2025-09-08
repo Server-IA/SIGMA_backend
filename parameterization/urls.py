@@ -1,5 +1,7 @@
 from django.urls import path, include
 from rest_framework import routers
+
+from parameterization.api.employee_charges_viewset import EmployeeChargeViewSet
 from parameterization.api.statues_category_viewset import StatuesCategoryViewSet
 from parameterization.api.statues_viewset import StatuesViewSet
 from parameterization.api.types_category_viewset import TypesCategoryViewSet
@@ -11,6 +13,7 @@ from parameterization.api.user_visual_parameterization_viewset import UserVisual
 from parameterization.api.brands_category_viewset import BrandsCategoryViewSet
 from parameterization.api.brands_viewset import BrandsViewSet
 from parameterization.api.models_viewset import ModelsViewSet
+from parameterization.api.employee_departments_viewset import EmployeeDepartmentViewSet
 
 router = routers.DefaultRouter()
 router.register(r'statues_categories', StatuesCategoryViewSet, basename='statues_categories')
@@ -24,6 +27,8 @@ router.register(r'user_visual_parameterization', UserVisualParameterizationViewS
 router.register(r'brands_categories', BrandsCategoryViewSet, basename='brands_categories')
 router.register(r'brands', BrandsViewSet, basename='brands')
 router.register(r'models', ModelsViewSet, basename='models')
+router.register(r'employee_departments', EmployeeDepartmentViewSet, basename='employee_departments')
+router.register(r'employee_charges', EmployeeChargeViewSet, basename='employee_charges')
 
 urlpatterns = [
     path('', include(router.urls))
