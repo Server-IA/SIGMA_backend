@@ -11,6 +11,8 @@ from parameterization.models import (
     BrandsCategory,
     Brands,
     Models,
+    EmployeeDepartment,
+    EmployeeCharge,
 )
 
 admin.site.register(Statues)
@@ -24,4 +26,5 @@ admin.site.register(UserVisualParameterization)
 admin.site.register(BrandsCategory)
 admin.site.register(Brands)
 admin.site.register(Models)
-
+admin.site.register(EmployeeCharge)
+admin.site.register(EmployeeDepartment)
