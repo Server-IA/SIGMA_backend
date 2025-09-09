@@ -19,12 +19,23 @@ class VisualParameterizationUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'name',
             'description',
+            # Colores del sistema de diseño
+            'primary_color',
+            'secondary_color',
+            'accent_color',
             'background_color',
+            'surface_color',
             'text_color',
-            'font',
-            'font_size',
-            'border_thickness',
+            'text_secondary_color',
             'border_color',
+            'hover_color',
+            'error_color',
+            'success_color',
+            'warning_color',
+            # Tipografía
+            'font',
+            'title_size',
+            'paragraph_size',
             'visual_parameterization_status',
             'responsible_user',
         ]
@@ -40,14 +51,20 @@ class VisualParameterizationUpdateSerializer(serializers.ModelSerializer):
         is_partial = getattr(self, 'partial', False)
 
         # Campos a validar como texto
-        text_fields = ['name', 'description', 'background_color', 'text_color', 'font', 'font_size', 'border_thickness', 'border_color']
+        text_fields = [
+            'name', 'description', 'primary_color', 'secondary_color', 'accent_color',
+            'background_color', 'surface_color', 'text_color', 'text_secondary_color',
+            'border_color', 'hover_color', 'error_color', 'success_color', 'warning_color',
+            'font'
+        ]
 
         if not is_partial:
             # PUT: exigir todos los campos
             required_fields = [
-                'name', 'description', 'background_color', 'text_color',
-                'font', 'font_size', 'border_thickness', 'border_color',
-                'visual_parameterization_status', 'responsible_user'
+                'name', 'description', 'primary_color', 'secondary_color', 'accent_color',
+                'background_color', 'surface_color', 'text_color', 'text_secondary_color',
+                'border_color', 'hover_color', 'error_color', 'success_color', 'warning_color',
+                'font', 'title_size', 'paragraph_size', 'responsible_user'
             ]
             for field in required_fields:
                 if field not in data:
@@ -68,29 +85,66 @@ class VisualParameterizationUpdateSerializer(serializers.ModelSerializer):
                     errors[field] = f"El campo '{field}' no puede estar vacío"
                 elif len(value) > 255:
                     errors[field] = f"El campo '{field}' no puede tener más de 255 caracteres"
+        
+        # Validaciones específicas para tamaños tipográficos
+        typography_sizes = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl']
+        if 'title_size' in data and data['title_size']:
+            if data['title_size'] not in typography_sizes:
+                errors['title_size'] = f"El tamaño de título debe ser uno de: {', '.join(typography_sizes)}"
+        if 'paragraph_size' in data and data['paragraph_size']:
+            if data['paragraph_size'] not in typography_sizes:
+                errors['paragraph_size'] = f"El tamaño de párrafo debe ser uno de: {', '.join(typography_sizes)}"
 
         # Validación de contraste
         validator = ContrastValidator()
         background_color = data.get('background_color', getattr(self.instance, 'background_color', None))
         text_color = data.get('text_color', getattr(self.instance, 'text_color', None))
-        if background_color and text_color:
-            contrast = validator.validate_contrast(background_color, text_color, level='AA', text_size='normal')
+        
+        # Validar contraste de colores principales con el fondo
+        color_contrasts = [
+            ('primary_color', 'primary_color', background_color, 'normal'),
+            ('secondary_color', 'secondary_color', background_color, 'normal'),
+            ('accent_color', 'accent_color', background_color, 'normal'),
+            ('text_color', 'text_color', background_color, 'normal'),
+            ('text_secondary_color', 'text_secondary_color', background_color, 'normal'),
+            ('error_color', 'error_color', background_color, 'normal'),
+            ('success_color', 'success_color', background_color, 'normal'),
+            ('warning_color', 'warning_color', background_color, 'normal'),
+            ('border_color', 'border_color', background_color, 'large'),
+        ]
+        
+        for field_name, color1_field, color2_field, text_size in color_contrasts:
+            color1 = data.get(color1_field, getattr(self.instance, color1_field, None))
+            color2 = data.get(color2_field, getattr(self.instance, color2_field, None))
+            if color1 and color2:
+                contrast = validator.validate_contrast(color1, color2, level='AA', text_size=text_size)
+                if not contrast.get('valid', False):
+                    errors[f'{field_name}_contrast'] = (
+                        f"El contraste entre {color1_field} ({color1}) y {color2_field} ({color2}) "
+                        f"no cumple con WCAG AA. Ratio actual: {contrast.get('contrast_ratio')}:1, "
+                        f"mínimo requerido: {contrast.get('threshold')}:1."
+                    )
+        
+        # Validar contraste de surface_color con text_color
+        surface_color = data.get('surface_color', getattr(self.instance, 'surface_color', None))
+        if surface_color and text_color:
+            contrast = validator.validate_contrast(surface_color, text_color, level='AA', text_size='normal')
             if not contrast.get('valid', False):
-                errors['contrast'] = (
-                    f"El contraste entre el color de fondo ({background_color}) y el texto ({text_color}) "
+                errors['surface_text_contrast'] = (
+                    f"El contraste entre surface_color ({surface_color}) y text_color ({text_color}) "
                     f"no cumple con WCAG AA. Ratio actual: {contrast.get('contrast_ratio')}:1, "
                     f"mínimo requerido: {contrast.get('threshold')}:1."
                 )
-
-        # Contraste del borde
-        border_color = data.get('border_color', getattr(self.instance, 'border_color', None))
-        if background_color and border_color:
-            border_contrast = validator.validate_contrast(background_color, border_color, level='AA', text_size='large')
-            if not border_contrast.get('valid', False):
-                errors['border_contrast'] = (
-                    f"El contraste entre el color de fondo ({background_color}) y el borde ({border_color}) "
-                    f"es insuficiente. Ratio actual: {border_contrast.get('contrast_ratio')}:1, "
-                    f"mínimo requerido: {border_contrast.get('threshold')}:1."
+        
+        # Validar contraste de hover_color con text_color
+        hover_color = data.get('hover_color', getattr(self.instance, 'hover_color', None))
+        if hover_color and text_color:
+            contrast = validator.validate_contrast(hover_color, text_color, level='AA', text_size='normal')
+            if not contrast.get('valid', False):
+                errors['hover_text_contrast'] = (
+                    f"El contraste entre hover_color ({hover_color}) y text_color ({text_color}) "
+                    f"no cumple con WCAG AA. Ratio actual: {contrast.get('contrast_ratio')}:1, "
+                    f"mínimo requerido: {contrast.get('threshold')}:1."
                 )
 
         if errors:

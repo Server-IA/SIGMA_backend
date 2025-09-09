@@ -1,39 +1,39 @@
 from rest_framework import serializers
-from parameterization.models import Types, TypesCategory, Statues
+from parameterization.models import EmployeeCharge, EmployeeDepartment, Statues
 from users.models.user import User
 from django.utils import timezone
 
 
-class TypesCreateSerializer(serializers.ModelSerializer):
+class EmployeeChargeCreateSerializer(serializers.ModelSerializer):
     responsible_user = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), write_only=True
     )
-    types_category = serializers.PrimaryKeyRelatedField(
-        queryset=TypesCategory.objects.all(),
-        source='id_types_categories'
+    department = serializers.PrimaryKeyRelatedField(
+        queryset=EmployeeDepartment.objects.all(),
+        source='id_employee_department',
+        write_only=True
     )
 
     class Meta:
-        model = Types
+        model = EmployeeCharge
         fields = [
             'name',
             'description',
-            'types_category',
+            'department',
             'responsible_user',
         ]
 
     def validate(self, attrs):
-        category = attrs.get('id_types_categories') or getattr(self.instance, 'id_types_categories', None)
+        dept = attrs.get('id_employee_department') or getattr(self.instance, 'id_employee_department', None)
         name = attrs.get('name') or getattr(self.instance, 'name', None)
 
-        if category and name:
-            qs = Types.objects.filter(id_types_categories=category, name__iexact=name)
-            if self.instance:  # si es update
+        if dept and name:
+            qs = EmployeeCharge.objects.filter(id_employee_department=dept, name__iexact=name)
+            if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
-
             if qs.exists():
                 raise serializers.ValidationError({
-                    'name': f"Ya existe un tipo con el nombre '{name}' en esta categoría."
+                    'name': f"Ya existe un cargo con el nombre '{name}' en este departamento."
                 })
         return attrs
 
@@ -46,11 +46,12 @@ class TypesCreateSerializer(serializers.ModelSerializer):
         try:
             default_status = Statues.objects.get(pk=1)
         except Statues.DoesNotExist:
-            raise serializers.ValidationError("El estado por defecto con id=1 no existe.")
+            raise serializers.ValidationError({
+            })
 
         validated_data['id_statues'] = default_status
 
-        return Types.objects.create(**validated_data)
+        return EmployeeCharge.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
         responsible_user = validated_data.pop('responsible_user', None)
