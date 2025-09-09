@@ -2,7 +2,7 @@ from django.db import models
 
 class Types(models.Model):
     id_types = models.AutoField(primary_key=True)
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
     description = models.CharField(max_length=255)
     id_types_categories = models.ForeignKey('parameterization.TypesCategory', on_delete=models.PROTECT)
     creation_date = models.DateTimeField()

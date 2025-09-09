@@ -1,16 +1,16 @@
 from rest_framework import serializers
-from parameterization.models import TypesCategory
+from parameterization.models import BrandsCategory
 from users.models.user import User
 from django.utils import timezone
 
 
-class TypesCategoryCreateSerializer(serializers.ModelSerializer):
+class BrandsCategoryCreateSerializer(serializers.ModelSerializer):
     responsible_user = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), write_only=True
     )
 
     class Meta:
-        model = TypesCategory
+        model = BrandsCategory
         fields = [
             'name',
             'description',
@@ -19,7 +19,7 @@ class TypesCategoryCreateSerializer(serializers.ModelSerializer):
 
     def validate_name(self, value):
         instance = getattr(self, "instance", None)
-        qs = TypesCategory.objects.filter(name__iexact=value)
+        qs = BrandsCategory.objects.filter(name__iexact=value)
         if instance:
             qs = qs.exclude(pk=instance.pk)
 
@@ -32,7 +32,7 @@ class TypesCategoryCreateSerializer(serializers.ModelSerializer):
         validated_data['id_responsible_user'] = responsible_user
         validated_data['creation_date'] = timezone.now()
         validated_data['modification_date'] = timezone.now()
-        return TypesCategory.objects.create(**validated_data)
+        return BrandsCategory.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
         responsible_user = validated_data.pop('responsible_user', None)
@@ -43,3 +43,5 @@ class TypesCategoryCreateSerializer(serializers.ModelSerializer):
         instance.modification_date = timezone.now()
         instance.save()
         return instance
+
+
