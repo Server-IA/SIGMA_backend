@@ -64,8 +64,7 @@ class VisualParameterizationUpdateSerializer(serializers.ModelSerializer):
                 'name', 'description', 'primary_color', 'secondary_color', 'accent_color',
                 'background_color', 'surface_color', 'text_color', 'text_secondary_color',
                 'border_color', 'hover_color', 'error_color', 'success_color', 'warning_color',
-                'font', 'title_size', 'paragraph_size',
-                'visual_parameterization_status', 'responsible_user'
+                'font', 'title_size', 'paragraph_size', 'responsible_user'
             ]
             for field in required_fields:
                 if field not in data:
