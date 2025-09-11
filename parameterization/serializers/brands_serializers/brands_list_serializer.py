@@ -13,7 +13,8 @@ class BrandsListSerializer(serializers.ModelSerializer):
             'name',
             'description',
             'brands_category_name',
-            'estado'
+            'id_statues',
+            'estado',
         ]
 
 

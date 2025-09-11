@@ -10,5 +10,6 @@ class TypesListSerializer(serializers.ModelSerializer):
             'id_types',
             'name',
             'description',
+            'id_statues',
             'estado',
         ]

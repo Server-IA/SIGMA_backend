@@ -9,5 +9,6 @@ class EmployeeDepartmentListSerializer(serializers.ModelSerializer):
             'id_employee_department',
             'name',
             'description',
+            'id_statues',
             'estado'
         ]
