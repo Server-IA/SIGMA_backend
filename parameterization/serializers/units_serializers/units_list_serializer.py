@@ -15,6 +15,7 @@ class UnitsListSerializer(serializers.ModelSerializer):
             'symbol',
             'units_category_name',
             'unit_type_name',
+            'id_statues',
             'statues_name',
         ]
 

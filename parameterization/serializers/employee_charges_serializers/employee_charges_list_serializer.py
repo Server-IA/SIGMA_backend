@@ -12,5 +12,6 @@ class EmployeeChargeListSerializer(serializers.ModelSerializer):
             'name',
             'description',
             'departamento',
+            'id_statues',
             'estado',
         ]
