@@ -133,10 +133,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Allowed origins can be configured via environment variables (comma-separated)
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    os.getenv("FRONTEND_PRUEBAS_URL", "http://localhost:3000/", "https://localhost:3000/"),
+    os.getenv("FRONTEND_URL", "http://localhost:3000/", "https://localhost:3000/"),
 ]
 
 # Enable credentials (cookies/authorization headers) if needed by the frontend
@@ -144,8 +142,6 @@ CORS_ALLOW_CREDENTIALS = True
 
 # CSRF trusted origins for cookie-based auth during development
 CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    os.getenv("FRONTEND_PRUEBAS_URL", "http://localhost:3000/", "https://localhost:3000/"),
+    os.getenv("FRONTEND_URL", "http://localhost:3000/", "https://localhost:3000/"),
 ]
