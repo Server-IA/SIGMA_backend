@@ -1,6 +1,58 @@
+-- Crear bases de datos
 CREATE DATABASE machpaydb;
-
 CREATE DATABASE usersdb;
+CREATE DATABASE auditdb;
 
+-- Otorgar privilegios
 GRANT ALL PRIVILEGES ON DATABASE machpaydb TO postgres;
 GRANT ALL PRIVILEGES ON DATABASE usersdb TO postgres;
+GRANT ALL PRIVILEGES ON DATABASE auditdb TO postgres;
+
+-- Cambiar a auditdb para crear la tabla e índices
+\connect auditdb;
+
+-- Crear tabla de auditoría
+CREATE TABLE IF NOT EXISTS audit_events (
+    event_id    uuid PRIMARY KEY,
+    ts          timestamptz NOT NULL DEFAULT now(),
+    actor_id    text,
+    actor_role  text,
+    actor_type  text,          -- user | service
+    request_id  text,
+    ip          inet,
+    user_agent  text,
+    service     text NOT NULL, -- users | machinery | payroll | ...
+    module      text NOT NULL, -- gestion_usuarios | nomina | ...
+    submodule   text,          -- NUEVO: roles, permisos, etc.
+    feature     text,          -- NUEVO: create_role, edit_role, etc.
+    object_type text,
+    object_id   text,
+    operation   text NOT NULL, -- ACCESS | REGISTER | UPDATE | ...
+    before      jsonb,
+    after       jsonb,
+    meta        jsonb
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_audit_ts
+    ON audit_events (ts);
+
+CREATE INDEX IF NOT EXISTS idx_audit_actor
+    ON audit_events (actor_id);
+
+CREATE INDEX IF NOT EXISTS idx_audit_operation
+    ON audit_events (operation);
+
+CREATE INDEX IF NOT EXISTS idx_audit_lookup
+    ON audit_events (module, object_type, object_id);
+
+CREATE INDEX IF NOT EXISTS idx_audit_submodule
+    ON audit_events (submodule);
+
+CREATE INDEX IF NOT EXISTS idx_audit_feature
+    ON audit_events (feature);
+
+-- (Opcional) índice sobre campo JSON
+-- CREATE INDEX IF NOT EXISTS idx_audit_meta_source
+--     ON audit_events ((meta->>'source'));
+
