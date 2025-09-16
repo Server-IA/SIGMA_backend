@@ -25,6 +25,7 @@ class BrandsCreateSerializer(serializers.ModelSerializer):
             'models',
         ]
         extra_kwargs = {
+            'name': {'required': True},
             'models': {'write_only': True, 'required': False}
         }
 
