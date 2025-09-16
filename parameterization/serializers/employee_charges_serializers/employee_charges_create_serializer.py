@@ -22,6 +22,9 @@ class EmployeeChargeCreateSerializer(serializers.ModelSerializer):
             'department',
             'responsible_user',
         ]
+        extra_kwargs = {
+            'name': {'required': True}
+        }
 
     def validate(self, attrs):
         dept = attrs.get('id_employee_department') or getattr(self.instance, 'id_employee_department', None)
