@@ -17,6 +17,10 @@ class UnitsCategoryCreateSerializer(serializers.ModelSerializer):
             'responsible_user',
         ]
 
+        extra_kwargs = {
+            'name': {'required': True}
+        }
+
     def validate_name(self, value):
         instance = getattr(self, "instance", None)
         qs = UnitsCategory.objects.filter(name__iexact=value)

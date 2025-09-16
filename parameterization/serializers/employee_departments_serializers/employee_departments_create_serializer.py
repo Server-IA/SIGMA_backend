@@ -23,6 +23,7 @@ class EmployeeDepartmentCreateSerializer(serializers.ModelSerializer):
             'charges',
         ]
         extra_kwargs = {
+            'name': {'required': True},
             'charges': {'write_only': True, 'required': False}
         }
 
