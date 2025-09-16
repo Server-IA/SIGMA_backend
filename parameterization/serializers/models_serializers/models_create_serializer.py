@@ -20,6 +20,9 @@ class ModelsCreateSerializer(serializers.ModelSerializer):
             'brand',
             'responsible_user',
         ]
+        extra_kwargs = {
+            'name': {'required': True}
+        }
 
     def validate_name(self, value):
         # Unicidad por marca

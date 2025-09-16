@@ -31,6 +31,10 @@ class UnitsCreateSerializer(serializers.ModelSerializer):
             'responsible_user',
         ]
 
+        extra_kwargs = {
+            'name': {'required': True}
+        }
+
     def validate(self, attrs):
         category = attrs.get('id_units_categories') or getattr(self.instance, 'id_units_categories', None)
         name = attrs.get('name') or getattr(self.instance, 'name', None)

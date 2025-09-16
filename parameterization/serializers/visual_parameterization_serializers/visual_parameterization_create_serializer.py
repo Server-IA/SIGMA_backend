@@ -40,6 +40,10 @@ class VisualParameterizationCreateSerializer(serializers.ModelSerializer):
             'responsible_user',
         ]
 
+        extra_kwargs = {
+            'name': {'required': True}
+        }
+
     def validate(self, data):
         """
         Validación personalizada para asegurar que todos los campos requeridos estén presentes y no vacíos

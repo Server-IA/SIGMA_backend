@@ -16,6 +16,9 @@ class BrandsCategoryCreateSerializer(serializers.ModelSerializer):
             'description',
             'responsible_user',
         ]
+        extra_kwargs = {
+            'name': {'required': True}
+        }
 
     def validate_name(self, value):
         instance = getattr(self, "instance", None)
