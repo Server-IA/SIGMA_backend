@@ -1,0 +1,320 @@
+CATEGORÍA: CATEGORÍAS DE ESTADOS
+-------------------------------
+ID: 69
+Nombre: statues_categories.create
+Descripción: Crear categoría de estado
+Categoría: Categorías de Estados
+
+ID: 70
+Nombre: statues_categories.update
+Descripción: Actualizar categoría de estado
+Categoría: Categorías de Estados
+
+ID: 71
+Nombre: statues_categories.list
+Descripción: Listar categorías de estado
+Categoría: Categorías de Estados
+
+CATEGORÍA: ESTADOS
+------------------
+ID: 72
+Nombre: statues.create
+Descripción: Crear estado
+Categoría: Estados
+
+ID: 73
+Nombre: statues.update
+Descripción: Actualizar estado
+Categoría: Estados
+
+ID: 74
+Nombre: statues.list_by_category
+Descripción: Listar estados por categoría
+Categoría: Estados
+
+CATEGORÍA: CATEGORÍAS DE TIPOS
+------------------------------
+ID: 75
+Nombre: types_categories.create
+Descripción: Crear categoría de tipo
+Categoría: Categorías de Tipos
+
+ID: 76
+Nombre: types_categories.update
+Descripción: Actualizar categoría de tipo
+Categoría: Categorías de Tipos
+
+ID: 77
+Nombre: types_categories.list
+Descripción: Listar categorías de tipos
+Categoría: Categorías de Tipos
+
+CATEGORÍA: TIPOS
+----------------
+ID: 78
+Nombre: types.create
+Descripción: Crear tipo
+Categoría: Tipos
+
+ID: 79
+Nombre: types.update
+Descripción: Actualizar tipo
+Categoría: Tipos
+
+ID: 80
+Nombre: types.list_by_category
+Descripción: Listar tipos por categoría
+Categoría: Tipos
+
+ID: 81
+Nombre: types.list_active_by_category
+Descripción: Listar tipos activos por categoría
+Categoría: Tipos
+
+ID: 82
+Nombre: types.toggle_status
+Descripción: Alternar estado de tipo (activar/desactivar)
+Categoría: Tipos
+
+CATEGORÍA: CATEGORÍAS DE UNIDADES
+---------------------------------
+ID: 83
+Nombre: units_categories.create
+Descripción: Crear categoría de unidades
+Categoría: Categorías de Unidades
+
+ID: 84
+Nombre: units_categories.update
+Descripción: Actualizar categoría de unidades
+Categoría: Categorías de Unidades
+
+ID: 85
+Nombre: units_categories.list
+Descripción: Listar categorías de unidades (endpoint base)
+Categoría: Categorías de Unidades
+
+ID: 86
+Nombre: units_categories.list_alias
+Descripción: Listar categorías de unidades (alias /units_categories/list/)
+Categoría: Categorías de Unidades
+
+ID: 87
+Nombre: units_categories.retrieve
+Descripción: Ver detalle de categoría de unidades
+Categoría: Categorías de Unidades
+
+ID: 127
+Nombre: units_categories.partial_update
+Descripción: Actualizar categoría de unidades (PATCH)
+Categoría: Categorías de Unidades
+
+CATEGORÍA: UNIDADES
+-------------------
+ID: 88
+Nombre: units.create
+Descripción: Crear unidad
+Categoría: Unidades
+
+ID: 89
+Nombre: units.update
+Descripción: Actualizar unidad (PUT)
+Categoría: Unidades
+
+ID: 90
+Nombre: units.list_by_category
+Descripción: Listar unidades por categoría
+Categoría: Unidades
+
+ID: 91
+Nombre: units.list_active_by_category
+Descripción: Listar unidades activas por categoría
+Categoría: Unidades
+
+ID: 92
+Nombre: units.toggle_status
+Descripción: Alternar estado de unidad (activar/desactivar)
+Categoría: Unidades
+
+CATEGORÍA: CATEGORÍAS DE MARCAS
+-------------------------------
+ID: 93
+Nombre: brands_categories.create
+Descripción: Crear categoría de marcas
+Categoría: Categorías de Marcas
+
+ID: 94
+Nombre: brands_categories.update
+Descripción: Actualizar categoría de marcas
+Categoría: Categorías de Marcas
+
+ID: 95
+Nombre: brands_categories.list
+Descripción: Listar categorías de marcas
+Categoría: Categorías de Marcas
+
+CATEGORÍA: MARCAS
+-----------------
+ID: 96
+Nombre: brands.create
+Descripción: Crear marca
+Categoría: Marcas
+
+ID: 97
+Nombre: brands.update
+Descripción: Actualizar marca
+Categoría: Marcas
+
+ID: 98
+Nombre: brands.list_by_category
+Descripción: Listar marcas por categoría
+Categoría: Marcas
+
+ID: 99
+Nombre: brands.list_active_by_category
+Descripción: Listar marcas activas por categoría
+Categoría: Marcas
+
+ID: 100
+Nombre: brands.toggle_status
+Descripción: Alternar estado de marca (activar/desactivar)
+Categoría: Marcas
+
+CATEGORÍA: MODELOS
+------------------
+ID: 101
+Nombre: models.create
+Descripción: Crear modelo
+Categoría: Modelos
+
+ID: 102
+Nombre: models.update
+Descripción: Actualizar modelo
+Categoría: Modelos
+
+ID: 103
+Nombre: models.list_by_brand
+Descripción: Listar modelos por marca
+Categoría: Modelos
+
+ID: 104
+Nombre: models.list_active_by_brand
+Descripción: Listar modelos activos por marca
+Categoría: Modelos
+
+ID: 105
+Nombre: models.toggle_status
+Descripción: Alternar estado de modelo (activar/desactivar)
+Categoría: Modelos
+
+CATEGORÍA: DEPARTAMENTOS
+------------------------
+ID: 106
+Nombre: employee_departments.create
+Descripción: Crear departamento
+Categoría: Departamentos
+
+ID: 107
+Nombre: employee_departments.update
+Descripción: Actualizar departamento
+Categoría: Departamentos
+
+ID: 108
+Nombre: employee_departments.list
+Descripción: Listar departamentos
+Categoría: Departamentos
+
+ID: 109
+Nombre: employee_departments.list_active
+Descripción: Listar departamentos activos
+Categoría: Departamentos
+
+ID: 110
+Nombre: employee_departments.toggle_status
+Descripción: Alternar estado de departamento (activar/desactivar)
+Categoría: Departamentos
+
+CATEGORÍA: CARGOS
+-----------------
+ID: 111
+Nombre: employee_charges.create
+Descripción: Crear cargo
+Categoría: Cargos
+
+ID: 112
+Nombre: employee_charges.update
+Descripción: Actualizar cargo
+Categoría: Cargos
+
+ID: 113
+Nombre: employee_charges.list_by_department
+Descripción: Listar cargos por departamento
+Categoría: Cargos
+
+ID: 114
+Nombre: employee_charges.list_active_by_department
+Descripción: Listar cargos activos por departamento
+Categoría: Cargos
+
+ID: 115
+Nombre: employee_charges.toggle_status
+Descripción: Alternar estado de cargo (activar/desactivar)
+Categoría: Cargos
+
+CATEGORÍA: PARAMETRIZACIÓN VISUAL
+---------------------------------
+ID: 116
+Nombre: visual_parameterization.create
+Descripción: Crear parametrización visual
+Categoría: Parametrización Visual
+
+ID: 117
+Nombre: visual_parameterization.retrieve
+Descripción: Ver parametrización visual por ID
+Categoría: Parametrización Visual
+
+ID: 118
+Nombre: visual_parameterization.update
+Descripción: Actualizar parametrización visual (PUT)
+Categoría: Parametrización Visual
+
+ID: 119
+Nombre: visual_parameterization.partial_update
+Descripción: Actualizar parametrización visual (PATCH)
+Categoría: Parametrización Visual
+
+ID: 120
+Nombre: visual_parameterization.list
+Descripción: Listar parametrizaciones visuales
+Categoría: Parametrización Visual
+
+ID: 121
+Nombre: visual_parameterization.toggle_status
+Descripción: Alternar estado de parametrización visual (activar/desactivar)
+Categoría: Parametrización Visual
+
+CATEGORÍA: PARAMETRIZACIÓN VISUAL DE USUARIO
+--------------------------------------------
+ID: 122
+Nombre: user_visual_parameterization.create
+Descripción: Crear asignación de parametrización visual a usuario
+Categoría: Parametrización Visual de Usuario
+
+ID: 123
+Nombre: user_visual_parameterization.retrieve
+Descripción: Ver asignación por ID
+Categoría: Parametrización Visual de Usuario
+
+ID: 124
+Nombre: user_visual_parameterization.update
+Descripción: Actualizar asignación (PUT)
+Categoría: Parametrización Visual de Usuario
+
+ID: 125
+Nombre: user_visual_parameterization.partial_update
+Descripción: Actualizar asignación (PATCH)
+Categoría: Parametrización Visual de Usuario
+
+ID: 126
+Nombre: user_visual_parameterization.list
+Descripción: Listar asignaciones de parametrización visual de usuario
+Categoría: Parametrización Visual de Usuario

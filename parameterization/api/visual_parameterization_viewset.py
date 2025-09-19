@@ -5,10 +5,50 @@ from parameterization.models import VisualParameterization, Statues
 from parameterization.serializers.visual_parameterization_serializers.visual_parameterization_create_serializer import VisualParameterizationCreateSerializer
 from parameterization.serializers.visual_parameterization_serializers.visual_parameterization_list_serializer import VisualParameterizationListSerializer
 from parameterization.serializers.visual_parameterization_serializers.visual_parameterization_update_serializer import VisualParameterizationUpdateSerializer
+from users.permissions import HasPermissionId
 
 class VisualParameterizationViewSet(viewsets.ViewSet):
+    # permission_classes = [HasPermissionId]  # Temporalmente deshabilitado para usar check_permission
+
+    def check_permission(self, request, required_permission_id: int):
+        """
+        Verifica si el usuario tiene el permiso (por ID).
+        Adaptado de FastAPI para Django REST Framework.
+        """
+        # Obtener el payload del JWT desde request.auth
+        payload = getattr(request, "auth", None) or {}
+        
+        # Obtener roles del payload (soporta "rol" y "roles")
+        user_roles = payload.get("rol") or payload.get("roles") or []
+        
+        # Extraer todos los IDs de permisos de todos los roles
+        permisos_usuario = []
+        for rol in user_roles:
+            # Obtener permisos del rol (soporta "permisos" y "permissions")
+            perms = rol.get("permisos") or rol.get("permissions") or []
+            for perm in perms:
+                if isinstance(perm, dict) and "id" in perm:
+                    permisos_usuario.append(perm.get("id"))
+        
+        return required_permission_id in permisos_usuario
 
     def create(self, request):
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        permission_id = 116  # visual_parameterization.create
+        
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para crear parametrizaciones visuales"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         serializer = VisualParameterizationCreateSerializer(data=request.data)
         if serializer.is_valid():
             try:
@@ -30,6 +70,22 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
 
     def retrieve(self, request, pk=None):
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        permission_id = 117  # visual_parameterization.retrieve
+        
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para ver parametrizaciones visuales"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         try:
             instance = VisualParameterization.objects.get(pk=pk)
         except VisualParameterization.DoesNotExist:
@@ -41,6 +97,22 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def update(self, request, pk=None):
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        permission_id = 118  # visual_parameterization.update
+        
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para actualizar parametrizaciones visuales"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         try:
             instance = VisualParameterization.objects.get(pk=pk)
         except VisualParameterization.DoesNotExist:
@@ -70,6 +142,22 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
 
     def partial_update(self, request, pk=None):
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        permission_id = 119  # visual_parameterization.partial_update
+        
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para actualizar parcialmente parametrizaciones visuales"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         try:
             instance = VisualParameterization.objects.get(pk=pk)
         except VisualParameterization.DoesNotExist:
@@ -100,12 +188,44 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['get'], url_path='list')
     def listar_parametrizaciones(self, request):
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        permission_id = 120  # visual_parameterization.list
+        
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar parametrizaciones visuales"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         parametrizaciones = VisualParameterization.objects.all()
         serializer = VisualParameterizationListSerializer(parametrizaciones, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['patch'], url_path='toggle-status')
     def toggle_status(self, request, pk=None):
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        permission_id = 121  # visual_parameterization.toggle_status
+        
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para alternar estado de parametrizaciones visuales"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         try:
             parametrizacion = VisualParameterization.objects.get(pk=pk)
         except VisualParameterization.DoesNotExist:
