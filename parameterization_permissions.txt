@@ -1,320 +1,305 @@
 CATEGORÍA: CATEGORÍAS DE ESTADOS
 -------------------------------
-ID: 69
+ID: 26
 Nombre: statues_categories.create
 Descripción: Crear categoría de estado
-Categoría: Categorías de Estados
+Categoría: Parametrizacion
 
-ID: 70
+ID: 27
 Nombre: statues_categories.update
 Descripción: Actualizar categoría de estado
-Categoría: Categorías de Estados
+Categoría: Parametrizacion
 
-ID: 71
+ID: 28
 Nombre: statues_categories.list
 Descripción: Listar categorías de estado
-Categoría: Categorías de Estados
+Categoría: Parametrizacion
 
 CATEGORÍA: ESTADOS
 ------------------
-ID: 72
+ID: 29
 Nombre: statues.create
 Descripción: Crear estado
-Categoría: Estados
+Categoría: Parametrizacion
 
-ID: 73
+ID: 30
 Nombre: statues.update
 Descripción: Actualizar estado
-Categoría: Estados
+Categoría: Parametrizacion
 
-ID: 74
+ID: 31
 Nombre: statues.list_by_category
 Descripción: Listar estados por categoría
-Categoría: Estados
+Categoría: Parametrizacion
 
 CATEGORÍA: CATEGORÍAS DE TIPOS
 ------------------------------
-ID: 75
+ID: 32
 Nombre: types_categories.create
 Descripción: Crear categoría de tipo
-Categoría: Categorías de Tipos
+Categoría: Parametrizacion
 
-ID: 76
+ID: 33
 Nombre: types_categories.update
 Descripción: Actualizar categoría de tipo
-Categoría: Categorías de Tipos
+Categoría: Parametrizacion
 
-ID: 77
+ID: 34
 Nombre: types_categories.list
 Descripción: Listar categorías de tipos
-Categoría: Categorías de Tipos
+Categoría: Parametrizacion
 
 CATEGORÍA: TIPOS
 ----------------
-ID: 78
+ID: 35
 Nombre: types.create
 Descripción: Crear tipo
-Categoría: Tipos
+Categoría: Parametrizacion
 
-ID: 79
+ID: 36
 Nombre: types.update
 Descripción: Actualizar tipo
-Categoría: Tipos
+Categoría: Parametrizacion
 
-ID: 80
+ID: 37
 Nombre: types.list_by_category
 Descripción: Listar tipos por categoría
-Categoría: Tipos
+Categoría: Parametrizacion
 
-ID: 81
+ID: 38
 Nombre: types.list_active_by_category
 Descripción: Listar tipos activos por categoría
-Categoría: Tipos
+Categoría: Parametrizacion
 
-ID: 82
+ID: 39
 Nombre: types.toggle_status
-Descripción: Alternar estado de tipo (activar/desactivar)
-Categoría: Tipos
+Descripción: Alternar estado de tipo
+Categoría: Parametrizacion
 
 CATEGORÍA: CATEGORÍAS DE UNIDADES
 ---------------------------------
-ID: 83
+ID: 40
 Nombre: units_categories.create
 Descripción: Crear categoría de unidades
-Categoría: Categorías de Unidades
+Categoría: Parametrizacion
 
-ID: 84
+ID: 41
 Nombre: units_categories.update
 Descripción: Actualizar categoría de unidades
-Categoría: Categorías de Unidades
+Categoría: Parametrizacion
 
-ID: 85
+ID: 42
 Nombre: units_categories.list
 Descripción: Listar categorías de unidades (endpoint base)
-Categoría: Categorías de Unidades
-
-ID: 86
-Nombre: units_categories.list_alias
-Descripción: Listar categorías de unidades (alias /units_categories/list/)
-Categoría: Categorías de Unidades
-
-ID: 87
-Nombre: units_categories.retrieve
-Descripción: Ver detalle de categoría de unidades
-Categoría: Categorías de Unidades
-
-ID: 127
-Nombre: units_categories.partial_update
-Descripción: Actualizar categoría de unidades (PATCH)
-Categoría: Categorías de Unidades
+Categoría: Parametrizacion
 
 CATEGORÍA: UNIDADES
 -------------------
-ID: 88
+ID: 43
 Nombre: units.create
 Descripción: Crear unidad
-Categoría: Unidades
+Categoría: Parametrizacion
 
-ID: 89
+ID: 44
 Nombre: units.update
 Descripción: Actualizar unidad (PUT)
-Categoría: Unidades
+Categoría: Parametrizacion
 
-ID: 90
+ID: 45
 Nombre: units.list_by_category
 Descripción: Listar unidades por categoría
-Categoría: Unidades
+Categoría: Parametrizacion
 
-ID: 91
+ID: 46
 Nombre: units.list_active_by_category
 Descripción: Listar unidades activas por categoría
-Categoría: Unidades
+Categoría: Parametrizacion
 
-ID: 92
+ID: 47
 Nombre: units.toggle_status
-Descripción: Alternar estado de unidad (activar/desactivar)
-Categoría: Unidades
+Descripción: Alternar estado de unidad
+Categoría: Parametrizacion
 
 CATEGORÍA: CATEGORÍAS DE MARCAS
 -------------------------------
-ID: 93
+ID: 48
 Nombre: brands_categories.create
 Descripción: Crear categoría de marcas
-Categoría: Categorías de Marcas
+Categoría: Parametrizacion
 
-ID: 94
+ID: 49
 Nombre: brands_categories.update
 Descripción: Actualizar categoría de marcas
-Categoría: Categorías de Marcas
+Categoría: Parametrizacion
 
-ID: 95
+ID: 50
 Nombre: brands_categories.list
 Descripción: Listar categorías de marcas
-Categoría: Categorías de Marcas
+Categoría: Parametrizacion
 
 CATEGORÍA: MARCAS
 -----------------
-ID: 96
+ID: 51
 Nombre: brands.create
 Descripción: Crear marca
-Categoría: Marcas
+Categoría: Parametrizacion
 
-ID: 97
+ID: 52
 Nombre: brands.update
 Descripción: Actualizar marca
-Categoría: Marcas
+Categoría: Parametrizacion
 
-ID: 98
+ID: 53
 Nombre: brands.list_by_category
 Descripción: Listar marcas por categoría
-Categoría: Marcas
+Categoría: Parametrizacion
 
-ID: 99
+ID: 54
 Nombre: brands.list_active_by_category
 Descripción: Listar marcas activas por categoría
-Categoría: Marcas
+Categoría: Parametrizacion
 
-ID: 100
+ID: 55
 Nombre: brands.toggle_status
 Descripción: Alternar estado de marca (activar/desactivar)
-Categoría: Marcas
+Categoría: Parametrizacion
 
 CATEGORÍA: MODELOS
 ------------------
-ID: 101
+ID: 56
 Nombre: models.create
 Descripción: Crear modelo
-Categoría: Modelos
+Categoría: Parametrizacion
 
-ID: 102
+ID: 57
 Nombre: models.update
 Descripción: Actualizar modelo
-Categoría: Modelos
+Categoría: Parametrizacion
 
-ID: 103
+ID: 58
 Nombre: models.list_by_brand
 Descripción: Listar modelos por marca
-Categoría: Modelos
+Categoría: Parametrizacion
 
-ID: 104
+ID: 59
 Nombre: models.list_active_by_brand
 Descripción: Listar modelos activos por marca
-Categoría: Modelos
+Categoría: Parametrizacion
 
-ID: 105
+ID: 60
 Nombre: models.toggle_status
-Descripción: Alternar estado de modelo (activar/desactivar)
-Categoría: Modelos
+Descripción: Alternar estado de modelo
+Categoría: Parametrizacion
 
 CATEGORÍA: DEPARTAMENTOS
 ------------------------
-ID: 106
+ID: 61
 Nombre: employee_departments.create
 Descripción: Crear departamento
-Categoría: Departamentos
+Categoría: Parametrizacion
 
-ID: 107
+ID: 62
 Nombre: employee_departments.update
 Descripción: Actualizar departamento
-Categoría: Departamentos
+Categoría: Parametrizacion
 
-ID: 108
+ID: 63
 Nombre: employee_departments.list
 Descripción: Listar departamentos
-Categoría: Departamentos
+Categoría: Parametrizacion
 
-ID: 109
+ID: 64
 Nombre: employee_departments.list_active
 Descripción: Listar departamentos activos
-Categoría: Departamentos
+Categoría: Parametrizacion
 
-ID: 110
+ID: 65
 Nombre: employee_departments.toggle_status
-Descripción: Alternar estado de departamento (activar/desactivar)
-Categoría: Departamentos
+Descripción: Alternar estado de departamento
+Categoría: Parametrizacion
 
 CATEGORÍA: CARGOS
 -----------------
-ID: 111
+ID: 66
 Nombre: employee_charges.create
 Descripción: Crear cargo
-Categoría: Cargos
+Categoría: Parametrizacion
 
-ID: 112
+ID: 67
 Nombre: employee_charges.update
 Descripción: Actualizar cargo
-Categoría: Cargos
+Categoría: Parametrizacion
 
-ID: 113
+ID: 68
 Nombre: employee_charges.list_by_department
 Descripción: Listar cargos por departamento
-Categoría: Cargos
+Categoría: Parametrizacion
 
-ID: 114
+ID: 69
 Nombre: employee_charges.list_active_by_department
 Descripción: Listar cargos activos por departamento
-Categoría: Cargos
+Categoría: Parametrizacion
 
-ID: 115
+ID: 70
 Nombre: employee_charges.toggle_status
-Descripción: Alternar estado de cargo (activar/desactivar)
-Categoría: Cargos
+Descripción: Alternar estado de cargo
+Categoría: Parametrizacion
 
 CATEGORÍA: PARAMETRIZACIÓN VISUAL
 ---------------------------------
-ID: 116
+ID: 71
 Nombre: visual_parameterization.create
 Descripción: Crear parametrización visual
-Categoría: Parametrización Visual
+Categoría: Parametrizacion
 
-ID: 117
+ID: 72
 Nombre: visual_parameterization.retrieve
 Descripción: Ver parametrización visual por ID
-Categoría: Parametrización Visual
+Categoría: Parametrizacion
 
-ID: 118
+ID: 73
 Nombre: visual_parameterization.update
 Descripción: Actualizar parametrización visual (PUT)
-Categoría: Parametrización Visual
+Categoría: Parametrizacion
 
-ID: 119
+ID: 74
 Nombre: visual_parameterization.partial_update
 Descripción: Actualizar parametrización visual (PATCH)
-Categoría: Parametrización Visual
+Categoría: Parametrizacion
 
-ID: 120
+ID: 75
 Nombre: visual_parameterization.list
 Descripción: Listar parametrizaciones visuales
-Categoría: Parametrización Visual
+Categoría: Parametrizacion
 
-ID: 121
+ID: 76
 Nombre: visual_parameterization.toggle_status
-Descripción: Alternar estado de parametrización visual (activar/desactivar)
-Categoría: Parametrización Visual
+Descripción: Alternar estado de parametrización
+Categoría: Parametrizacion
 
 CATEGORÍA: PARAMETRIZACIÓN VISUAL DE USUARIO
 --------------------------------------------
-ID: 122
+ID: 77
 Nombre: user_visual_parameterization.create
 Descripción: Crear asignación de parametrización visual a usuario
-Categoría: Parametrización Visual de Usuario
+Categoría: Parametrizacion
 
-ID: 123
+ID: 78
 Nombre: user_visual_parameterization.retrieve
 Descripción: Ver asignación por ID
-Categoría: Parametrización Visual de Usuario
+Categoría: Parametrizacion
 
-ID: 124
+ID: 79
 Nombre: user_visual_parameterization.update
 Descripción: Actualizar asignación (PUT)
-Categoría: Parametrización Visual de Usuario
+Categoría: Parametrizacion
 
-ID: 125
+ID: 80
 Nombre: user_visual_parameterization.partial_update
 Descripción: Actualizar asignación (PATCH)
-Categoría: Parametrización Visual de Usuario
+Categoría: Parametrizacion
 
-ID: 126
+ID: 81
 Nombre: user_visual_parameterization.list
 Descripción: Listar asignaciones de parametrización visual de usuario
-Categoría: Parametrización Visual de Usuario
+Categoría: Parametrizacion

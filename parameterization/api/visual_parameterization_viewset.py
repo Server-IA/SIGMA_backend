@@ -40,7 +40,7 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 116  # visual_parameterization.create
+        permission_id = 71  # visual_parameterization.create
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -77,7 +77,7 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 117  # visual_parameterization.retrieve
+        permission_id = 72  # visual_parameterization.retrieve
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -104,7 +104,7 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 118  # visual_parameterization.update
+        permission_id = 73  # visual_parameterization.update
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -149,7 +149,7 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 119  # visual_parameterization.partial_update
+        permission_id = 74  # visual_parameterization.partial_update
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -195,7 +195,7 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 120  # visual_parameterization.list
+        permission_id = 75  # visual_parameterization.list
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -217,7 +217,7 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 121  # visual_parameterization.toggle_status
+        permission_id = 76  # visual_parameterization.toggle_status
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):

@@ -39,7 +39,7 @@ class StatuesViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 72  # statues.create
+        permission_id = 29  # statues.create
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -63,7 +63,7 @@ class StatuesViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 73  # statues.update
+        permission_id = 30  # statues.update
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -98,7 +98,7 @@ class StatuesViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 74  # statues.list_by_category
+        permission_id = 31  # statues.list_by_category
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):

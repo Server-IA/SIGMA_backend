@@ -40,7 +40,7 @@ class EmployeeChargeViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 111  # employee_charges.create
+        permission_id = 66  # employee_charges.create
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -64,7 +64,7 @@ class EmployeeChargeViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 112  # employee_charges.update
+        permission_id = 67  # employee_charges.update
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -94,7 +94,7 @@ class EmployeeChargeViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 113  # employee_charges.list_by_department
+        permission_id = 68  # employee_charges.list_by_department
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -120,7 +120,7 @@ class EmployeeChargeViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 114  # employee_charges.list_active_by_department
+        permission_id = 69  # employee_charges.list_active_by_department
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -149,7 +149,7 @@ class EmployeeChargeViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 115  # employee_charges.toggle_status
+        permission_id = 70  # employee_charges.toggle_status
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):

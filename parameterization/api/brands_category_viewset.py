@@ -40,7 +40,7 @@ class BrandsCategoryViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 93  # brands_categories.create
+        permission_id = 48  # brands_categories.create
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -64,7 +64,7 @@ class BrandsCategoryViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 94  # brands_categories.update
+        permission_id = 49  # brands_categories.update
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -94,7 +94,7 @@ class BrandsCategoryViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 95  # brands_categories.list
+        permission_id = 50  # brands_categories.list
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):

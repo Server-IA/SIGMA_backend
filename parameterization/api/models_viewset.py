@@ -41,7 +41,7 @@ class ModelsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 101  # models.create
+        permission_id = 56  # models.create
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -64,7 +64,7 @@ class ModelsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 102  # models.update
+        permission_id = 57  # models.update
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -89,7 +89,7 @@ class ModelsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 103  # models.list_by_brand
+        permission_id = 58  # models.list_by_brand
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -116,7 +116,7 @@ class ModelsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 104  # models.list_active_by_brand
+        permission_id = 59  # models.list_active_by_brand
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -142,7 +142,7 @@ class ModelsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 105  # models.toggle_status
+        permission_id = 60  # models.toggle_status
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):

@@ -43,7 +43,7 @@ class UnitsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 88  # units.create
+        permission_id = 43  # units.create
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -67,7 +67,7 @@ class UnitsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 89  # units.update
+        permission_id = 44  # units.update
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -93,7 +93,7 @@ class UnitsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 90  # units.list_by_category
+        permission_id = 45  # units.list_by_category
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -123,7 +123,7 @@ class UnitsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 91  # units.list_active_by_category
+        permission_id = 46  # units.list_active_by_category
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -153,7 +153,7 @@ class UnitsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 92  # units.toggle_status
+        permission_id = 47  # units.toggle_status
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):

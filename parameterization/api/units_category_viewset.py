@@ -46,7 +46,7 @@ class UnitsCategoryViewSet(viewsets.ViewSet):
         return required_permission_id in permisos_usuario
 
     def create(self, request):
-        permission_id = 83  # units_categories.create
+        permission_id = 40  # units_categories.create
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -70,7 +70,7 @@ class UnitsCategoryViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 85  # units_categories.list
+        permission_id = 42  # units_categories.list
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -93,26 +93,8 @@ class UnitsCategoryViewSet(viewsets.ViewSet):
             "data": serializer.data
         }, status=status.HTTP_200_OK)
 
-    def retrieve(self, request, pk=None):
-        permission_id = 87  # units_categories.retrieve
-        
-        # Verificar permiso usando la función check_permission
-        if not self.check_permission(request, permission_id):
-            return Response(
-                {"message": "No tiene permisos para consultar categorías de unidades de medida"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        """Consultar categoría de métricas de medida por ID"""
-        category = get_object_or_404(UnitsCategory, pk=pk)
-        serializer = UnitsCategoryListSerializer(category)
-        return Response({
-            "message": "Categoría de unidades de medida obtenida exitosamente",
-            "data": serializer.data
-        }, status=status.HTTP_200_OK)
-
     def update(self, request, pk=None):
-        permission_id = 84  # units_categories.update
+        permission_id = 41  # units_categories.update
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -129,48 +111,3 @@ class UnitsCategoryViewSet(viewsets.ViewSet):
             return Response({"message": "Categoría de métricas de medida actualizada exitosamente"},
                             status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def partial_update(self, request, pk=None):
-        permission_id = 127  # units_categories.partial_update
-        
-        # Verificar permiso usando la función check_permission
-        if not self.check_permission(request, permission_id):
-            return Response(
-                {"message": "No tiene permisos para actualizar parcialmente categorías de unidades de medida"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        """Actualizar parcialmente categoría de métricas de medida por ID (PATCH)"""
-        category = get_object_or_404(UnitsCategory, pk=pk)
-        serializer = UnitsCategoryCreateSerializer(category, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({"message": "Categoría de métricas de medida actualizada exitosamente"},
-                            status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(detail=False, methods=['get'], url_path='list')
-    def list_units_categories(self, request):
-        permission_id = 86  # units_categories.list_alias
-        
-        # Verificar permiso usando la función check_permission
-        if not self.check_permission(request, permission_id):
-            return Response(
-                {"message": "No tiene permisos para listar categorías de unidades de medida"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        categories = UnitsCategory.objects.all()
-        if not categories.exists():
-            return Response({
-                "message": "No existen categorías de unidades de medida registradas",
-                "data": []
-            }, status=status.HTTP_200_OK)
-        
-        serializer = UnitsCategoryListSerializer(categories, many=True)
-        return Response({
-            "message": "Categorías de unidades de medida obtenidas exitosamente",
-            "data": serializer.data
-        }, status=status.HTTP_200_OK)
-
-

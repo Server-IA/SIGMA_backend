@@ -40,7 +40,7 @@ class UserVisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 122  # user_visual_parameterization.create
+        permission_id = 77  # user_visual_parameterization.create
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -77,7 +77,7 @@ class UserVisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 123  # user_visual_parameterization.retrieve
+        permission_id = 78  # user_visual_parameterization.retrieve
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -104,7 +104,7 @@ class UserVisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 124  # user_visual_parameterization.update
+        permission_id = 79  # user_visual_parameterization.update
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -149,7 +149,7 @@ class UserVisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 125  # user_visual_parameterization.partial_update
+        permission_id = 80  # user_visual_parameterization.partial_update
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -195,7 +195,7 @@ class UserVisualParameterizationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        permission_id = 126  # user_visual_parameterization.list
+        permission_id = 81  # user_visual_parameterization.list
         
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
