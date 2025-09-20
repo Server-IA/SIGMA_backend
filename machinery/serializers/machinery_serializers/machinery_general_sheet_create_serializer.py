@@ -152,24 +152,21 @@ class MachineryGeneralSheetCreateSerializer(serializers.ModelSerializer):
             operational_status = Statues.objects.get(id_statues=3)
             validated_data['machinery_operational_status'] = operational_status
             
-            # Create the machinery instance first
             machinery = Machinery.objects.create(**validated_data)
             
-            # Handle image upload after creating the machinery
             if image_file:
                 try:
-                    # Upload the file to Firebase with proper parameters
+                    image_file.open()
+                    image_file.seek(0)
                     image_url = upload_file_to_firebase(
                         file=image_file,
                         directory='uploads/machinery_pictures/',
                         allowed_extensions=['.jpg', '.jpeg', '.png'],
                         max_size_mb=5
                     )
-                    # Update the machinery with the image URL
                     machinery.image_path = image_url
                     machinery.save(update_fields=['image_path'])
                 except Exception as e:
-                    # If image upload fails, delete the created machinery
                     machinery.delete()
                     raise serializers.ValidationError({"image": f"Error al cargar la imagen: {str(e)}"})
             

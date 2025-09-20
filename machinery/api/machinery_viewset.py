@@ -49,16 +49,16 @@ class MachineryViewSet(viewsets.ViewSet):
                 serializer.save()
                 return Response(
                     {
-                        "message": "Maquinaria y ficha general creada exitosamente",
-                        "data": serializer.data
+                        "success": True,
+                        "message": "Maquinaria y ficha general creada exitosamente"
                     },
                     status=status.HTTP_201_CREATED
                 )
                 
-            logger.warning(f"Error de validación: {serializer.errors}")
             return Response(
                 {
-                    "error": "Error de validación",
+                    "success": False,
+                    "message": "Error de validación",
                     "details": serializer.errors
                 },
                 status=status.HTTP_400_BAD_REQUEST
@@ -67,7 +67,8 @@ class MachineryViewSet(viewsets.ViewSet):
         except Exception as e:
             return Response(
                 {
-                    "error": "Error al crear la ficha de maquinaria",
+                    "success": False,
+                    "message": "Error al crear la ficha de maquinaria",
                     "details": str(e)
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
