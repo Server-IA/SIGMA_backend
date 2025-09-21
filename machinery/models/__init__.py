@@ -1,2 +1,3 @@
 from .machinery import Machinery
 from .telemetry_devices import TelemetryDevices
+from .specific_technical_sheet import SpecificTechnicalSheet
