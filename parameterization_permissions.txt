@@ -102,7 +102,7 @@ Categoría: Parametrizacion
 
 ID: 44
 Nombre: units.update
-Descripción: Actualizar unidad (PUT)
+Descripción: Actualizar unidad
 Categoría: Parametrizacion
 
 ID: 45
@@ -161,7 +161,7 @@ Categoría: Parametrizacion
 
 ID: 55
 Nombre: brands.toggle_status
-Descripción: Alternar estado de marca (activar/desactivar)
+Descripción: Alternar estado de marca
 Categoría: Parametrizacion
 
 CATEGORÍA: MODELOS
