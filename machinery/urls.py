@@ -3,11 +3,13 @@ from rest_framework import routers
 
 from machinery.api.machinery_tracker_sheet_viewset import MachineryTrackerViewSet
 from machinery.api.machinery_viewset import  MachineryViewSet
+from machinery.api.machinery_usage_viewset import MachineryUsageViewSet
 
 router = routers.DefaultRouter()
 
 router.register(r'machinery', MachineryViewSet, basename='machinery')
 router.register(r'machinery-tracker', MachineryTrackerViewSet, basename='machinery-tracker')
+router.register(r'machinery-usage', MachineryUsageViewSet, basename='machinery-usage')
 
 urlpatterns = [
     path('', include(router.urls))
