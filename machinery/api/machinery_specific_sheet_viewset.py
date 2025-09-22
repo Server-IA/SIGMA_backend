@@ -13,32 +13,22 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
         Crea la ficha técnica específica y actualiza el estado de la maquinaria.
         """
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
 
         try:
-            if serializer.is_valid():
-                with transaction.atomic():
-                    sheet = serializer.save()
+            serializer.is_valid(raise_exception=True)
 
-                headers = self.get_success_headers(serializer.data)
-                return Response(
-                    {
-                        "success": True,
-                        "message": "Ficha técnica específica creada exitosamente",
-                        "data": serializer.data
-                    },
-                    status=status.HTTP_201_CREATED,
-                    headers=headers
-                )
+            with transaction.atomic():
+                sheet = serializer.save()
 
-            # Respuesta explícita 400 para validaciones
+            headers = self.get_success_headers(serializer.data)
             return Response(
                 {
-                    "success": False,
-                    "message": "Error de validación",
-                    "details": serializer.errors
+                    "success": True,
+                    "message": "Ficha técnica específica creada exitosamente",
+                    "data": serializer.data
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_201_CREATED,
+                headers=headers
             )
         except Exception as e:
             return Response(

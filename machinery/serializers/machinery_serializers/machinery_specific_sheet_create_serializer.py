@@ -2,6 +2,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from machinery.models import SpecificTechnicalSheet, Machinery
 from parameterization.models import Types, Units, Statues, TypesCategory
+from parameterization.models.units_category import UnitsCategory
 from users.models.user import User
 
 class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
@@ -77,11 +78,6 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
     )
     cabin_type = serializers.PrimaryKeyRelatedField(
         queryset=Types.objects.all()
-    )
-    responsible_user = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(),
-        write_only=True,
-        source='id_responsible_user'
     )
     fuel_capacity_unit = serializers.PrimaryKeyRelatedField(
         queryset=Units.objects.all()
@@ -224,18 +220,38 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
             "draft_force_unit": 6,  # Fuerza
             "maximum_altitude_unit": 7,  # Altitud
             "dimension_unit": 7,  # Dimensiones
-            "performance_unit": 8,  # Rendimiento
+            "performance_unit": 8,  # Rendimiento - Frecuencia / Velocidad angular
             "maximum_working_pressure_unit": 9,  # Presión
         }
+
+        # Coerción: operating_weight es CharField en el modelo
+        if data.get("operating_weight") is not None and not isinstance(data.get("operating_weight"), str):
+            try:
+                data["operating_weight"] = str(data["operating_weight"])
+            except Exception:
+                raise ValidationError({"operating_weight": "Valor inválido para operating_weight."})
 
         for field, expected_category in unit_category_map.items():
             if field in data and data[field]:
                 unit = data[field]
                 if unit.id_units_categories_id != expected_category:
-                    expected_category_obj = TypesCategory.objects.get(id_types_categories=expected_category)
+                    # Usar UnitsCategory para nombres de categorías de unidades
+                    expected_category_obj = UnitsCategory.objects.filter(id_units_categories=expected_category).first()
+                    # Intentar obtener también el nombre de la categoría actual de la unidad
+                    current_category_obj = UnitsCategory.objects.filter(id_units_categories=unit.id_units_categories_id).first()
+                    if expected_category_obj is None:
+                        raise ValidationError({
+                            field: (
+                                f"La unidad '{unit.name}' no es válida para este campo. "
+                                f"Se requiere una unidad de la categoría con ID '{expected_category}', "
+                                f"pero esa categoría no existe en el catálogo."
+                            )
+                        })
                     raise ValidationError({
                         field: (
-                            f"La unidad '{unit.name}' no es válida para este campo. "
+                            f"La unidad '{unit.name}' (categoría actual: "
+                            f"'{current_category_obj.name}'" if current_category_obj else f"ID {unit.id_units_categories_id}"
+                            f") no es válida para este campo. "
                             f"Se requiere una unidad de la categoría '{expected_category_obj.name}'."
                         )
                     })
@@ -255,7 +271,15 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
             if field in data and data[field]:
                 type_obj = data[field]
                 if type_obj.id_types_categories_id != expected_category:
-                    expected_category_obj = TypesCategory.objects.get(id_types_categories=expected_category)
+                    expected_category_obj = TypesCategory.objects.filter(id_types_categories=expected_category).first()
+                    if expected_category_obj is None:
+                        raise ValidationError({
+                            field: (
+                                f"El tipo '{type_obj.name}' no es válido para este campo. "
+                                f"Se requiere un tipo de la categoría con ID '{expected_category}', "
+                                f"pero esa categoría no existe en el catálogo."
+                            )
+                        })
                     raise ValidationError({
                         field: (
                             f"El tipo '{type_obj.name}' no es válido para este campo. "
