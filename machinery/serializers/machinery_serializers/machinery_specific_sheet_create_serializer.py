@@ -3,7 +3,6 @@ from rest_framework.exceptions import ValidationError
 from machinery.models import SpecificTechnicalSheet, Machinery
 from parameterization.models import Types, Units, Statues, TypesCategory
 from users.models.user import User
-from django.utils import timezone
 
 class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
     """
@@ -14,73 +13,182 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
     id_machinery = serializers.PrimaryKeyRelatedField(
         queryset=Machinery.objects.all()
     )
-
     # Validaciones para campos clave
     power_unit = serializers.PrimaryKeyRelatedField(
-        queryset=Units.objects.all(), required=True
+        queryset=Units.objects.all()
     )
     engine_type = serializers.PrimaryKeyRelatedField(
-        queryset=Types.objects.all(), required=True
+        queryset=Types.objects.all()
     )
     cylinder_capacity_unit = serializers.PrimaryKeyRelatedField(
-        queryset=Units.objects.all(), required=True
+        queryset=Units.objects.all()
     )
     cylinder_arrangement_type = serializers.PrimaryKeyRelatedField(
-        queryset=Types.objects.all(), required=True
+        queryset=Types.objects.all()
+    )
+    traction_type = serializers.PrimaryKeyRelatedField(
+        queryset=Types.objects.all()
     )
     fuel_consumption_unit = serializers.PrimaryKeyRelatedField(
-        queryset=Units.objects.all(), required=True
+        queryset=Units.objects.all()
     )
     transmission_system_type = serializers.PrimaryKeyRelatedField(
-        queryset=Types.objects.all(), required=True
+        queryset=Types.objects.all()
     )
     operating_weight_unit = serializers.PrimaryKeyRelatedField(
-        queryset=Units.objects.all(), required=True
+        queryset=Units.objects.all()
     )
     max_speed_unit = serializers.PrimaryKeyRelatedField(
-        queryset=Units.objects.all(), required=True
+        queryset=Units.objects.all()
+    )
+    draft_force_unit = serializers.PrimaryKeyRelatedField(
+        queryset=Units.objects.all()
+    )
+    maximum_altitude_unit = serializers.PrimaryKeyRelatedField(
+        queryset=Units.objects.all()
+    )
+    performance_unit = serializers.PrimaryKeyRelatedField(
+        queryset=Units.objects.all()
     )
     dimension_unit = serializers.PrimaryKeyRelatedField(
-        queryset=Units.objects.all(), required=True
+        queryset=Units.objects.all()
     )
     net_weight_unit = serializers.PrimaryKeyRelatedField(
-        queryset=Units.objects.all(), required=True
+        queryset=Units.objects.all()
     )
 
+    air_conditioning_system_type = serializers.PrimaryKeyRelatedField(
+        queryset=Types.objects.all()
+    )
+    air_conditioning_system_consumption_unit = serializers.PrimaryKeyRelatedField(
+        queryset=Units.objects.all()
+    )
+    maximum_working_pressure_unit = serializers.PrimaryKeyRelatedField(
+        queryset=Units.objects.all()
+    )
+    pump_flow_unit = serializers.PrimaryKeyRelatedField(
+        queryset=Units.objects.all()
+    )
+    hydraulic_tank_capacity_unit = serializers.PrimaryKeyRelatedField(
+        queryset=Units.objects.all()
+    )
+    emission_level_type = serializers.PrimaryKeyRelatedField(
+        queryset=Types.objects.all()
+    )
+    cabin_type = serializers.PrimaryKeyRelatedField(
+        queryset=Types.objects.all()
+    )
+    responsible_user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        write_only=True,
+        source='id_responsible_user'
+    )
+    fuel_capacity_unit = serializers.PrimaryKeyRelatedField(
+        queryset=Units.objects.all()
+    )
+    carrying_capacity_unit = serializers.PrimaryKeyRelatedField(
+        queryset=Units.objects.all()
+    )
 
     class Meta:
         model = SpecificTechnicalSheet
-        fields = "__all__"
+        fields = [
+            # Motor y transmisión
+            "power",
+            "power_unit",
+            "engine_type",
+            "cylinder_capacity",
+            "cylinder_capacity_unit",
+            "cylinder_arrangement_type",
+            "cylinder_count",
+            "traction_type",
+            "fuel_consumption",
+            "fuel_consumption_unit",
+            "transmission_system_type",
+
+            # Capacidad y rendimiento
+            "fuel_capacity",
+            "fuel_capacity_unit",
+            "carrying_capacity",
+            "carrying_capacity_unit",
+            "operating_weight",
+            "operating_weight_unit",
+            "max_speed",
+            "max_speed_unit",
+            "draft_force",
+            "draft_force_unit",
+            "maximum_altitude",
+            "maximum_altitude_unit",
+            "minimum_performance",
+            "maximum_performance",
+            "performance_unit",
+
+            # Dimensiones y peso
+            "width",
+            "length",
+            "height",
+            "dimension_unit",
+            "net_weight",
+            "net_weight_unit",
+
+            # Sistemas auxiliares e hidráulicos
+            "air_conditioning_system_type",
+            "air_conditioning_system_consumption",
+            "air_conditioning_system_consumption_unit",
+            "maximum_working_pressure",
+            "maximum_working_pressure_unit",
+            "pump_flow",
+            "pump_flow_unit",
+            "hydraulic_tank_capacity",
+            "hydraulic_tank_capacity_unit",
+
+            # Normatividad y seguridad
+            "emission_level_type",
+            "cabin_type",
+
+            # Relación con la máquina
+            "id_machinery",
+
+            # Responsable
+            "id_responsible_user",
+        ]
         extra_kwargs = {
             "power": {"required": True},
+            "power_unit": {"required": True},
             "engine_type": {"required": True},
             "cylinder_capacity": {"required": True},
+            "cylinder_capacity_unit": {"required": True},
             "cylinder_arrangement_type": {"required": True},
             "cylinder_count": {"required": True},
             "fuel_consumption": {"required": True},
+            "fuel_consumption_unit": {"required": True},
             "transmission_system_type": {"required": True},
             "operating_weight": {"required": True},
+            "operating_weight_unit": {"required": True},
             "max_speed": {"required": True},
+            "max_speed_unit": {"required": True},
             "width": {"required": True},
             "length": {"required": True},
             "height": {"required": True},
+            "dimension_unit": {"required": True},
             "net_weight": {"required": True},
+            "net_weight_unit": {"required": True},
             "id_machinery": {"required": True},
+            "id_responsible_user": {"required": True},
         }
 
     def validate(self, data):
         """
-        Validaciones adicionales de negocio.
+        Validaciones adicionales de negocio y de categorías.
         """
-        # Potencia positiva
+
+        # === Validaciones de negocio ===
         if data.get("power") is not None and data["power"] <= 0:
             raise ValidationError({"power": "La potencia debe ser un valor positivo."})
 
-        # Peso operativo obligatorio
         if not data.get("operating_weight"):
             raise ValidationError({"operating_weight": "Debe indicar el peso operativo."})
 
-        # Velocidad máxima mayor que cero
         if data.get("max_speed") is not None and data["max_speed"] <= 0:
             raise ValidationError({"max_speed": "La velocidad máxima debe ser mayor que cero."})
 
@@ -94,27 +202,75 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
         if data.get("carrying_capacity") is not None and data["carrying_capacity"] < 0:
             raise ValidationError({"carrying_capacity": "La capacidad de carga no puede ser negativa."})
 
-        if data.get("performance_rpm_min") and data.get("performance_rpm_max"):
-            if data["performance_rpm_min"] >= data["performance_rpm_max"]:
-                raise ValidationError({"performance_rpm": "El valor mínimo de RPM debe ser menor que el máximo."})
+        if data.get("minimum_performance") and data.get("maximum_performance"):
+            if data["minimum_performance"] >= data["maximum_performance"]:
+                raise ValidationError({
+                    "performance": "El rendimiento mínimo debe ser menor que el máximo."
+                })
+
+        # === Validación de Unidades ===
+        unit_category_map = {
+            "power_unit": 1,  # Potencia
+            "cylinder_capacity_unit": 2,  # Capacidad de cilindro
+            "fuel_capacity_unit": 2,  # Capacidad de combustible
+            "hydraulic_tank_capacity_unit": 2,  # Capacidad hidráulica
+            "pump_flow_unit": 3,  # Caudal/Consumo
+            "fuel_consumption_unit": 3,  # Caudal/Consumo
+            "air_conditioning_system_consumption_unit": 3,  # Caudal/Consumo
+            "carrying_capacity_unit": 4,  # Capacidad de carga
+            "operating_weight_unit": 4,  # Peso operativo
+            "net_weight_unit": 4,  # Peso neto
+            "max_speed_unit": 5,  # Velocidad
+            "draft_force_unit": 6,  # Fuerza
+            "maximum_altitude_unit": 7,  # Altitud
+            "dimension_unit": 7,  # Dimensiones
+            "performance_unit": 8,  # Rendimiento
+            "maximum_working_pressure_unit": 9,  # Presión
+        }
+
+        for field, expected_category in unit_category_map.items():
+            if field in data and data[field]:
+                unit = data[field]
+                if unit.id_units_categories_id != expected_category:
+                    expected_category_obj = TypesCategory.objects.get(id_types_categories=expected_category)
+                    raise ValidationError({
+                        field: (
+                            f"La unidad '{unit.name}' no es válida para este campo. "
+                            f"Se requiere una unidad de la categoría '{expected_category_obj.name}'."
+                        )
+                    })
+
+        # === Validación de Tipos ===
+        type_category_map = {
+            "engine_type": 4,  # Motores
+            "cylinder_arrangement_type": 5,  # Disposición de cilindraje
+            "traction_type": 6,  # Tracciones
+            "transmission_system_type": 7,  # Sistemas de transmisión
+            "air_conditioning_system_type": 8,  # Aire acondicionado
+            "emission_level_type": 9,  # Niveles de emisión
+            "cabin_type": 10,  # Cabinas
+        }
+
+        for field, expected_category in type_category_map.items():
+            if field in data and data[field]:
+                type_obj = data[field]
+                if type_obj.id_types_categories_id != expected_category:
+                    expected_category_obj = TypesCategory.objects.get(id_types_categories=expected_category)
+                    raise ValidationError({
+                        field: (
+                            f"El tipo '{type_obj.name}' no es válido para este campo. "
+                            f"Se requiere un tipo de la categoría '{expected_category_obj.name}'."
+                        )
+                    })
 
         return data
-
-    def validate_description(self, value):
-        if not value.strip():
-            raise serializers.ValidationError("La descripción no puede estar vacía.")
-        if len(value) < 10:
-            raise serializers.ValidationError("La descripción debe contener al menos 10 caracteres.")
-        return value
 
     def create(self, validated_data):
         """
         Crea la ficha técnica específica asociada a una maquinaria.
         """
         try:
-            validated_data['machinery_operational_status'] = operational_status
             machinery = validated_data["id_machinery"]
-            machinery.machinery_operational_status = operational_status
             machinery.save(update_fields=["machinery_operational_status"])
 
             sheet = SpecificTechnicalSheet.objects.create(**validated_data)

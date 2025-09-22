@@ -2,7 +2,6 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from django.db import transaction
 from machinery.models import SpecificTechnicalSheet, Machinery
-from parameterization.models import Statues
 from machinery.serializers.machinery_serializers.machinery_specific_sheet_create_serializer import SpecificTechnicalSheetCreateSerializer
 
 class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
@@ -17,31 +16,36 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         try:
-            with transaction.atomic():
-                # Crear la ficha técnica
-                sheet = serializer.save()
+            if serializer.is_valid():
+                with transaction.atomic():
+                    sheet = serializer.save()
 
-                # Obtener maquinaria asociada
-                machinery = sheet.id_machinery
+                headers = self.get_success_headers(serializer.data)
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Ficha técnica específica creada exitosamente",
+                        "data": serializer.data
+                    },
+                    status=status.HTTP_201_CREATED,
+                    headers=headers
+                )
 
-                # Estado de maquinaria en "registro completado" (id = 4, ejemplo)
-                try:
-                    operational_status = Statues.objects.get(id_statues=4)
-                except Statues.DoesNotExist:
-                    return Response(
-                        {"error": "No se encontró el estado de 'registro completado'"},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                # Actualizar estado de la maquinaria
-                machinery.machinery_operational_status = operational_status
-                machinery.save(update_fields=["machinery_operational_status"])
-
-            headers = self.get_success_headers(serializer.data)
-            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
+            # Respuesta explícita 400 para validaciones
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "details": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             return Response(
-                {"error": f"Ocurrió un error al crear la ficha técnica específica: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    "success": False,
+                    "message": "Error inesperado al crear la ficha técnica específica",
+                    "details": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
