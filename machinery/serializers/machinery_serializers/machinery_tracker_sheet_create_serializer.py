@@ -43,11 +43,17 @@ class MachineryTrackerSheetCreateSerializer(serializers.ModelSerializer):
         """
         errors = {}
 
+        # Validar número de serie del terminal (obligatorio)
         if MachineryTrackerSheet.objects.filter(terminal_serial_number=data['terminal_serial_number']).exists():
             errors['terminal_serial_number'] = "Este número de serie de terminal ya está registrado."
 
-        if MachineryTrackerSheet.objects.filter(gps_serial_number=data['gps_serial_number']).exists():
-            errors['gps_serial_number'] = "Este número de serie de GPS ya está registrado."
+        # Validar número de serie del GPS solo si no está vacío
+        gps_serial = data.get('gps_serial_number', '')
+        if gps_serial:
+            if MachineryTrackerSheet.objects.filter(gps_serial_number=gps_serial).exists():
+                errors['gps_serial_number'] = "Este número de serie de GPS ya está registrado."
+        else:
+            data['gps_serial_number'] = None
 
         if errors:
             raise serializers.ValidationError(errors)
