@@ -8,6 +8,7 @@ from rest_framework import serializers
 class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
     queryset = SpecificTechnicalSheet.objects.all()
     serializer_class = SpecificTechnicalSheetCreateSerializer
+    http_method_names = ["get", "post", "put"]
 
     def create(self, request, *args, **kwargs):
         """
@@ -57,9 +58,9 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         """
-        Actualiza una ficha técnica específica existente (PUT o PATCH).
+        Actualizar ficha técnica específica existente.
         """
-        partial = kwargs.pop("partial", False)
+        partial = False
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
 
@@ -95,10 +96,3 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-    def partial_update(self, request, *args, **kwargs):
-        """
-        Actualiza parcialmente una ficha técnica específica existente (PATCH).
-        """
-        kwargs["partial"] = True
-        return self.update(request, *args, **kwargs)
