@@ -91,7 +91,8 @@ class MachineryViewSet(viewsets.ViewSet):
                 return Response(
                     {
                         "success": True,
-                        "message": "Maquinaria y ficha general creada exitosamente"
+                        "message": "Maquinaria y ficha general creada exitosamente",
+                        "machinery_id": serializer.instance.id_machinery
                     },
                     status=status.HTTP_201_CREATED
                 )
