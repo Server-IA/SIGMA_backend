@@ -7,6 +7,8 @@ from parameterization.models import Statues
 from machinery.serializers.machinery_serializers.machinery_general_sheet_create_serializer import (
     MachineryGeneralSheetCreateSerializer
 )
+from machinery.serializers.machinery_serializers.machinery_list_serializer import MachineryListSerializer
+from django.db.models import Q
 from django.utils import timezone
 import logging
 
@@ -16,6 +18,45 @@ class MachineryViewSet(viewsets.ViewSet):
     """
     ViewSet para manejar las operaciones de maquinaria.
     """
+    
+    @action(detail=False, methods=['get'], url_path='list')
+    def list_machinery(self, request):
+        """
+        Lista todas las máquinas con información básica.
+        
+        Incluye:
+        - image_path: Ruta de la imagen de la máquina
+        - machinery_name: Nombre de la máquina
+        - serial_number: Número de serie
+        - machinery_secondary_type: ID y nombre del subtipo de maquinaria
+        - acquisition_date: Fecha de adquisición (de la ficha de uso)
+        - machinery_operational_status: ID y nombre del estado operativo
+        """
+        try:
+            queryset = Machinery.objects.select_related(
+                'machinery_secondary_type',
+                'machinery_operational_status'
+            ).prefetch_related(
+                'machineryusagesheet_set'  # Default related_name for the reverse relation
+            ).all()
+            
+            serializer = MachineryListSerializer(queryset, many=True, context={'request': request})
+            
+            return Response({
+                'success': True,
+                'data': serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error listing machinery: {str(e)}")
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Error al listar la maquinaria',
+                    'error': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=False, methods=['post'], url_path='create-general-sheet')
     @parser_classes([MultiPartParser, FormParser])
@@ -50,7 +91,8 @@ class MachineryViewSet(viewsets.ViewSet):
                 return Response(
                     {
                         "success": True,
-                        "message": "Maquinaria y ficha general creada exitosamente"
+                        "message": "Maquinaria y ficha general creada exitosamente",
+                        "machinery_id": serializer.instance.id_machinery
                     },
                     status=status.HTTP_201_CREATED
                 )
