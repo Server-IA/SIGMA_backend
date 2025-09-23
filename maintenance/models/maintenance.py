@@ -21,18 +21,18 @@ class Maintenance(models.Model):
         db_column='maintenance_type',
     )
     maintenance_status = models.ForeignKey(
-        'parameterization.Types',
+        'parameterization.Statues',
         on_delete=models.PROTECT,
         related_name='maintenances_by_status',
         db_column='maintenance_status',
-        default=1,  
-)
+        null=False
+    )
 
     # Usuario involucrado en la acción sobre Maintenance
     id_responsible_user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
+        'users.User',  # Referencia al modelo User personalizado
+        on_delete=models.PROTECT,
+        null=False,
         related_name='maintenances_responsible',
         db_column='id_responsible_user',
     )

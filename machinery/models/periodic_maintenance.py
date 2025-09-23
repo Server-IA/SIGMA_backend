@@ -10,7 +10,7 @@ class PeriodicMaintenanceScheduling(models.Model):
 
     machinery = models.ForeignKey(
         Machinery,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="periodic_maintenances",
         db_column="id_machinery",
     )
