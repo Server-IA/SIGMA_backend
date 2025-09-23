@@ -3,3 +3,4 @@ from .telemetry_devices import TelemetryDevices
 from .machinery_tracker_sheet import MachineryTrackerSheet
 from .specific_technical_sheet import SpecificTechnicalSheet
 from .machinery_usage_sheet import MachineryUsageSheet
+from .machinery_documentation import MachineryDocumentation
