@@ -15,7 +15,7 @@ class MaintenanceSerializer(serializers.ModelSerializer):
             "required": "El usuario responsable es obligatorio."
         }
     )
-    
+
     # Campo para el tipo de mantenimiento
     maintenance_type = serializers.PrimaryKeyRelatedField(
         queryset=Types.objects.all(),
@@ -24,7 +24,7 @@ class MaintenanceSerializer(serializers.ModelSerializer):
             "required": "El tipo de mantenimiento es obligatorio."
         }
     )
-    
+
     # Campos básicos
     name = serializers.CharField(
         max_length=100,
@@ -33,7 +33,7 @@ class MaintenanceSerializer(serializers.ModelSerializer):
             "max_length": "El nombre no puede exceder 100 caracteres.",
         },
     )
-    
+
     description = serializers.CharField(
         max_length=300,
         trim_whitespace=True,
@@ -75,7 +75,7 @@ class MaintenanceSerializer(serializers.ModelSerializer):
                 f"El tipo de mantenimiento debe pertenecer a la categoría '{expected_category.name}'."
             )
         return value
-        
+
     def validate_name(self, value):
         value = value.strip()
         # Obtener la instancia actual si existe (para actualización)
@@ -87,7 +87,7 @@ class MaintenanceSerializer(serializers.ModelSerializer):
         if qs.exists():
             raise serializers.ValidationError("Ya existe un mantenimiento con este nombre.")
         return value
-        
+
     def validate_maintenance_type(self, value):
         """
         Valida que el tipo de mantenimiento pertenezca a la categoría con id 12.
@@ -98,7 +98,7 @@ class MaintenanceSerializer(serializers.ModelSerializer):
                 f"El tipo de mantenimiento debe pertenecer a la categoría '{expected_category.name}'."
             )
         return value
-        
+
     def create(self, validated_data):
         """
         Crea una nueva instancia de mantenimiento.
@@ -109,7 +109,7 @@ class MaintenanceSerializer(serializers.ModelSerializer):
             maintenance_status=default_status
         )
         return instance
-        
+
 def update(self, instance, validated_data):
     """
     Actualiza una instancia existente de mantenimiento.
