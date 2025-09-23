@@ -7,9 +7,11 @@ from rest_framework.response import Response
 from maintenance.models import Maintenance
 from maintenance.serializers import MaintenanceSerializer
 
-# TEMP vars
-FALLBACK_USER_ID = 1 
+from django.contrib.auth import get_user_model # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN 
+FAKE_USER_ID = 1  # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN 
 
+
+    
 class MaintenanceViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -28,10 +30,28 @@ class MaintenanceViewSet(
     serializer_class = MaintenanceSerializer
 
     # Permisos 
-    # permission_classes = [IsAuthenticated] # uncomment when auth is set up
-    def get_permissions(self):
-        return [AllowAny()]
-
+    # permission_classes = [IsAuthenticated] # DESCOMENTAR AL IMPLEMENTAR AUTENTICACIÓN 
+    permission_classes = [AllowAny] # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN 
+    
+    def _actor_user(self): # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN 
+        """
+        Devuelve el usuario autenticado; si no hay (AllowAny),
+        usa el usuario con pk=FAKE_USER_ID.
+        """
+        u = getattr(self.request, "user", None)
+        if u and getattr(u, "is_authenticated", False):
+            return u
+        User = get_user_model()
+        try:
+            return User.objects.get(pk=FAKE_USER_ID)
+        except User.DoesNotExist:
+            # fallback por si la tabla está vacía: crea uno mínimo
+            return User.objects.create(
+                username="dev",
+                email="dev@example.com",
+                is_staff=True,
+                is_active=True,
+            )
     # Filtros
     def get_queryset(self):
         qs = super().get_queryset()
@@ -58,12 +78,13 @@ class MaintenanceViewSet(
 
     # ---------- Hooks para asignar responsable ----------
     def perform_create(self, serializer):
-        # serializer.save(id_responsible_user=self.request.user)
-        serializer.save(id_responsible_user_id=FALLBACK_USER_ID)  
+        # serializer.save(id_responsible_user=self.request.user) # DESCOMENTAR AL IMPLEMENTAR AUTENTICACIÓN
+        serializer.save(id_responsible_user=self._actor_user()) # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN
 
     def perform_update(self, serializer):
-        # serializer.save(id_responsible_user=self.request.user)
-        serializer.save(id_responsible_user_id=FALLBACK_USER_ID)
+        # serializer.save(id_responsible_user=self.request.user) # DESCOMENTAR AL IMPLEMENTAR AUTENTICACIÓN
+        serializer.save(id_responsible_user=self._actor_user()) # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN
+
     @transaction.atomic
     def create(self, request, *args, **kwargs):
         ser = self.get_serializer(data=request.data)
@@ -89,7 +110,7 @@ class MaintenanceViewSet(
             instance = self.get_object()
         except Http404:
             return self._not_found()
-        data = self.get_serializer(instance).data
+        data = self.get_serializer(instance).data # RIGHT HERE VAL if maintenance_status = '1'
         return Response({"success": True, "message": "OK", "data": data}, status=status.HTTP_200_OK)
 
     @transaction.atomic

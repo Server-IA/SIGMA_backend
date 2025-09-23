@@ -4,9 +4,15 @@ from django.db import models
 class Maintenance(models.Model):
     id_maintenance = models.AutoField(primary_key=True)
 
-    name = models.CharField(max_length=255)
-    description = models.TextField()
-
+    name = models.CharField(
+        max_length=100,   # ejemplo: 100 caracteres máximo
+        unique=True,      # evita duplicados en BD
+        db_column="name"
+    )
+    description = models.CharField(
+        max_length=300,
+        db_column="description"
+    )
     # FKs a parameterization.Types
     maintenance_type = models.ForeignKey(
         'parameterization.Types',
@@ -19,7 +25,8 @@ class Maintenance(models.Model):
         on_delete=models.PROTECT,
         related_name='maintenances_by_status',
         db_column='maintenance_status',
-    )
+        default=1,  
+)
 
     # Usuario involucrado en la acción sobre Maintenance
     id_responsible_user = models.ForeignKey(
