@@ -57,8 +57,8 @@ class SpecificTechnicalSheet(models.Model):
     emission_level_type = models.ForeignKey('parameterization.Types', on_delete=models.PROTECT, null=True, blank=True, related_name='emission_level_type')
     cabin_type = models.ForeignKey('parameterization.Types', on_delete=models.PROTECT, null=True, blank=True, related_name='cabin_type')
 
-    # Relación con la máquina
-    id_machinery = models.ForeignKey(Machinery, on_delete=models.PROTECT)
+    # Relación con la máquina (una por máquina)
+    id_machinery = models.OneToOneField(Machinery, on_delete=models.PROTECT, unique=True)
 
     #fecha y usuario responsable
     registration_date = models.DateField(auto_now=True)

@@ -86,6 +86,19 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
         queryset=Units.objects.all()
     )
 
+    def validate(self, attrs):
+        """
+        Validación personalizada para asegurar que no exista ya una hoja técnica para esta máquina.
+        """
+        id_machinery = attrs.get('id_machinery')
+        
+        if id_machinery and SpecificTechnicalSheet.objects.filter(id_machinery=id_machinery).exists():
+            raise serializers.ValidationError({
+                'id_machinery': 'Ya existe una hoja técnica específica para esta máquina.'
+            })
+            
+        return attrs
+
     class Meta:
         model = SpecificTechnicalSheet
         fields = [
