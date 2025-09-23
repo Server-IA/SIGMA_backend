@@ -1,17 +1,21 @@
 from django.db import IntegrityError, transaction
 from django.http import Http404
 from rest_framework import viewsets, mixins, status, serializers
-from rest_framework.permissions import IsAuthenticated, AllowAny  
+from rest_framework.permissions import AllowAny  # <- temporal
 from rest_framework.response import Response
 
 from maintenance.models import Maintenance
-from maintenance.serializers import MaintenanceSerializer
+from maintenance.serializers.maintenance_serializer import (
+    MaintenanceSerializer,
+    MaintenanceListSerializer,
+)
 
-from django.contrib.auth import get_user_model # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN 
-FAKE_USER_ID = 1  # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN 
+# ---- TEMPORAL: quitar en contexto de auth ----
+from django.contrib.auth import get_user_model
+FAKE_USER_ID = 1
+# ------------------------------------------------
 
 
-    
 class MaintenanceViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -26,18 +30,28 @@ class MaintenanceViewSet(
         - ?maintenance_type=<id>
         - ?maintenance_status=<id>
     """
-    queryset = Maintenance.objects.select_related("maintenance_type", "maintenance_status", "id_responsible_user").all()
-    serializer_class = MaintenanceSerializer
 
-    # Permisos 
-    # permission_classes = [IsAuthenticated] # DESCOMENTAR AL IMPLEMENTAR AUTENTICACIÓN 
-    permission_classes = [AllowAny] # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN 
-    
-    def _actor_user(self): # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN 
-        """
-        Devuelve el usuario autenticado; si no hay (AllowAny),
-        usa el usuario con pk=FAKE_USER_ID.
-        """
+    queryset = (
+        Maintenance.objects.select_related(
+            "maintenance_type",
+            "maintenance_type__id_statues",
+            "maintenance_status",         
+            "id_responsible_user",
+        )
+        .all()
+        .order_by("-id_maintenance")
+    )
+
+    # permission_classes = [IsAuthenticated]  # <- habilitar cuando haya auth 
+    permission_classes = [AllowAny]  # <- temporal para pruebas
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return MaintenanceListSerializer
+        return MaintenanceSerializer
+
+    # ---- TEMPORAL: usuario “fake” mientras no hay auth ----
+    def _actor_user(self):
         u = getattr(self.request, "user", None)
         if u and getattr(u, "is_authenticated", False):
             return u
@@ -45,14 +59,14 @@ class MaintenanceViewSet(
         try:
             return User.objects.get(pk=FAKE_USER_ID)
         except User.DoesNotExist:
-            # fallback por si la tabla está vacía: crea uno mínimo
             return User.objects.create(
                 username="dev",
                 email="dev@example.com",
                 is_staff=True,
                 is_active=True,
             )
-    # Filtros
+
+    # ---------- Filtros ----------
     def get_queryset(self):
         qs = super().get_queryset()
         mt = self.request.query_params.get("maintenance_type")
@@ -67,23 +81,25 @@ class MaintenanceViewSet(
                 qs = qs.filter(maintenance_status_id=int(ms))
             except ValueError:
                 qs = qs.none()
-        return qs.order_by("-id_maintenance")
+        return qs
 
-    # Helpers
+    # ---------- Helpers ----------
     def _not_found(self):
         return Response(
-            {"success": False, "message": "Recurso no encontrado.", "errors": {"id": ["No existe el mantenimiento solicitado."]}},
+            {
+                "success": False,
+                "message": "Recurso no encontrado.",
+                "errors": {"id": ["No existe el mantenimiento solicitado."]},
+            },
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    # ---------- Hooks para asignar responsable ----------
+    # ---------- Hooks ----------
     def perform_create(self, serializer):
-        # serializer.save(id_responsible_user=self.request.user) # DESCOMENTAR AL IMPLEMENTAR AUTENTICACIÓN
-        serializer.save(id_responsible_user=self._actor_user()) # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN
+        serializer.save(id_responsible_user=self._actor_user())  # TEMP
 
     def perform_update(self, serializer):
-        # serializer.save(id_responsible_user=self.request.user) # DESCOMENTAR AL IMPLEMENTAR AUTENTICACIÓN
-        serializer.save(id_responsible_user=self._actor_user()) # ELIMINAR AL IMPLEMENTAR AUTENTICACIÓN
+        serializer.save(id_responsible_user=self._actor_user())  # TEMP
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -92,25 +108,37 @@ class MaintenanceViewSet(
             ser.is_valid(raise_exception=True)
             self.perform_create(ser)
         except serializers.ValidationError as ve:
-            return Response({"success": False, "message": "Datos inválidos.", "errors": ve.detail},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": "Datos inválidos.", "errors": ve.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except IntegrityError:
-            return Response({"success": False, "message": "Conflicto de datos.", "errors": {"detail": ["Registro duplicado o restricción violada."]}},
-                            status=status.HTTP_409_CONFLICT)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Conflicto de datos.",
+                    "errors": {"detail": ["Registro duplicado o restricción violada."]},
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except Exception as e:
-            return Response({"success": False, "message": "Error inesperado.", "errors": {"detail": [str(e)]}},
-                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+            return Response(
+                {"success": False, "message": "Error inesperado.", "errors": {"detail": [str(e)]}},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         headers = self.get_success_headers(ser.data)
-        return Response({"success": True, "message": "Mantenimiento creado correctamente.", "data": ser.data},
-                        status=status.HTTP_201_CREATED, headers=headers)
+        return Response(
+            {"success": True, "message": "Mantenimiento creado correctamente.", "data": ser.data},
+            status=status.HTTP_201_CREATED,
+            headers=headers,
+        )
 
     def retrieve(self, request, *args, **kwargs):
         try:
             instance = self.get_object()
         except Http404:
             return self._not_found()
-        data = self.get_serializer(instance).data # RIGHT HERE VAL if maintenance_status = '1'
+        data = self.get_serializer(instance).data
         return Response({"success": True, "message": "OK", "data": data}, status=status.HTTP_200_OK)
 
     @transaction.atomic
@@ -126,17 +154,28 @@ class MaintenanceViewSet(
             ser.is_valid(raise_exception=True)
             self.perform_update(ser)
         except serializers.ValidationError as ve:
-            return Response({"success": False, "message": "Datos inválidos.", "errors": ve.detail},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": "Datos inválidos.", "errors": ve.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except IntegrityError:
-            return Response({"success": False, "message": "Conflicto de datos.", "errors": {"detail": ["Registro duplicado o restricción violada."]}},
-                            status=status.HTTP_409_CONFLICT)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Conflicto de datos.",
+                    "errors": {"detail": ["Registro duplicado o restricción violada."]},
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except Exception as e:
-            return Response({"success": False, "message": "Error inesperado.", "errors": {"detail": [str(e)]}},
-                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        return Response({"success": True, "message": "Mantenimiento actualizado correctamente.", "data": ser.data},
-                        status=status.HTTP_200_OK)
+            return Response(
+                {"success": False, "message": "Error inesperado.", "errors": {"detail": [str(e)]}},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(
+            {"success": True, "message": "Mantenimiento actualizado correctamente.", "data": ser.data},
+            status=status.HTTP_200_OK,
+        )
 
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
@@ -148,7 +187,15 @@ class MaintenanceViewSet(
         try:
             instance.delete()
         except IntegrityError:
-            return Response({"success": False, "message": "No se puede eliminar.", "errors": {"detail": ["Existen referencias a este mantenimiento."]}},
-                            status=status.HTTP_409_CONFLICT)
-        return Response({"success": True, "message": "Mantenimiento eliminado correctamente.", "data": None},
-                        status=status.HTTP_200_OK)
+            return Response(
+                {
+                    "success": False,
+                    "message": "No se puede eliminar.",
+                    "errors": {"detail": ["Existen referencias a este mantenimiento."]},
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {"success": True, "message": "Mantenimiento eliminado correctamente.", "data": None},
+            status=status.HTTP_200_OK,
+        )

@@ -5,6 +5,13 @@ from maintenance.models.maintenance import Maintenance
 
 
 class PeriodicMaintenanceCreateUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer para la creación de mantenimientos periódicos.
+    Campos obligatorios:
+        - id_machinery
+        - id_maintenance
+        - Una de las dos medidas: usage_hours o distance_km
+    """
     id_machinery = serializers.IntegerField(write_only=True, required=False)
     id_maintenance = serializers.IntegerField(write_only=True, required=False)
 
@@ -45,7 +52,6 @@ class PeriodicMaintenanceCreateUpdateSerializer(serializers.ModelSerializer):
         is_create = self.instance is None
         id_machinery, id_maintenance = self._resolve_ids(attrs)
 
-        # ---- requeridos (solo create)
         if is_create and id_machinery is None:
             raise serializers.ValidationError({"id_machinery": ["Debe seleccionar una maquinaria."]})
         if is_create and id_maintenance is None:
@@ -53,8 +59,7 @@ class PeriodicMaintenanceCreateUpdateSerializer(serializers.ModelSerializer):
         if is_create and ("usage_hours" not in attrs and "distance_km" not in attrs):
             raise serializers.ValidationError({"non_field_errors": ["Debe indicar horas de uso o distancia."]})
 
-        # ---- preparar “propuesta” de valores tras el PATCH
-        # Si llega solo una medida en PATCH, interpretamos cambio de modalidad y anulamos la otra
+
         if self.instance:
             proposed_usage = attrs.get("usage_hours", self.instance.usage_hours)
             proposed_distance = attrs.get("distance_km", self.instance.distance_km)
@@ -67,7 +72,6 @@ class PeriodicMaintenanceCreateUpdateSerializer(serializers.ModelSerializer):
             proposed_usage = attrs.get("usage_hours")
             proposed_distance = attrs.get("distance_km")
 
-        # ---- regla XOR: exactamente una medida
         has_usage = proposed_usage is not None
         has_distance = proposed_distance is not None
         if has_usage and has_distance:
@@ -75,18 +79,17 @@ class PeriodicMaintenanceCreateUpdateSerializer(serializers.ModelSerializer):
                 "non_field_errors": ["Solo puede registrar una longitud de medida: horas o distancia (no ambas)."]
             })
         if not has_usage and not has_distance:
-            # (solo cae aquí en PATCH cuando quitaste una y no enviaste la otra)
             raise serializers.ValidationError({
                 "non_field_errors": ["Debe proporcionar al menos una medida: horas o distancia."]
             })
 
-        # ---- validar existencias de FKs
+        # Validar existencia de FKs
         if id_machinery is not None and not Machinery.objects.filter(pk=id_machinery).exists():
             raise serializers.ValidationError({"id_machinery": ["La maquinaria no existe."]})
         if id_maintenance is not None and not Maintenance.objects.filter(pk=id_maintenance).exists():
             raise serializers.ValidationError({"id_maintenance": ["El mantenimiento no existe."]})
 
-        # ---- validar duplicados (independiente de la modalidad)
+        # Validar duplicados 
         if id_machinery is not None and id_maintenance is not None:
             qs = PeriodicMaintenanceScheduling.objects.filter(
                 machinery_id=id_machinery,
@@ -120,7 +123,6 @@ class PeriodicMaintenanceCreateUpdateSerializer(serializers.ModelSerializer):
         if "id_maintenance" in validated_data:
             instance.maintenance_id = validated_data["id_maintenance"]
 
-        # aplicar “switch” de modalidad según lo propuesto en validate()
         if "_proposed_usage_hours" in validated_data or "_proposed_distance_km" in validated_data:
             instance.usage_hours = validated_data.get("_proposed_usage_hours")
             instance.distance_km = validated_data.get("_proposed_distance_km")
