@@ -18,7 +18,7 @@
 | Pasos (AAA) | **Arrange:** Configurar mocks para lookups de modelos y serializer válido.<br>**Act:** Enviar solicitud POST al endpoint '/machinery-usage/create/' con datos válidos.<br>**Assert:** Verificar código 201, success=True, mensaje 'Ficha de uso registrada exitosamente'. |
 | Resultado Esperado | Código 201 con success=True y mensaje de éxito. |
 | Resultado Obtenido | Código de estado: 201<br>Respuesta: {'success': True, 'message': 'Ficha de uso registrada exitosamente.'} |
-| Estado | PASÓ |
+| Estado | APROBADO |
 | Fecha Ejecución | September 23, 2025 |
 | Ejecutado por | Juan Nicolás Urrutia |
 
@@ -36,7 +36,7 @@
 | Pasos (AAA) | **Arrange:** Configurar mocks y serializer válido con campos de contrato.<br>**Act:** Enviar POST con datos válidos incluyendo tenancy_type y contract_end_date.<br>**Assert:** Código 201, success=True, mensaje de éxito. |
 | Resultado Esperado | Código 201 con success=True. |
 | Resultado Obtenido | Código de estado: 201<br>Respuesta: {'success': True, 'message': 'Ficha de uso registrada exitosamente.'} |
-| Estado | PASÓ |
+| Estado | APROBADO |
 | Fecha Ejecución | September 23, 2025 |
 | Ejecutado por | Juan Nicolás Urrutia |
 
@@ -54,7 +54,7 @@
 | Pasos (AAA) | **Arrange:** Configurar serializer para devolver error específico por campo faltante.<br>**Act:** Enviar POST omitiendo un campo obligatorio cada vez.<br>**Assert:** Código 400, success=False, mensaje 'Error de validación', campo en details. |
 | Resultado Esperado | Código 400 con error específico para cada campo faltante. |
 | Resultado Obtenido | Código de estado: 400<br>Respuesta: {'success': False, 'message': 'Error de validación', 'details': {'campo_faltante': ['This field is required.']}} para cada campo. |
-| Estado | PASÓ |
+| Estado | APROBADO |
 | Fecha Ejecución | September 23, 2025 |
 | Ejecutado por | Juan Nicolás Urrutia |
 
@@ -72,7 +72,7 @@
 | Pasos (AAA) | **Arrange:** Configurar serializer para error de formato de fecha.<br>**Act:** Enviar POST con fecha en formato incorrecto.<br>**Assert:** Código 400, error en acquisition_date. |
 | Resultado Esperado | Código 400 con mensaje de formato de fecha. |
 | Resultado Obtenido | Código de estado: 400<br>Respuesta: {'success': False, 'message': 'Error de validación', 'details': {'acquisition_date': ['Date has wrong format. Use one of these formats instead: YYYY-MM-DD.']}} |
-| Estado | PASÓ |
+| Estado | APROBADO |
 | Fecha Ejecución | September 23, 2025 |
 | Ejecutado por | Juan Nicolás Urrutia |
 
@@ -90,7 +90,7 @@
 | Pasos (AAA) | **Arrange:** Configurar serializer para errores en campos de contrato.<br>**Act:** Enviar POST sin tenancy_type y contract_end_date.<br>**Assert:** Código 400, errores en tenancy_type y contract_end_date. |
 | Resultado Esperado | Código 400 con errores para campos de contrato. |
 | Resultado Obtenido | Código de estado: 400<br>Respuesta: {'success': False, 'message': 'Error de validación', 'details': {'tenancy_type': ['This field is required.'], 'contract_end_date': ['This field is required.']}} |
-| Estado | PASÓ |
+| Estado | APROBADO |
 | Fecha Ejecución | September 23, 2025 |
 | Ejecutado por | Juan Nicolás Urrutia |
 
@@ -108,7 +108,7 @@
 | Pasos (AAA) | **Arrange:** Configurar serializer para error de formato.<br>**Act:** Enviar POST con fecha inválida.<br>**Assert:** Código 400, error en contract_end_date. |
 | Resultado Esperado | Código 400 con mensaje de formato. |
 | Resultado Obtenido | Código de estado: 400<br>Respuesta: {'success': False, 'message': 'Error de validación', 'details': {'contract_end_date': ['Date has wrong format. Use one of these formats instead: YYYY-MM-DD.']}} |
-| Estado | PASÓ |
+| Estado | APROBADO |
 | Fecha Ejecución | September 23, 2025 |
 | Ejecutado por | Juan Nicolás Urrutia |
 
@@ -126,7 +126,7 @@
 | Pasos (AAA) | **Arrange:** Configurar serializer para error de existencia.<br>**Act:** Enviar POST con ID inexistente.<br>**Assert:** Código 400, error en id_machinery. |
 | Resultado Esperado | Código 400 con mensaje de maquinaria no encontrada. |
 | Resultado Obtenido | Código de estado: 400<br>Respuesta: {'success': False, 'message': 'Error de validación', 'details': {'id_machinery': ['No machinery found with this id.']}} |
-| Estado | PASÓ |
+| Estado | APROBADO |
 | Fecha Ejecución | September 23, 2025 |
 | Ejecutado por | Juan Nicolás Urrutia |
 
@@ -144,7 +144,7 @@
 | Pasos (AAA) | **Arrange:** Configurar serializer para error de existencia.<br>**Act:** Enviar POST con ID inexistente.<br>**Assert:** Código 400, error en responsible_user. |
 | Resultado Esperado | Código 400 con mensaje de usuario no encontrado. |
 | Resultado Obtenido | Código de estado: 400<br>Respuesta: {'success': False, 'message': 'Error de validación', 'details': {'responsible_user': ['No user found with this id.']}} |
-| Estado | PASÓ |
+| Estado | APROBADO |
 | Fecha Ejecución | September 23, 2025 |
 | Ejecutado por | Juan Nicolás Urrutia |
 
