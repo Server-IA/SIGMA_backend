@@ -96,8 +96,9 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'id_machinery': 'Ya existe una hoja técnica específica para esta máquina.'
             })
-            
+
         return attrs
+
 
     class Meta:
         model = SpecificTechnicalSheet
@@ -243,6 +244,18 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
                 data["operating_weight"] = str(data["operating_weight"])
             except Exception:
                 raise ValidationError({"operating_weight": "Valor inválido para operating_weight."})
+
+        # === Unicidad: una sola ficha por maquinaria ===
+        # Permite actualizar la misma instancia sin disparar el error
+        id_machinery = data.get("id_machinery")
+        if id_machinery is not None:
+            qs = SpecificTechnicalSheet.objects.filter(id_machinery=id_machinery)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise ValidationError({
+                    "id_machinery": "Ya existe una hoja técnica específica para esta máquina."
+                })
 
         for field, expected_category in unit_category_map.items():
             if field in data and data[field]:
