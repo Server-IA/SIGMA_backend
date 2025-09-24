@@ -1,5 +1,5 @@
-# Reporte de Casos de Prueba - UT-MAQ-009
-## Pruebas Unitarias para Endpoint de Listado de Maquinarias
+# Reporte de Casos de Prueba - UT-MAQ-008
+## Pruebas Unitarias para Endpoint de consultar maquinaria
 
 ---
 
@@ -7,7 +7,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009 |
+|| **ID** | UT-MAQ-008 |
 || **Título** | Listar maquinarias — camino feliz (estructura y contenido mínimo) |
 || **Descripción** | Verificar que el endpoint retorna success=true y una lista data con elementos de maquinaria, incluyendo los campos del contrato de respuesta. |
 || **Precondiciones** | - BD con maquinarias registradas (por lo menos las del ejemplo: ids 1–14)<br>- Usuario con permiso de consulta<br>- Contenedores Docker activos |
@@ -25,7 +25,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.1 |
+|| **ID** | UT-MAQ-008.1 |
 || **Título** | Validación de tipos y presencia de campos por ítem |
 || **Descripción** | Validar tipos y nulabilidad: image_path y acquisition_date pueden ser null; campos obligatorios tienen tipos correctos. |
 || **Precondiciones** | - BD contiene elementos con image_path y acquisition_date null y otros con valores<br>- Usuario autenticado |
@@ -43,7 +43,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.2 |
+|| **ID** | UT-MAQ-008.2 |
 || **Título** | Permisos: usuario sin permiso de consulta |
 || **Descripción** | Confirmar comportamiento de acceso según implementación actual de permisos. |
 || **Precondiciones** | - Usuario autenticado sin permisos específicos de consulta<br>- Sistema actual sin permisos granulares implementados |
@@ -61,7 +61,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.3 |
+|| **ID** | UT-MAQ-008.3 |
 || **Título** | Resiliencia ante error de red |
 || **Descripción** | Simular fallo de red/timeout y validar mensaje de error amigable. |
 || **Precondiciones** | - Simulación de error en consulta de base de datos<br>- Mock de fallo de conectividad |
@@ -79,7 +79,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.4 |
+|| **ID** | UT-MAQ-008.4 |
 || **Título** | Método HTTP no permitido |
 || **Descripción** | Verificar que POST (u otros métodos) no sean aceptados si el endpoint es GET. |
 || **Precondiciones** | - Endpoint configurado como GET únicamente |
@@ -97,7 +97,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.5 |
+|| **ID** | UT-MAQ-008.5 |
 || **Título** | Manejo de image_path nulo (placeholder en UI / sin errores de carga) |
 || **Descripción** | Validar que image_path=null no provoque errores y que el contrato se mantenga. |
 || **Precondiciones** | - Al menos un ítem con image_path=null en BD<br>- Usuario autenticado |
@@ -115,7 +115,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.6 |
+|| **ID** | UT-MAQ-008.6 |
 || **Título** | Consistencia de catálogo de tipo secundario |
 || **Descripción** | Verificar correspondencia entre id_machinery_secondary_type y machinery_secondary_type_name (p. ej., 5 ↔ "tractor"). |
 || **Precondiciones** | - Catálogo de tipos secundarios cargado en BD<br>- Relaciones FK establecidas correctamente |
@@ -133,7 +133,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.7 |
+|| **ID** | UT-MAQ-008.7 |
 || **Título** | Consistencia de estado operativo |
 || **Descripción** | Verificar que id_machinery_operational_status corresponde a etiqueta válida. |
 || **Precondiciones** | - Catálogo de estados operativos cargado<br>- Estados válidos: "Activa", "En mantenimiento", "En registro", etc. |
@@ -151,7 +151,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.8 |
+|| **ID** | UT-MAQ-008.8 |
 || **Título** | Formato de fecha acquisition_date (ISO-8601) |
 || **Descripción** | Validar que cuando haya fecha, tenga formato YYYY-MM-DD; cuando no, sea null. |
 || **Precondiciones** | - BD con algunos ítems con fecha (ej.: "2023-01-15") y otros con null |
@@ -169,7 +169,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.9 |
+|| **ID** | UT-MAQ-008.9 |
 || **Título** | No duplicidad de id_machinery en la lista |
 || **Descripción** | Confirmar que cada maquinaria aparezca una sola vez en data. |
 || **Precondiciones** | - BD sin duplicados lógicos; índices/constraints activos |
@@ -187,7 +187,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.10 |
+|| **ID** | UT-MAQ-008.10 |
 || **Título** | Contrato mínimo para "Ver detalle" (navegabilidad por ID) |
 || **Descripción** | Asegurar que cada ítem incluye id_machinery necesario para abrir el modal de detalle. |
 || **Precondiciones** | - Frontend consume id_machinery para la acción "Ver detalle" |
@@ -205,7 +205,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.11 |
+|| **ID** | UT-MAQ-008.11 |
 || **Título** | No exposición de datos sensibles |
 || **Descripción** | Confirmar que la respuesta solo contenga los campos definidos y no exponga información sensible. |
 || **Precondiciones** | - Backend con serializadores configurados<br>- Lista de campos sensibles definida |
@@ -223,7 +223,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.12 |
+|| **ID** | UT-MAQ-008.12 |
 || **Título** | Robustez ante URL de imagen con espacios/encoding |
 || **Descripción** | Validar que image_path con espacios o encoding atípico no rompa el contrato. |
 || **Precondiciones** | - Al menos un ítem con image_path que contenga espacios<br>- Datos con caracteres especiales en URLs |
@@ -241,7 +241,7 @@
 
 || Campo | Descripción |
 ||-------|-------------|
-|| **ID** | UT-MAQ-009.13 |
+|| **ID** | UT-MAQ-008.13 |
 || **Título** | Rendimiento básico con lista mediana (≥ 100 ítems) |
 || **Descripción** | Validar que el endpoint responde en tiempo aceptable con cantidad mediana de maquinarias. |
 || **Precondiciones** | - BD poblada con ≥ 100 registros de maquinaria<br>- Logs habilitados para medición |
