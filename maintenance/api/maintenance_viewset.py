@@ -7,6 +7,7 @@ from rest_framework.permissions import AllowAny
 from django.db import transaction, IntegrityError
 from django.http import Http404
 from django.db.models import Q
+from parameterization.models import Statues
 
 from maintenance.models import Maintenance
 from maintenance.serializers.maintenance_serializer import MaintenanceSerializer
@@ -22,7 +23,7 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         """
         Usa el serializador de lista para listar y el detallado para el resto de acciones.
         """
-        if self.action == 'list':
+        if self.action == 'list' or self.action == 'active':
             return MaintenanceListSerializer
         return MaintenanceSerializer
         
@@ -31,6 +32,26 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         Retorna el queryset ordenado por fecha de registro descendente.
         """
         return super().get_queryset().order_by('-registration_date')
+
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        """
+        Lista todos los mantenimientos activos.
+        """
+        try:
+            active_status = Statues.objects.get(pk=1)  # Asumiendo que 1 es el ID para estado activo
+            queryset = self.get_queryset().filter(maintenance_status=active_status)
+            serializer = self.get_serializer(queryset, many=True)
+            return Response({
+                "success": True,
+                "message": "Mantenimientos activos listados correctamente.",
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+        except Statues.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Estado activo no encontrado.", "errors": {"detail": ["El estado activo no está configurado correctamente."]}},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     # Helpers
     def _not_found(self):
