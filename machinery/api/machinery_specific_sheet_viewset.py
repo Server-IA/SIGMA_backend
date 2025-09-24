@@ -1,6 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from django.db import transaction
+from django.utils import timezone
 from machinery.models import SpecificTechnicalSheet, Machinery
 from machinery.serializers.machinery_serializers.machinery_specific_sheet_create_serializer import SpecificTechnicalSheetCreateSerializer
 from rest_framework import serializers
@@ -58,23 +59,40 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         """
-        Actualizar ficha técnica específica existente.
+        Actualiza la ficha técnica específica.
+        No permite actualizar el ID de la maquinaria.
+        Actualiza automáticamente la fecha de modificación y el usuario que realizó la modificación.
         """
-        partial = False
+        partial = kwargs.pop('partial', False)
         instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        
+        # Hacer una copia de los datos de la solicitud
+        data = request.data.copy()
+        
+        # Si se incluye id_machinery, lo reemplazamos por el valor actual de la instancia
+        # para evitar que se modifique pero cumplir con la validación del serializador
+        if 'id_machinery' in data:
+            data['id_machinery'] = instance.id_machinery_id
+            
+        serializer = self.get_serializer(instance, data=data, partial=partial)
 
         try:
             serializer.is_valid(raise_exception=True)
 
             with transaction.atomic():
+                # Actualizar la fecha de modificación y el usuario responsable
+                instance.modification_date = timezone.now()
+                if request.user and request.user.is_authenticated:
+                    instance.id_responsible_user = request.user
+                instance.save()
+                
+                # Guardar el resto de los datos del serializer
                 serializer.save()
 
             return Response(
                 {
                     "success": True,
-                    "message": "Ficha técnica específica actualizada exitosamente",
-                    "data": serializer.data,
+                    "message": "Ficha técnica específica actualizada exitosamente"
                 },
                 status=status.HTTP_200_OK,
             )
