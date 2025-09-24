@@ -93,6 +93,37 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
                     }
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['patch'], url_path='toggle-status')
+    def toggle_status(self, request, pk=None):
+        """
+        Toggle maintenance status between active (1) and inactive (2).
+        """
+        from parameterization.models import Statues
+        
+        maintenance = self.get_object()
+        
+        try:
+            if maintenance.maintenance_status_id == 1:
+                maintenance.maintenance_status = Statues.objects.get(pk=2)
+                message = "Mantenimiento desactivado exitosamente"
+            else:
+                maintenance.maintenance_status = Statues.objects.get(pk=1)
+                message = "Mantenimiento activado exitosamente"
+                
+            maintenance.save(update_fields=['maintenance_status'])
+            return Response({"success": True, "message": message}, status=status.HTTP_200_OK)
+            
+        except Statues.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Estado no válido."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {"success": False, "message": "Error al cambiar el estado.", "error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         try:
