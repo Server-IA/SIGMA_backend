@@ -4,6 +4,8 @@ from rest_framework.decorators import action, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from machinery.models.machinery_tracker_sheet import MachineryTrackerSheet
 from machinery.serializers.machinery_serializers.machinery_tracker_sheet_create_serializer import MachineryTrackerSheetCreateSerializer
+from machinery.serializers.machinery_serializers.machinery_tracker_sheet_update_serializer import MachineryTrackerSheetUpdateSerializer
+from django.shortcuts import get_object_or_404
 import logging
 
 
@@ -67,6 +69,59 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
                     "success": False,
                     "message": "Error al crear la ficha tecnica de seguimiento de la maquinaria",
                     "details": error_message
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=True, methods=['put'], url_path='update')
+    def update_machinery_tracker(self, request, pk=None):
+        """
+        Actualiza una ficha técnica de seguimiento de la maquinaria.
+        """
+        try:
+            tracker_instance = get_object_or_404(MachineryTrackerSheet, pk=pk)
+
+            serializer = MachineryTrackerSheetUpdateSerializer(
+                tracker_instance,
+                data=request.data,
+                partial=True,  # permite actualizar parcialmente
+                context={'request': request}
+            )
+
+            if serializer.is_valid():
+                serializer.save()
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Ficha técnica de seguimiento actualizada correctamente"
+                    },
+                    status=status.HTTP_200_OK
+                )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación al actualizar la ficha técnica",
+                    "details": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        except MachineryTrackerSheet.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "La ficha técnica de seguimiento no existe",
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error al actualizar la ficha técnica: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al actualizar la ficha técnica de seguimiento de la maquinaria",
+                    "details": str(e)
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
