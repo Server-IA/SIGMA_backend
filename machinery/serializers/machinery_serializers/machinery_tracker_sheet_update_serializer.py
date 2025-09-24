@@ -70,6 +70,8 @@ class MachineryTrackerSheetUpdateSerializer(serializers.ModelSerializer):
         """
         Actualiza los campos, el responsable y la fecha de modificación.
         """
+        registration_date = instance.registration_date
+        
         instance.terminal_serial_number = validated_data.get('terminal_serial_number', instance.terminal_serial_number)
         instance.gps_serial_number = validated_data.get('gps_serial_number', instance.gps_serial_number)
         instance.chassis_number = validated_data.get('chassis_number', instance.chassis_number)
@@ -78,8 +80,19 @@ class MachineryTrackerSheetUpdateSerializer(serializers.ModelSerializer):
         if 'id_responsible_user' in validated_data:
             instance.id_responsible_user = validated_data['id_responsible_user']
 
-        instance.modification_date = timezone.now()
-
-        instance.save()
+        instance.modification_date = timezone.now().date()
+        
+        instance.save(update_fields=[
+            'terminal_serial_number',
+            'gps_serial_number',
+            'chassis_number',
+            'engine_number',
+            'id_responsible_user',
+            'modification_date'
+        ])
+        
+        if instance.registration_date != registration_date:
+            instance.registration_date = registration_date
+            instance.save(update_fields=['registration_date'])
 
         return instance
