@@ -73,3 +73,80 @@ class MachineryViewSet(viewsets.ViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=True, methods=['post'], url_path='confirm-registration')
+    def confirm_registration(self, request, pk=None):
+        """
+        Confirma el registro de una maquinaria cambiando su estado de "En Registro" (id=3) a "Activo" (id=4).
+        
+        Este endpoint:
+        1. Valida que la maquinaria existe
+        2. Verifica que está en estado "En Registro" (id=3)
+        3. Cambia el estado a "Activo" (id=4)
+        4. Actualiza automáticamente la fecha de modificación
+        """
+        try:
+            # Obtener la maquinaria por ID
+            machinery = Machinery.objects.get(pk=pk)
+            
+            # Validar que está en estado "En Registro" (id=3)
+            if machinery.machinery_operational_status.id_statues != 3:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "La maquinaria no está en estado de registro",
+                        "details": f"Estado actual: {machinery.machinery_operational_status.name if hasattr(machinery.machinery_operational_status, 'name') else machinery.machinery_operational_status.id_statues}"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Obtener el estado "Activo" (id=4)
+            try:
+                active_status = Statues.objects.get(id_statues=4)
+            except Statues.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Estado activo no encontrado en el sistema",
+                        "details": "No existe un estado con id=4"
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # Cambiar el estado a "Activo"
+            machinery.machinery_operational_status = active_status
+            machinery.save()  # Esto actualiza modification_date automáticamente
+            
+            return Response(
+                {
+                    "success": True,
+                    "message": "Registro de maquinaria confirmado exitosamente",
+                    "data": {
+                        "machinery_id": machinery.id_machinery,
+                        "machinery_name": machinery.machinery_name,
+                        "new_status": active_status.id_statues,
+                        "modification_date": machinery.modification_date
+                    }
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Machinery.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Maquinaria no encontrada",
+                    "details": f"No existe una maquinaria con ID {pk}"
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error al confirmar registro de maquinaria {pk}: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error interno al confirmar el registro",
+                    "details": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
