@@ -140,6 +140,23 @@ class MachineryGeneralSheetCreateSerializer(serializers.ModelSerializer):
                     "Este dispositivo de telemetría ya está siendo utilizado por otra máquina."
                 )
         return value
+        
+    def validate_id_model(self, value):
+        """
+        Valida que la marca asociada al modelo pertenezca a la categoría con ID 1.
+        """
+        if value:
+            from parameterization.models import BrandsCategory
+            try:
+                brand = value.id_brand
+                if brand.id_brands_categories_id != 1:
+                    category = BrandsCategory.objects.get(id_brands_categories=1)
+                    raise serializers.ValidationError(
+                        f"La marca '{brand.name}' del modelo '{value.name}' no pertenece a la categoría de marcas '{category.name}'"
+                    )
+            except BrandsCategory.DoesNotExist:
+                raise serializers.ValidationError("No se encontró la categoría de marcas con ID 1.")
+        return value
 
     def create(self, validated_data):
         """
