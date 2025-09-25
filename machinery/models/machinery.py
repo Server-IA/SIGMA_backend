@@ -14,6 +14,7 @@ class Machinery(models.Model):
     id_device = models.ForeignKey('machinery.TelemetryDevices', on_delete=models.PROTECT, null=True, blank=True)
     registration_date = models.DateField(auto_now=True)
     modification_date = models.DateField(auto_now=True)
+    justification = models.CharField(max_length=300, null=True, blank=True)
     machinery_operational_status = models.ForeignKey('parameterization.Statues', on_delete=models.PROTECT,)
     id_responsible_user = models.ForeignKey('users.User', on_delete=models.PROTECT, null=False)
 

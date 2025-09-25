@@ -8,6 +8,7 @@ from machinery.serializers.machinery_serializers.machinery_general_sheet_create_
     MachineryGeneralSheetCreateSerializer
 )
 from machinery.serializers.machinery_serializers.machinery_list_serializer import MachineryListSerializer
+from machinery.serializers.machinery_serializers.machinery_general_sheet_update_serializer import MachineryUpdateSerializer
 from django.db.models import Q
 from django.utils import timezone
 import logging
@@ -54,6 +55,82 @@ class MachineryViewSet(viewsets.ViewSet):
                     'success': False,
                     'message': 'Error al listar la maquinaria',
                     'error': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['put'], url_path='update')
+    @parser_classes([MultiPartParser, FormParser])
+    def update_machinery(self, request, pk=None):
+        """
+        Actualiza la información de una máquina existente.
+        
+        Campos actualizables:
+        - machinery_name: Nombre de la maquinaria (único)
+        - serial_number: Número de serie (único)
+        - machinery_type: ID del tipo de maquinaria
+        - id_model: ID del modelo
+        - machinery_secondary_type: ID del subtipo de maquinaria
+        - responsible_user: ID del usuario responsable (obligatorio)
+        - manufacturing_year: Año de fabricación
+        - tariff_subheading: Partida arancelaria
+        - id_device: ID del dispositivo de telemetría (opcional)
+        - image: Archivo de imagen (opcional, formatos: JPEG, JPG, PNG, máximo 5MB)
+        - machinery_operational_status: ID del estado operativo (con validaciones especiales)
+        - justification: Justificación para el cambio de estado (obligatorio si el estado es diferente de 3)
+        
+        Validaciones:
+        1. No se puede actualizar el estado de una máquina con estado 3 (En Registro)
+        2. El estado debe pertenecer a la categoría 2 (estados operativos)
+        3. No se puede cambiar a estado 3, si el estado actual es diferente de 3
+        4. Si el estado es diferente de 3, se requiere justificación, de lo contrario no se requiere
+        """
+        try:
+            try:
+                machinery = Machinery.objects.get(pk=pk)
+            except Machinery.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "La máquina especificada no existe"
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            
+            serializer = MachineryUpdateSerializer(
+                instance=machinery,
+                data=request.data,
+                partial=True,
+                context={'request': request}
+            )
+            
+            if serializer.is_valid():
+                updated_machinery = serializer.save()
+                
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Maquinaria actualizada exitosamente",
+                        "machinery_id": updated_machinery.id_machinery
+                    },
+                    status=status.HTTP_200_OK                )
+                
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error en los datos proporcionados",
+                    "errors": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except Exception as e:
+            logger.error(f"Error updating machinery {pk}: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Error al actualizar la maquinaria: {str(e)}"
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
