@@ -1,0 +1,120 @@
+import os
+import requests
+import pytest
+from datetime import datetime, timezone
+
+import pytest
+import requests
+from datetime import datetime
+
+BASE_URL = "http://localhost:8000/machinery"
+
+
+def call_confirm_endpoint(machinery_id, token=None):
+    url = f"{BASE_URL}/{machinery_id}/confirm-registration/"
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return requests.post(url, headers=headers, json={})
+
+
+@pytest.mark.parametrize("machinery_id", [123])
+def test_UT_MAQ_007_1_confirmacion_exitosa(machinery_id):
+    """Confirmación exitosa de registro (HTTP 200)"""
+    resp = call_confirm_endpoint(machinery_id)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["data"]["machinery_id"] == machinery_id
+    assert data["data"]["new_status"] == 4
+    assert "modification_date" in data["data"]
+
+
+@pytest.mark.parametrize("machinery_id", [999])
+def test_UT_MAQ_007_2_maquinaria_no_encontrada(machinery_id):
+    """Maquinaria no encontrada (HTTP 404)"""
+    resp = call_confirm_endpoint(machinery_id)
+    assert resp.status_code == 404
+    data = resp.json()
+    assert data["success"] is False
+    assert "Maquinaria no encontrada" in data["message"]
+
+
+@pytest.mark.parametrize("machinery_id", [124])
+def test_UT_MAQ_007_3_estado_invalido(machinery_id):
+    """Error por estado distinto a En Registro (HTTP 400)"""
+    resp = call_confirm_endpoint(machinery_id)
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["success"] is False
+    assert "no está en estado de registro" in data["message"]
+
+
+@pytest.mark.parametrize("machinery_id", [125])
+def test_UT_MAQ_007_4_estado_activo_inexistente(machinery_id):
+    """Error cuando el estado Activo no existe (HTTP 500)"""
+    resp = call_confirm_endpoint(machinery_id)
+    assert resp.status_code == 500
+    data = resp.json()
+    assert data["success"] is False
+    assert "Estado activo no encontrado" in data["message"]
+
+
+@pytest.mark.parametrize("machinery_id", [126])
+def test_UT_MAQ_007_5_error_interno(machinery_id):
+    """Error interno durante la confirmación (HTTP 500)"""
+    resp = call_confirm_endpoint(machinery_id)
+    assert resp.status_code == 500
+    data = resp.json()
+    assert data["success"] is False
+    assert "Error interno" in data["message"]
+
+
+@pytest.mark.parametrize("machinery_id", [127])
+def test_UT_MAQ_007_6_actualizacion_fecha(machinery_id):
+    """Verificar que modification_date se actualiza"""
+    resp = call_confirm_endpoint(machinery_id)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    fecha_resp = data["data"]["modification_date"]
+    hoy = datetime.today().strftime("%Y-%m-%d")
+    assert fecha_resp.startswith(hoy)
+
+
+@pytest.mark.parametrize("machinery_id", [128])
+def test_UT_MAQ_007_7_permisos(machinery_id):
+    """Usuario sin autorización no puede confirmar (HTTP 401/403)"""
+    resp = call_confirm_endpoint(machinery_id, token="INVALID_TOKEN")
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.parametrize("machinery_id", [129])
+def test_UT_MAQ_007_8_idempotencia(machinery_id):
+    """Reintento posterior devuelve 400 por estado inválido"""
+    resp = call_confirm_endpoint(machinery_id)
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["success"] is False
+    assert "no está en estado de registro" in data["message"]
+
+
+@pytest.mark.parametrize("machinery_id", [130])
+def test_UT_MAQ_007_9_disponibilidad_listado(machinery_id):
+    """Disponibilidad en listado general tras confirmación"""
+    resp = call_confirm_endpoint(machinery_id)
+    assert resp.status_code == 200
+    list_resp = requests.get(f"{BASE_URL}/?status=active")
+    assert list_resp.status_code == 200
+    ids = [item["id_machinery"] for item in list_resp.json()["data"]]
+    assert machinery_id in ids
+
+
+@pytest.mark.parametrize("machinery_id", [131])
+def test_UT_MAQ_007_10_body_vacio(machinery_id):
+    """Cuerpo vacío y cabeceras válidas"""
+    resp = call_confirm_endpoint(machinery_id)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["data"]["new_status"] == 4
