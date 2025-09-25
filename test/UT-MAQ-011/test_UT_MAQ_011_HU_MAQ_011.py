@@ -258,12 +258,12 @@ def _report_setup_teardown(tmp_path_factory):
 # UT-MAQ-001: Actualización válida con permisos y justificación
 def test_ut_maq_001_update_success_with_justification(api_client):
     seed = seed_minimum_parameterization()
-    mach = create_machinery(seed)
-    tracker = create_tracker(mach, seed["user"], term_sn="1357900", gps_sn="GPS0000")
+    mach = create_machinery(seed, serial="MACH-001-UNIQUE")
+    tracker = create_tracker(mach, seed["user"], term_sn="T-001-ORIG", gps_sn="G-001-ORIG")
 
     payload = {
-        "terminal_serial_number": "1357902",
-        "gps_serial_number": "GPS0012",
+        "terminal_serial_number": "T-001-UPDATED",
+        "gps_serial_number": "G-001-UPDATED",
         "chassis_number": "ABC123",
         "engine_number": "EN987654",
         "responsible_user": seed["user"].id_user,
@@ -548,12 +548,12 @@ def test_ut_maq_009_idempotent_put(api_client):
 # UT-MAQ-010: Lectura inmediata tras actualización
 def test_ut_maq_010_read_after_update(api_client):
     seed = seed_minimum_parameterization()
-    mach = create_machinery(seed)
-    tracker = create_tracker(mach, seed["user"], term_sn="T-6", gps_sn="G-6")
+    mach = create_machinery(seed, serial="MACH-010-UNIQUE")
+    tracker = create_tracker(mach, seed["user"], term_sn="T-010-ORIG", gps_sn="G-010-ORIG")
 
     payload = {
-        "terminal_serial_number": "T-6-NEW",
-        "gps_serial_number": "G-6-NEW",
+        "terminal_serial_number": "T-010-UPDATED",
+        "gps_serial_number": "G-010-UPDATED", 
         "chassis_number": "ABC123",
         "engine_number": "EN987654",
         "responsible_user": seed["user"].id_user,
