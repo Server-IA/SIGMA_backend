@@ -18,6 +18,7 @@ router.register(r'machinery-usage', MachineryUsageViewSet, basename='machinery-u
 router.register(r'machinery-documentation', MachineryDocumentationViewSet, basename='machinery-documentation')
 router.register(r'machinery/periodic-maintenance', PeriodicMaintenanceSchedulingViewSet, basename='periodic-maintenance')
 router.register(r'telemetry-devices', TelemetryDevicesViewSet, basename='telemetry-devices')
+
 urlpatterns = [
     path('', include(router.urls))
 ]
