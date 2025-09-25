@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from django.db import transaction
 from django.utils import timezone
+from rest_framework.decorators import action
 from machinery.models import SpecificTechnicalSheet, Machinery
 from machinery.serializers.machinery_serializers.machinery_specific_sheet_create_serializer import SpecificTechnicalSheetCreateSerializer
 from rest_framework import serializers
@@ -55,6 +56,43 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
                     "details": str(e)
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=["get"], url_path=r"machinery/(?P<machinery_id>\d+)")
+    def by_machinery(self, request, machinery_id=None):
+        """
+        Obtiene la ficha técnica específica por el ID de maquinaria.
+        Endpoint: GET /machinery-specific-sheet/by-machinery/{machinery_id}/
+        """
+        try:
+            sheet = SpecificTechnicalSheet.objects.filter(id_machinery_id=machinery_id).first()
+            if not sheet:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No existe ficha técnica específica para la maquinaria indicada",
+                        "data": None,
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            serializer = self.get_serializer(sheet)
+            return Response(
+                {
+                    "success": True,
+                    "message": "Ficha técnica específica obtenida exitosamente",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error inesperado al consultar la ficha técnica específica",
+                    "details": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     def update(self, request, *args, **kwargs):
