@@ -9,6 +9,7 @@ from machinery.serializers.machinery_serializers.machinery_general_sheet_create_
 )
 from machinery.serializers.machinery_serializers.machinery_list_serializer import MachineryListSerializer
 from machinery.serializers.machinery_serializers.machinery_general_sheet_update_serializer import MachineryUpdateSerializer
+from machinery.serializers.machinery_serializers.machinery_general_sheet_detail_serializer import MachineryDetailSerializer
 from django.db.models import Q
 from django.utils import timezone
 import logging
@@ -266,6 +267,38 @@ class MachineryViewSet(viewsets.ViewSet):
                     "success": False,
                     "message": "Error interno al confirmar el registro",
                     "details": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def retrieve(self, request, pk=None):
+        """
+        Obtiene los detalles de una máquina por su ID.
+        """
+        try:
+            machinery = Machinery.objects.get(pk=pk)
+            serializer = MachineryDetailSerializer(machinery)
+            return Response({
+                'success': True,
+                'data': serializer.data
+            })
+        except Machinery.DoesNotExist:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'La máquina especificada no existe',
+                    'data': None
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving machinery {pk}: {str(e)}")
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Error al obtener los detalles de la máquina',
+                    'error': str(e),
+                    'data': None
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
