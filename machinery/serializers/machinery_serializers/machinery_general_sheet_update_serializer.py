@@ -184,20 +184,18 @@ class MachineryUpdateSerializer(serializers.ModelSerializer):
             
         current_status = instance.machinery_operational_status
         
-        # Solo validar si se está actualizando el estado operativo
-        if 'machinery_operational_status' in data:
-            # Validar que no se pueda modificar una máquina que está en estado 3 (Registro)
-            if current_status and current_status.id_statues == 3:
-                raise serializers.ValidationError({
-                    "machinery_operational_status": f"No se puede actualizar el estado de una máquina que está en estado '{current_status.name}'."
-                })
+        # Validar que no se pueda modificar el estado de una máquina que está en estado 3 (Registro)
+        if 'machinery_operational_status' in data and current_status and current_status.id_statues == 3:
+            raise serializers.ValidationError({
+                "machinery_operational_status": f"No se puede actualizar el estado de una máquina que está en estado '{current_status.name}'."
+            })
 
-            # Validar justificación si el estado actual de la máquina no es 3
-            if current_status and current_status.id_statues != 3 and not data.get('justification'):
-                status_3_name = Statues.objects.get(id_statues=3).name
-                raise serializers.ValidationError({
-                    "justification": f"La justificación es obligatoria cuando la maquinaria no está en estado '{status_3_name}'. Estado actual: '{current_status.name}'"
-                })
+        # Validar justificación si el estado actual de la máquina no es 3
+        if current_status and current_status.id_statues != 3 and not data.get('justification'):
+            status_3_name = Statues.objects.get(id_statues=3).name
+            raise serializers.ValidationError({
+                "justification": f"La justificación es obligatoria cuando la maquinaria no está en estado '{status_3_name}'. Estado actual: '{current_status.name}'"
+            })
 
         # Si se está actualizando el estado
         if 'machinery_operational_status' in data:
