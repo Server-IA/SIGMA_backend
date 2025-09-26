@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.utils import timezone
 from machinery.models import MachineryDocumentation, Machinery
+from parameterization.models import Statues
 from users.models.user import User
 from core.services.file_upload_service import upload_file_to_firebase
 
@@ -15,6 +16,7 @@ class MachineryDocumentationCreateSerializer(serializers.ModelSerializer):
         write_only=True
     )
     file = serializers.FileField(write_only=True)
+    justification = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = MachineryDocumentation
@@ -23,6 +25,7 @@ class MachineryDocumentationCreateSerializer(serializers.ModelSerializer):
             'machinery',
             'responsible_user',
             'file',
+            'justification',
         ]
         extra_kwargs = {
             'document': {'required': True},
@@ -123,6 +126,19 @@ class MachineryDocumentationCreateSerializer(serializers.ModelSerializer):
         """Actualizar documento de maquinaria"""
         responsible_user = validated_data.pop('responsible_user', None)
         file = validated_data.pop('file', None)
+        # Requerir justificación en PUT si estado de maquinaria asociada != 3
+        request = self.context.get('request')
+        if request and request.method == 'PUT':
+            try:
+                machinery = Machinery.objects.select_related('machinery_operational_status').get(pk=instance.id_machinery_id)
+                if machinery.machinery_operational_status_id and machinery.machinery_operational_status.id_statues != 3:
+                    if not validated_data.get('justification'):
+                        status_3_name = Statues.objects.get(id_statues=3).name
+                        raise serializers.ValidationError({
+                            'justification': f"La justificación es obligatoria cuando la maquinaria no está en estado '{status_3_name}'. Estado actual: '{machinery.machinery_operational_status.name}'"
+                        })
+            except Machinery.DoesNotExist:
+                pass
         
         if responsible_user:
             instance.id_responsible_user = responsible_user
@@ -141,6 +157,8 @@ class MachineryDocumentationCreateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Error al subir el archivo: {str(e)}")
         
         instance.document = validated_data.get('document', instance.document)
+        if 'justification' in validated_data:
+            instance.justification = validated_data['justification']
         instance.save()
         return instance
 

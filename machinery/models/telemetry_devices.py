@@ -7,6 +7,7 @@ class TelemetryDevices(models.Model):
     registration_date = models.DateTimeField(auto_now=True)
     modification_date = models.DateTimeField(auto_now=True)
     id_responsible_user = models.ForeignKey('users.User', on_delete=models.PROTECT, null=False)
+    justification = models.CharField(max_length=300, null=True, blank=True)
 
     class Meta:
         db_table = 'telemetry_devices'
