@@ -22,6 +22,16 @@ class PeriodicMaintenanceSchedulingViewSet(
     CRUD de mantenimientos periódicos (Paso 5).
     Filtro: ?machinery=<id>
     """
+    queryset = PeriodicMaintenanceScheduling.objects.select_related("maintenance", "machinery").all()
+
+    # Solo para pruebas sin auth:
+    def get_permissions(self):
+        return [AllowAny()]
+
+    def get_serializer_class(self):
+        if self.action in ("list", "retrieve"):
+            return PeriodicMaintenanceListSerializer
+        return PeriodicMaintenanceCreateUpdateSerializer
 
     def check_permission(self, request, required_permission_id: int):
         """
@@ -44,18 +54,6 @@ class PeriodicMaintenanceSchedulingViewSet(
                     permisos_usuario.append(perm.get("id"))
 
         return required_permission_id in permisos_usuario
-
-
-    queryset = PeriodicMaintenanceScheduling.objects.select_related("maintenance", "machinery").all()
-
-    # Solo para pruebas sin auth:
-    def get_permissions(self):
-        return [AllowAny()]
-
-    def get_serializer_class(self):
-        if self.action in ("list", "retrieve"):
-            return PeriodicMaintenanceListSerializer
-        return PeriodicMaintenanceCreateUpdateSerializer
 
     def get_queryset(self):
         qs = super().get_queryset()
