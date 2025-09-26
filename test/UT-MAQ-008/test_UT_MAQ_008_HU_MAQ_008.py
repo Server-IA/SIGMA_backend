@@ -40,6 +40,25 @@ class TestMachineryList:
     endpoint_get = '/machinery/list/'
     endpoint_post = '/machinery/list/'  # Para probar método no permitido
     
+    def _create_mock_user_with_permissions(self, permission_id=88):
+        """Helper para crear mock de usuario con permisos"""
+        return type('MockUser', (), {
+            'is_authenticated': True,
+            'id': 1,
+            'email': 'test@test.com',
+            'name': 'Test User',
+            'roles': [{'permisos': [{'id': permission_id}]}],
+            'permissions': [{'id': permission_id}]
+        })()
+    
+    def _create_mock_auth_payload(self, permission_id=88):
+        """Helper para crear mock de payload JWT"""
+        return {
+            'id': 1,
+            'email': 'test@test.com',
+            'rol': [{'permisos': [{'id': permission_id}]}]
+        }
+
     def setup_method(self):
         """Configuración inicial para cada prueba"""
         self.client = APIClient()
@@ -56,6 +75,10 @@ class TestMachineryList:
             id_user=2,
             defaults={'name': 'Usuario Sin Permisos', 'email': 'noperms@test.com'}
         )
+        
+        # Agregar atributo is_authenticated para compatibilidad con Django REST Framework
+        self.user_with_permission.is_authenticated = True
+        self.user_without_permission.is_authenticated = True
         
         # Autenticar con usuario con permisos por defecto
         self.client.force_authenticate(user=self.user_with_permission)
@@ -277,68 +300,115 @@ class TestMachineryList:
                 )
 
     # ========== CASO 1: UT-MAQ-009 ==========
-    def test_list_machinery_happy_path_basic_structure(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_list_machinery_happy_path_basic_structure(self, mock_check_permission):
         """
         UT-MAQ-009: Listar maquinarias — camino feliz (estructura y contenido mínimo)
         NOTA: El endpoint real es GET, no POST como especifica el caso de prueba
         """
-        # Usar GET que es el método real del endpoint
-        response = self.client.get(self.endpoint_get)
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
         
-        # Verificar respuesta exitosa
-        assert response.status_code == status.HTTP_200_OK
-        response_data = response.json()
-        assert response_data["success"] == True
+        # Mock del sistema de autenticación JWT
+        mock_user = type('MockUser', (), {
+            'is_authenticated': True,
+            'id': 1,
+            'email': 'test@test.com',
+            'name': 'Test User',
+            'roles': [{'permisos': [{'id': 88}]}],  # machinery.list
+            'permissions': [{'id': 88}]
+        })()
         
-        # Verificar que data es un arreglo con al menos 1 elemento
-        assert "data" in response_data
-        assert isinstance(response_data["data"], list)
-        assert len(response_data["data"]) >= 1
+        # Mock del request.auth con payload JWT
+        mock_auth_payload = {
+            'id': 1,
+            'email': 'test@test.com',
+            'rol': [{'permisos': [{'id': 88}]}]
+        }
         
-        # Verificar campos mínimos requeridos en cada item
-        for item in response_data["data"]:
-            assert "id_machinery" in item
-            assert "machinery_name" in item
-            assert "serial_number" in item
-            assert "id_machinery_secondary_type" in item
-            assert "machinery_secondary_type_name" in item
-            assert "id_machinery_operational_status" in item
-            assert "machinery_operational_status_name" in item
+        # Mock de la autenticación JWT
+        with patch('users.authentication.JWTAuthentication.authenticate', return_value=(mock_user, mock_auth_payload)):
+            # Usar GET que es el método real del endpoint
+            response = self.client.get(self.endpoint_get)
+            
+            # Verificar respuesta exitosa
+            assert response.status_code == status.HTTP_200_OK
+            response_data = response.json()
+            assert response_data["success"] == True
+            
+            # Verificar que data es un arreglo con al menos 1 elemento
+            assert "data" in response_data
+            assert isinstance(response_data["data"], list)
+            assert len(response_data["data"]) >= 1
+            
+            # Verificar campos mínimos requeridos en cada item
+            for item in response_data["data"]:
+                assert "id_machinery" in item
+                assert "machinery_name" in item
+                assert "serial_number" in item
+                assert "id_machinery_secondary_type" in item
+                assert "machinery_secondary_type_name" in item
+                assert "id_machinery_operational_status" in item
+                assert "machinery_operational_status_name" in item
 
     # ========== CASO 2: UT-MAQ-009.1 ==========
-    def test_validate_field_types_and_nullability(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_validate_field_types_and_nullability(self, mock_check_permission):
         """
         UT-MAQ-009.1: Validación de tipos y presencia de campos por ítem
         """
-        response = self.client.get(self.endpoint_get)
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
         
-        assert response.status_code == status.HTTP_200_OK
-        response_data = response.json()
-        assert response_data["success"] == True
+        # Mock del sistema de autenticación JWT
+        mock_user = type('MockUser', (), {
+            'is_authenticated': True,
+            'id': 1,
+            'email': 'test@test.com',
+            'name': 'Test User',
+            'roles': [{'permisos': [{'id': 88}]}],  # machinery.list
+            'permissions': [{'id': 88}]
+        })()
         
-        # Verificar tipos y nulabilidad por cada ítem
-        for item in response_data["data"]:
-            # Campos obligatorios - deben existir y tener tipos correctos
-            assert isinstance(item["id_machinery"], int)
-            assert isinstance(item["machinery_name"], str)
-            assert isinstance(item["serial_number"], str)
-            assert isinstance(item["id_machinery_secondary_type"], int)
-            assert isinstance(item["machinery_secondary_type_name"], str)
-            assert isinstance(item["id_machinery_operational_status"], int)
-            assert isinstance(item["machinery_operational_status_name"], str)
+        # Mock del request.auth con payload JWT
+        mock_auth_payload = {
+            'id': 1,
+            'email': 'test@test.com',
+            'rol': [{'permisos': [{'id': 88}]}]
+        }
+        
+        # Mock de la autenticación JWT
+        with patch('users.authentication.JWTAuthentication.authenticate', return_value=(mock_user, mock_auth_payload)):
+            response = self.client.get(self.endpoint_get)
             
-            # Campos que pueden ser null
-            if item.get("image_path") is not None:
-                assert isinstance(item["image_path"], str)
+            assert response.status_code == status.HTTP_200_OK
+            response_data = response.json()
+            assert response_data["success"] == True
             
-            if item.get("acquisition_date") is not None:
-                assert isinstance(item["acquisition_date"], str)
-                # Verificar formato de fecha
-                date_pattern = r'^\d{4}-\d{2}-\d{2}$'
-                assert re.match(date_pattern, item["acquisition_date"])
+            # Verificar tipos y nulabilidad por cada ítem
+            for item in response_data["data"]:
+                # Campos obligatorios - deben existir y tener tipos correctos
+                assert isinstance(item["id_machinery"], int)
+                assert isinstance(item["machinery_name"], str)
+                assert isinstance(item["serial_number"], str)
+                assert isinstance(item["id_machinery_secondary_type"], int)
+                assert isinstance(item["machinery_secondary_type_name"], str)
+                assert isinstance(item["id_machinery_operational_status"], int)
+                assert isinstance(item["machinery_operational_status_name"], str)
+                
+                # Campos que pueden ser null
+                if item.get("image_path") is not None:
+                    assert isinstance(item["image_path"], str)
+                
+                if item.get("acquisition_date") is not None:
+                    assert isinstance(item["acquisition_date"], str)
+                    # Verificar formato de fecha
+                    date_pattern = r'^\d{4}-\d{2}-\d{2}$'
+                    assert re.match(date_pattern, item["acquisition_date"])
 
     # ========== CASO 3: UT-MAQ-009.2 ==========
-    def test_user_without_permission_denied(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_user_without_permission_denied(self, mock_check_permission):
         """
         UT-MAQ-009.2: Permisos: usuario sin permiso de consulta
         NOTA: El sistema actual no implementa permisos específicos,
@@ -364,7 +434,8 @@ class TestMachineryList:
                 assert "No tiene permisos para consultar esta información" in response_data.get("message", "")
 
     # ========== CASO 4: UT-MAQ-009.3 ==========
-    def test_network_error_resilience(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_network_error_resilience(self, mock_check_permission):
         """
         UT-MAQ-009.3: Resiliencia ante error de red
         """
@@ -387,76 +458,129 @@ class TestMachineryList:
             assert "Traceback" not in response_data.get("message", "")
 
     # ========== CASO 5: UT-MAQ-009.4 ==========
-    def test_method_not_allowed(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_method_not_allowed(self, mock_check_permission):
         """
         UT-MAQ-009.4: Método HTTP no permitido
         El caso especifica POST, pero el endpoint real es GET.
         Probamos que POST no esté permitido.
         """
-        # Probar con POST (método no permitido para este endpoint)
-        response = self.client.post(self.endpoint_post, {})
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
         
-        # Verificar respuesta de método no permitido
-        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        # Mock del sistema de autenticación JWT
+        mock_user = type('MockUser', (), {
+            'is_authenticated': True,
+            'id': 1,
+            'email': 'test@test.com',
+            'name': 'Test User',
+            'roles': [{'permisos': [{'id': 88}]}],  # machinery.list
+            'permissions': [{'id': 88}]
+        })()
         
-        # También probar otros métodos no permitidos
-        response_put = self.client.put(self.endpoint_get, {})
-        assert response_put.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        # Mock del request.auth con payload JWT
+        mock_auth_payload = {
+            'id': 1,
+            'email': 'test@test.com',
+            'rol': [{'permisos': [{'id': 88}]}]
+        }
         
-        response_delete = self.client.delete(self.endpoint_get)
-        assert response_delete.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        # Mock de la autenticación JWT
+        with patch('users.authentication.JWTAuthentication.authenticate', return_value=(mock_user, mock_auth_payload)):
+            # Probar con POST (método no permitido para este endpoint)
+            response = self.client.post(self.endpoint_post, {})
+            
+            # Verificar respuesta de método no permitido
+            assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+            
+            # También probar otros métodos no permitidos
+            response_put = self.client.put(self.endpoint_get, {})
+            assert response_put.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+            
+            response_delete = self.client.delete(self.endpoint_get)
+            assert response_delete.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     # ========== CASO 6: UT-MAQ-009.5 ==========
-    def test_null_image_path_handling(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_null_image_path_handling(self, mock_check_permission):
         """
         UT-MAQ-009.5: Manejo de image_path nulo (placeholder en UI / sin errores de carga)
         """
-        response = self.client.get(self.endpoint_get)
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
         
-        assert response.status_code == status.HTTP_200_OK
-        response_data = response.json()
-        assert response_data["success"] == True
+        # Mock del sistema de autenticación JWT
+        mock_user = type('MockUser', (), {
+            'is_authenticated': True,
+            'id': 1,
+            'email': 'test@test.com',
+            'name': 'Test User',
+            'roles': [{'permisos': [{'id': 88}]}],  # machinery.list
+            'permissions': [{'id': 88}]
+        })()
         
-        # Buscar al menos un ítem con image_path=null
-        null_image_items = [item for item in response_data["data"] if item.get("image_path") is None]
-        assert len(null_image_items) > 0, "Debe haber al menos un item con image_path=null"
+        # Mock del request.auth con payload JWT
+        mock_auth_payload = {
+            'id': 1,
+            'email': 'test@test.com',
+            'rol': [{'permisos': [{'id': 88}]}]
+        }
         
-        # Verificar que ítems con image_path=null mantienen otros campos
-        for item in null_image_items:
-            assert item["id_machinery"] is not None
-            assert item["machinery_name"] is not None
-            assert item["serial_number"] is not None
-            assert "machinery_secondary_type_name" in item
-            assert "machinery_operational_status_name" in item
+        # Mock de la autenticación JWT
+        with patch('users.authentication.JWTAuthentication.authenticate', return_value=(mock_user, mock_auth_payload)):
+            response = self.client.get(self.endpoint_get)
+            
+            assert response.status_code == status.HTTP_200_OK
+            response_data = response.json()
+            assert response_data["success"] == True
+            
+            # Buscar al menos un ítem con image_path=null
+            null_image_items = [item for item in response_data["data"] if item.get("image_path") is None]
+            assert len(null_image_items) > 0, "Debe haber al menos un item con image_path=null"
+            
+            # Verificar que ítems con image_path=null mantienen otros campos
+            for item in null_image_items:
+                assert item["id_machinery"] is not None
+                assert item["machinery_name"] is not None
+                assert item["serial_number"] is not None
+                assert "machinery_secondary_type_name" in item
+                assert "machinery_operational_status_name" in item
 
     # ========== CASO 7: UT-MAQ-009.6 ==========
-    def test_secondary_type_catalog_consistency(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_secondary_type_catalog_consistency(self, mock_check_permission):
         """
         UT-MAQ-009.6: Consistencia de catálogo de tipo secundario
         """
-        response = self.client.get(self.endpoint_get)
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
         
-        assert response.status_code == status.HTTP_200_OK
-        response_data = response.json()
-        assert response_data["success"] == True
-        
-        # Verificar consistencia entre id y nombre de tipo secundario
-        for item in response_data["data"]:
-            id_secondary_type = item["id_machinery_secondary_type"]
-            name_secondary_type = item["machinery_secondary_type_name"]
+        # Mock de la autenticación JWT
+        with patch('users.authentication.JWTAuthentication.authenticate', return_value=(self._create_mock_user_with_permissions(), self._create_mock_auth_payload())):
+            response = self.client.get(self.endpoint_get)
             
-            # Verificar que el par (id, nombre) es consistente con el catálogo
-            # En nuestro setup, id=5 debe corresponder a "tractor"
-            if id_secondary_type == 5:
-                assert name_secondary_type == "tractor"
+            assert response.status_code == status.HTTP_200_OK
+            response_data = response.json()
+            assert response_data["success"] == True
             
-            # Verificar que no hay nombres vacíos para IDs válidos
-            if id_secondary_type is not None:
-                assert name_secondary_type is not None
-                assert len(name_secondary_type.strip()) > 0
+            # Verificar consistencia entre id y nombre de tipo secundario
+            for item in response_data["data"]:
+                id_secondary_type = item["id_machinery_secondary_type"]
+                name_secondary_type = item["machinery_secondary_type_name"]
+                
+                # Verificar que el par (id, nombre) es consistente con el catálogo
+                # En nuestro setup, id=5 debe corresponder a "tractor"
+                if id_secondary_type == 5:
+                    assert name_secondary_type == "tractor"
+                
+                # Verificar que no hay nombres vacíos para IDs válidos
+                if id_secondary_type is not None:
+                    assert name_secondary_type is not None
+                    assert len(name_secondary_type.strip()) > 0
 
     # ========== CASO 8: UT-MAQ-009.7 ==========
-    def test_operational_status_consistency(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_operational_status_consistency(self, mock_check_permission):
         """
         UT-MAQ-009.7: Consistencia de estado operativo
         """
@@ -485,7 +609,8 @@ class TestMachineryList:
                 assert status_name == "En registro"
 
     # ========== CASO 9: UT-MAQ-009.8 ==========
-    def test_acquisition_date_iso_format(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_acquisition_date_iso_format(self, mock_check_permission):
         """
         UT-MAQ-009.8: Formato de fecha acquisition_date (ISO-8601)
         """
@@ -510,7 +635,8 @@ class TestMachineryList:
                     assert False, f"Fecha {acquisition_date} no es válida"
 
     # ========== CASO 10: UT-MAQ-009.9 ==========
-    def test_no_duplicate_machinery_ids(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_no_duplicate_machinery_ids(self, mock_check_permission):
         """
         UT-MAQ-009.9: No duplicidad de id_machinery en la lista
         """
@@ -528,7 +654,8 @@ class TestMachineryList:
         assert len(unique_ids) == len(machinery_ids), f"Encontrados IDs duplicados: {len(machinery_ids)} total vs {len(unique_ids)} únicos"
 
     # ========== CASO 11: UT-MAQ-009.10 ==========
-    def test_detail_navigation_contract(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_detail_navigation_contract(self, mock_check_permission):
         """
         UT-MAQ-009.10: Contrato mínimo para "Ver detalle" (navegabilidad por ID)
         """
@@ -546,7 +673,8 @@ class TestMachineryList:
             assert id_machinery > 0
 
     # ========== CASO 12: UT-MAQ-009.11 ==========
-    def test_no_sensitive_data_exposure(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_no_sensitive_data_exposure(self, mock_check_permission):
         """
         UT-MAQ-009.11: No exposición de datos sensibles
         """
@@ -570,7 +698,8 @@ class TestMachineryList:
                     assert sensitive not in field_lower, f"Campo sensible encontrado: {field_name}"
 
     # ========== CASO 13: UT-MAQ-009.12 ==========
-    def test_image_path_encoding_robustness(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_image_path_encoding_robustness(self, mock_check_permission):
         """
         UT-MAQ-009.12: Robustez ante URL de imagen con espacios/encoding
         """
@@ -594,7 +723,8 @@ class TestMachineryList:
                     assert image_path is not None
 
     # ========== CASO 14: UT-MAQ-009.13 ==========
-    def test_performance_medium_dataset(self):
+    @patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+    def test_performance_medium_dataset(self, mock_check_permission):
         """
         UT-MAQ-009.13: Rendimiento básico con lista mediana (≥ 100 ítems)
         """

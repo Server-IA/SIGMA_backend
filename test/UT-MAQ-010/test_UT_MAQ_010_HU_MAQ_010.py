@@ -48,6 +48,7 @@ if not settings.configured:
 
 import pytest
 from datetime import datetime, date
+from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -78,6 +79,25 @@ def create_pdf_file():
         content_type="application/pdf"
     )
 
+def _create_mock_user_with_permissions(permission_id=89):
+    """Helper para crear mock de usuario con permisos"""
+    return type('MockUser', (), {
+        'is_authenticated': True,
+        'id': 1,
+        'email': 'test@test.com',
+        'name': 'Test User',
+        'roles': [{'permisos': [{'id': permission_id}]}],
+        'permissions': [{'id': permission_id}]
+    })()
+
+def _create_mock_auth_payload(permission_id=89):
+    """Helper para crear mock de payload JWT"""
+    return {
+        'id': 1,
+        'email': 'test@test.com',
+        'rol': [{'permisos': [{'id': permission_id}]}]
+    }
+
 def setup_test_data():
     """Configuración de datos para todas las pruebas"""
     now = timezone.now()
@@ -91,6 +111,10 @@ def setup_test_data():
         id_user=2,
         defaults={'name': 'Usuario Sin Permisos', 'email': 'noperms@test.com'}
     )
+    
+    # Agregar atributo is_authenticated para compatibilidad con Django REST Framework
+    user_with_permission.is_authenticated = True
+    user_without_permission.is_authenticated = True
     
     # Crear categorías base
     statues_category, _ = StatuesCategory.objects.get_or_create(
@@ -321,169 +345,262 @@ def setup_test_data():
 
 # ========== CASO 1: UT-MAQ-010 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_update_machinery_happy_path():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_update_machinery_happy_path(mock_check_permission):
     """
     UT-MAQ-010: Actualización exitosa (camino feliz)
     """
+    # Mock para simular que el usuario tiene permisos
+    mock_check_permission.return_value = True
+    
     client = APIClient()
     test_data = setup_test_data()
     
-    # Autenticar usuario
-    client.force_authenticate(user=test_data['user_with_permission'])
+    # Mock del sistema de autenticación JWT
+    mock_user = type('MockUser', (), {
+        'is_authenticated': True,
+        'id': 1,
+        'email': 'test@test.com',
+        'name': 'Test User',
+        'roles': [{'permisos': [{'id': 89}]}],  # machinery.update
+        'permissions': [{'id': 89}]
+    })()
     
-    valid_image = create_jpeg_file()
-    
-    update_data = {
-        'machinery_name': 'Tractor 13',
-        'serial_number': 'S-00013',
-        'machinery_type': test_data['types']['primary'].id_types,
-        'id_model': test_data['models']['valid'].id_model,
-        'id_city': 1,
-        'machinery_secondary_type': test_data['types']['secondary'].id_types,
-        'manufacturing_year': 2004,
-        'tariff_subheading': '8701.10.00.00',
-        'id_device': test_data['devices']['free'].id_device,
-        'image': valid_image,
-        'responsible_user': test_data['user_with_permission'].id_user,
-        'machinery_operational_status': test_data['statuses']['inactive'].id_statues,
-        'justification': 'Se requiere modificar el estado'
+    # Mock del request.auth con payload JWT
+    mock_auth_payload = {
+        'id': 1,
+        'email': 'test@test.com',
+        'rol': [{'permisos': [{'id': 89}]}]
     }
     
-    response = client.put(
-        f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
-        data=update_data,
-        format='multipart'
-    )
-    
-    # Debug: imprimir respuesta si falla
-    if response.status_code != status.HTTP_200_OK:
-        print(f"Status Code: {response.status_code}")
-        print(f"Response: {response.content.decode()}")
-    
-    assert response.status_code == status.HTTP_200_OK
-    response_data = response.json()
-    assert response_data["success"] == True
-    assert response_data["message"] == "Maquinaria actualizada exitosamente"
-    assert response_data["machinery_id"] == test_data["machinery"]["main"].id_machinery
-    
-    # Verificar persistencia en BD
-    updated_machinery = Machinery.objects.get(id_machinery=test_data["machinery"]["main"].id_machinery)
-    assert updated_machinery.machinery_name == 'Tractor 13'
-    assert updated_machinery.serial_number == 'S-00013'
-    assert updated_machinery.manufacturing_year == 2004
+    # Mock de la autenticación JWT
+    with patch('users.authentication.JWTAuthentication.authenticate', return_value=(mock_user, mock_auth_payload)):
+        # Autenticar usuario
+        client.force_authenticate(user=test_data['user_with_permission'])
+        
+        valid_image = create_jpeg_file()
+        
+        update_data = {
+            'machinery_name': 'Tractor 13',
+            'serial_number': 'S-00013',
+            'machinery_type': test_data['types']['primary'].id_types,
+            'id_model': test_data['models']['valid'].id_model,
+            'id_city': 1,
+            'machinery_secondary_type': test_data['types']['secondary'].id_types,
+            'manufacturing_year': 2004,
+            'tariff_subheading': '8701.10.00.00',
+            'id_device': test_data['devices']['free'].id_device,
+            'image': valid_image,
+            'responsible_user': test_data['user_with_permission'].id_user,
+            'machinery_operational_status': test_data['statuses']['inactive'].id_statues,
+            'justification': 'Se requiere modificar el estado'
+        }
+        
+        response = client.put(
+            f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
+            data=update_data,
+            format='multipart'
+        )
+        
+        # Debug: imprimir respuesta si falla
+        if response.status_code != status.HTTP_200_OK:
+            print(f"Status Code: {response.status_code}")
+            print(f"Response: {response.content.decode()}")
+        
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["success"] == True
+        assert response_data["message"] == "Maquinaria actualizada exitosamente"
+        assert response_data["machinery_id"] == test_data["machinery"]["main"].id_machinery
+        
+        # Verificar persistencia en BD
+        updated_machinery = Machinery.objects.get(id_machinery=test_data["machinery"]["main"].id_machinery)
+        assert updated_machinery.machinery_name == 'Tractor 13'
+        assert updated_machinery.serial_number == 'S-00013'
+        assert updated_machinery.manufacturing_year == 2004
 
 
 # ========== CASO 2: UT-MAQ-010.1 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_1_validate_responsible_user_null():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_1_validate_responsible_user_null(mock_check_permission):
     """
     UT-MAQ-010.1: Validación: responsible_user nulo (debe ser obligatorio)
     """
+    # Mock para simular que el usuario tiene permisos
+    mock_check_permission.return_value = True
+    
     client = APIClient()
     test_data = setup_test_data()
+
+    # Mock del sistema de autenticación JWT
+    mock_user = type('MockUser', (), {
+        'is_authenticated': True,
+        'id': 1,
+        'email': 'test@test.com',
+        'name': 'Test User',
+        'roles': [{'permisos': [{'id': 89}]}],  # machinery.update
+        'permissions': [{'id': 89}]
+    })()
     
-    # Autenticar usuario
-    client.force_authenticate(user=test_data['user_with_permission'])
-    
-    update_data = {
-        'machinery_name': 'Tractor Sin Responsable',
-        'serial_number': 'S-00013-NEW',
-        'machinery_type': test_data['types']['primary'].id_types,
-        'id_model': test_data['models']['valid'].id_model,
-        'machinery_secondary_type': test_data['types']['secondary'].id_types,
-        'manufacturing_year': 2004,
-        'justification': 'Prueba sin usuario responsable'
-        # responsible_user ausente/nulo - debe causar error
+    # Mock del request.auth con payload JWT
+    mock_auth_payload = {
+        'id': 1,
+        'email': 'test@test.com',
+        'rol': [{'permisos': [{'id': 89}]}]
     }
     
-    response = client.put(
-        f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
-        data=update_data,
-        format='multipart'
-    )
-    
-    # Verificar si el sistema valida o no responsible_user como obligatorio
-    if response.status_code == status.HTTP_400_BAD_REQUEST:
-        # Sistema funcionando correctamente - responsible_user es obligatorio
-        response_data = response.json()
-        assert response_data["success"] == False
-        assert response_data["message"] == "Error en los datos proporcionados"
-        assert "responsible_user" in response_data["errors"]
-        assert ("required" in str(response_data["errors"]["responsible_user"]).lower() or 
-                "obligatorio" in str(response_data["errors"]["responsible_user"]).lower())
-    else:
-        # Sistema actual permite omitir responsible_user debido a partial=True
-        # Esto indica que hay una inconsistencia entre el serializer y el viewset
-        print("ADVERTENCIA: El sistema permite omitir responsible_user, pero según requerimientos debe ser obligatorio")
-        assert response.status_code == status.HTTP_200_OK
+    # Mock de la autenticación JWT
+    with patch('users.authentication.JWTAuthentication.authenticate', return_value=(mock_user, mock_auth_payload)):
+        # Autenticar usuario
+        client.force_authenticate(user=test_data['user_with_permission'])
+
+        update_data = {
+            'machinery_name': 'Tractor Sin Responsable',
+            'serial_number': 'S-00013-NEW',
+            'machinery_type': test_data['types']['primary'].id_types,
+            'id_model': test_data['models']['valid'].id_model,
+            'machinery_secondary_type': test_data['types']['secondary'].id_types,
+            'manufacturing_year': 2004,
+            'justification': 'Prueba sin usuario responsable'
+            # responsible_user ausente/nulo - debe causar error
+        }
+
+        response = client.put(
+            f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
+            data=update_data,
+            format='multipart'
+        )
+
+        # Verificar si el sistema valida o no responsible_user como obligatorio
+        if response.status_code == status.HTTP_400_BAD_REQUEST:
+            # Sistema funcionando correctamente - responsible_user es obligatorio
+            response_data = response.json()
+            assert response_data["success"] == False
+            assert response_data["message"] == "Error en los datos proporcionados"
+            assert "responsible_user" in response_data["errors"]
+            assert ("required" in str(response_data["errors"]["responsible_user"]).lower() or
+                    "obligatorio" in str(response_data["errors"]["responsible_user"]).lower())
+        else:
+            # Sistema actual permite omitir responsible_user debido a partial=True
+            # Esto indica que hay una inconsistencia entre el serializer y el viewset
+            print("ADVERTENCIA: El sistema permite omitir responsible_user, pero según requerimientos debe ser obligatorio")                                                                                                        
+            assert response.status_code == status.HTTP_200_OK
         # Nota: En este caso, el sistema tiene un comportamiento inconsistente que debería corregirse
 
 
 # ========== CASO 3: UT-MAQ-010.2 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_2_duplicate_machinery_name():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_2_duplicate_machinery_name(mock_check_permission):
     """
     UT-MAQ-010.2: Duplicidad: machinery_name ya existente
     """
+    # Mock para simular que el usuario tiene permisos
+    mock_check_permission.return_value = True
+    
     client = APIClient()
     test_data = setup_test_data()
+
+    # Mock del sistema de autenticación JWT
+    mock_user = type('MockUser', (), {
+        'is_authenticated': True,
+        'id': 1,
+        'email': 'test@test.com',
+        'name': 'Test User',
+        'roles': [{'permisos': [{'id': 89}]}],  # machinery.update
+        'permissions': [{'id': 89}]
+    })()
     
-    # Autenticar usuario
-    client.force_authenticate(user=test_data['user_with_permission'])
-    
-    update_data = {
-        'machinery_name': 'Excavadora CAT 320D',  # Ya existe en ID 1
-        'responsible_user': test_data['user_with_permission'].id_user,
-        'justification': 'Prueba duplicado'
+    # Mock del request.auth con payload JWT
+    mock_auth_payload = {
+        'id': 1,
+        'email': 'test@test.com',
+        'rol': [{'permisos': [{'id': 89}]}]
     }
     
-    response = client.put(
-        f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
-        data=update_data,
-        format='multipart'
-    )
-    
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    response_data = response.json()
-    assert response_data["success"] == False
-    assert "machinery_name" in response_data["errors"]
-    assert "Ya existe una máquina con este nombre." in str(response_data["errors"]["machinery_name"])
+    # Mock de la autenticación JWT
+    with patch('users.authentication.JWTAuthentication.authenticate', return_value=(mock_user, mock_auth_payload)):
+        # Autenticar usuario
+        client.force_authenticate(user=test_data['user_with_permission'])
+
+        update_data = {
+            'machinery_name': 'Excavadora CAT 320D',  # Ya existe en ID 1
+            'responsible_user': test_data['user_with_permission'].id_user,
+            'justification': 'Prueba duplicado'
+        }
+
+        response = client.put(
+            f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
+            data=update_data,
+            format='multipart'
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response_data = response.json()
+        assert response_data["success"] == False
+        assert "machinery_name" in response_data["errors"]
+        assert "Ya existe una máquina con este nombre." in str(response_data["errors"]["machinery_name"])
 
 
 # ========== CASO 4: UT-MAQ-010.3 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_3_duplicate_serial_number():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_3_duplicate_serial_number(mock_check_permission):
     """
     UT-MAQ-010.3: Duplicidad: serial_number ya existente
     """
+    # Mock para simular que el usuario tiene permisos
+    mock_check_permission.return_value = True
+    
     client = APIClient()
     test_data = setup_test_data()
+
+    # Mock del sistema de autenticación JWT
+    mock_user = type('MockUser', (), {
+        'is_authenticated': True,
+        'id': 1,
+        'email': 'test@test.com',
+        'name': 'Test User',
+        'roles': [{'permisos': [{'id': 89}]}],  # machinery.update
+        'permissions': [{'id': 89}]
+    })()
     
-    # Autenticar usuario
-    client.force_authenticate(user=test_data['user_with_permission'])
-    
-    update_data = {
-        'serial_number': 'CAT320D001',  # Ya existe en ID 1
-        'responsible_user': test_data['user_with_permission'].id_user,
-        'justification': 'Prueba duplicado serial'
+    # Mock del request.auth con payload JWT
+    mock_auth_payload = {
+        'id': 1,
+        'email': 'test@test.com',
+        'rol': [{'permisos': [{'id': 89}]}]
     }
     
-    response = client.put(
-        f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
-        data=update_data,
-        format='multipart'
-    )
-    
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    response_data = response.json()
-    assert response_data["success"] == False
-    assert "serial_number" in response_data["errors"]
-    assert "Ya existe una máquina con este número de serie." in str(response_data["errors"]["serial_number"])
+    # Mock de la autenticación JWT
+    with patch('users.authentication.JWTAuthentication.authenticate', return_value=(mock_user, mock_auth_payload)):
+        # Autenticar usuario
+        client.force_authenticate(user=test_data['user_with_permission'])
+
+        update_data = {
+            'serial_number': 'CAT320D001',  # Ya existe en ID 1
+            'responsible_user': test_data['user_with_permission'].id_user,
+            'justification': 'Prueba duplicado serial'
+        }
+
+        response = client.put(
+            f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
+            data=update_data,
+            format='multipart'
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response_data = response.json()
+        assert response_data["success"] == False
+        assert "serial_number" in response_data["errors"]
+        assert "Ya existe una máquina con este número de serie." in str(response_data["errors"]["serial_number"])
 
 
 # ========== CASO 5: UT-MAQ-010.4 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_4_invalid_machinery_type_catalog():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_4_invalid_machinery_type_catalog(mock_check_permission):
     """
     UT-MAQ-010.4: Catálogo: machinery_type no pertenece a "Tipos primario de maquinaria"
     """
@@ -515,7 +632,8 @@ def test_ut_maq_010_4_invalid_machinery_type_catalog():
 
 # ========== CASO 6: UT-MAQ-010.5 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_5_invalid_machinery_secondary_type_catalog():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_5_invalid_machinery_secondary_type_catalog(mock_check_permission):
     """
     UT-MAQ-010.5: Catálogo: machinery_secondary_type fuera de "Tipos secundario de maquinaria"
     """
@@ -547,148 +665,184 @@ def test_ut_maq_010_5_invalid_machinery_secondary_type_catalog():
 
 # ========== CASO 7: UT-MAQ-010.6 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_6_invalid_model_brand_inconsistency():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_6_invalid_model_brand_inconsistency(mock_check_permission):
     """
     UT-MAQ-010.6: Catálogo: inconsistencia de marca/modelo (id_model)
     """
+    # Mock para simular que el usuario tiene permisos
+    mock_check_permission.return_value = True
+    
     client = APIClient()
     test_data = setup_test_data()
+
+    # Mock del sistema de autenticación JWT
+    mock_user = type('MockUser', (), {
+        'is_authenticated': True,
+        'id': 1,
+        'email': 'test@test.com',
+        'name': 'Test User',
+        'roles': [{'permisos': [{'id': 89}]}],  # machinery.update
+        'permissions': [{'id': 89}]
+    })()
     
-    # Autenticar usuario
-    client.force_authenticate(user=test_data['user_with_permission'])
-    
-    # Crear marca inválida para el test con nombre único
-    brands_category_invalid, _ = BrandsCategory.objects.get_or_create(
-        id_brands_categories=99,
-        defaults={
-            'name': 'motor microscopio test',
-            'description': 'Marcas de motor microscopio',
-            'modification_date': timezone.now(),
-            'creation_date': timezone.now(),
-            'id_responsible_user': test_data['user_with_permission']
-        }
-    )
-    
-    brand_invalid, _ = Brands.objects.get_or_create(
-        id_brands=99,
-        defaults={
-            'name': 'motor microscopio test',
-            'description': 'Marca motor microscopio',
-            'id_brands_categories': brands_category_invalid,
-            'modification_date': timezone.now(),
-            'creation_date': timezone.now(),
-            'id_responsible_user': test_data['user_with_permission'],
-            'id_statues': test_data['statuses']['active']
-        }
-    )
-    
-    model_invalid, _ = Models.objects.get_or_create(
-        id_model=99,
-        defaults={
-            'name': 'modelo 2 motor microscopico test',
-            'description': 'Modelo inválido',
-            'id_brand': brand_invalid,
-            'modification_date': timezone.now(),
-            'creation_date': timezone.now(),
-            'id_responsible_user': test_data['user_with_permission'],
-            'id_statues': test_data['statuses']['active']
-        }
-    )
-    
-    update_data = {
-        'id_model': model_invalid.id_model,  # Modelo con marca no de maquinaria
-        'responsible_user': test_data['user_with_permission'].id_user,
-        'justification': 'Prueba modelo inconsistente'
+    # Mock del request.auth con payload JWT
+    mock_auth_payload = {
+        'id': 1,
+        'email': 'test@test.com',
+        'rol': [{'permisos': [{'id': 89}]}]
     }
     
-    response = client.put(
-        f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
-        data=update_data,
-        format='multipart'
-    )
-    
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    response_data = response.json()
-    assert response_data["success"] == False
-    assert "id_model" in response_data["errors"]
-    error_message = str(response_data["errors"]["id_model"])
-    assert "motor microscopio" in error_message
-    assert "modelo 2 motor microscopico" in error_message
-    assert ("marcas de maquinaria" in error_message or "Marcas" in error_message)
+    # Mock de la autenticación JWT
+    with patch('users.authentication.JWTAuthentication.authenticate', return_value=(mock_user, mock_auth_payload)):
+        # Autenticar usuario
+        client.force_authenticate(user=test_data['user_with_permission'])
+
+        # Crear marca inválida para el test con nombre único
+        brands_category_invalid, _ = BrandsCategory.objects.get_or_create(
+            id_brands_categories=99,
+            defaults={
+                'name': 'motor microscopio test',
+                'description': 'Marcas de motor microscopio',
+                'modification_date': timezone.now(),
+                'creation_date': timezone.now(),
+                'id_responsible_user': test_data['user_with_permission']
+            }
+        )
+
+        brand_invalid, _ = Brands.objects.get_or_create(
+            id_brands=99,
+            defaults={
+                'name': 'motor microscopio test',
+                'description': 'Marca motor microscopio',
+                'id_brands_categories': brands_category_invalid,
+                'modification_date': timezone.now(),
+                'creation_date': timezone.now(),
+                'id_responsible_user': test_data['user_with_permission'],
+                'id_statues': test_data['statuses']['active']
+            }
+        )
+
+        model_invalid, _ = Models.objects.get_or_create(
+            id_model=99,
+            defaults={
+                'name': 'modelo 2 motor microscopico test',
+                'description': 'Modelo inválido',
+                'id_brand': brand_invalid,
+                'modification_date': timezone.now(),
+                'creation_date': timezone.now(),
+                'id_responsible_user': test_data['user_with_permission'],
+                'id_statues': test_data['statuses']['active']
+            }
+        )
+
+        update_data = {
+            'id_model': model_invalid.id_model,  # Modelo con marca no de maquinaria
+            'responsible_user': test_data['user_with_permission'].id_user,
+            'justification': 'Prueba modelo inconsistente'
+        }
+
+        response = client.put(
+            f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
+            data=update_data,
+            format='multipart'
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response_data = response.json()
+        assert response_data["success"] == False
+        assert "id_model" in response_data["errors"]
+        error_message = str(response_data["errors"]["id_model"])
+        assert "motor microscopio" in error_message
+        assert "modelo 2 motor microscopico" in error_message
+        assert ("marcas de maquinaria" in error_message or "Marcas" in error_message)
 
 
 # ========== CASO 8: UT-MAQ-010.7 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_7_invalid_manufacturing_year_range():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_7_invalid_manufacturing_year_range(mock_check_permission):
     """
     UT-MAQ-010.7: Rango: manufacturing_year > año actual o < 1900
     """
+    # Mock para simular que el usuario tiene permisos
+    mock_check_permission.return_value = True
+    
     client = APIClient()
     test_data = setup_test_data()
     
-    # Autenticar usuario
-    client.force_authenticate(user=test_data['user_with_permission'])
-    
-    current_year = datetime.now().year
-    
-    # Prueba A: Año futuro
-    update_data_future = {
-        'manufacturing_year': current_year + 1,
-        'responsible_user': test_data['user_with_permission'].id_user,
-        'justification': 'Prueba año futuro'
-    }
-    
-    response = client.put(
-        f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
-        data=update_data_future,
-        format='multipart'
-    )
-    
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    response_data = response.json()
-    assert response_data["success"] == False
-    assert "manufacturing_year" in response_data["errors"]
-    # El mensaje puede ser más específico, verificar que menciona año actual
-    assert "El año de fabricación no puede ser mayor al año actual" in str(response_data["errors"]["manufacturing_year"])
+    # Mock de la autenticación JWT
+    with patch('users.authentication.JWTAuthentication.authenticate', return_value=(_create_mock_user_with_permissions(), _create_mock_auth_payload())):
+        # Autenticar usuario
+        client.force_authenticate(user=test_data['user_with_permission'])
+        
+        current_year = datetime.now().year
+        
+        # Prueba A: Año futuro
+        update_data_future = {
+            'manufacturing_year': current_year + 1,
+            'responsible_user': test_data['user_with_permission'].id_user,
+            'justification': 'Prueba año futuro'
+        }
+        
+        response = client.put(
+            f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
+            data=update_data_future,
+            format='multipart'
+        )
+        
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response_data = response.json()
+        assert response_data["success"] == False
+        assert "manufacturing_year" in response_data["errors"]
+        # El mensaje puede ser más específico, verificar que menciona año actual
+        assert "El año de fabricación no puede ser mayor al año actual" in str(response_data["errors"]["manufacturing_year"])
 
 
 # ========== CASO 9: UT-MAQ-010.8 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_8_invalid_image_file_type():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_8_invalid_image_file_type(mock_check_permission):
     """
     UT-MAQ-010.8: Archivo: image con tipo inválido (no imagen)
     """
+    # Mock para simular que el usuario tiene permisos
+    mock_check_permission.return_value = True
+    
     client = APIClient()
     test_data = setup_test_data()
     
-    # Autenticar usuario
-    client.force_authenticate(user=test_data['user_with_permission'])
-    
-    invalid_file = create_pdf_file()
-    
-    update_data = {
-        'image': invalid_file,
-        'responsible_user': test_data['user_with_permission'].id_user,
-        'justification': 'Prueba archivo inválido'
-    }
-    
-    response = client.put(
-        f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
-        data=update_data,
-        format='multipart'
-    )
-    
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    response_data = response.json()
-    assert response_data["success"] == False
-    assert "image" in response_data["errors"]
-    error_message = str(response_data["errors"]["image"])
-    assert "El archivo debe ser una imagen (JPEG, PNG, etc.)" in error_message
+    # Mock de la autenticación JWT
+    with patch('users.authentication.JWTAuthentication.authenticate', return_value=(_create_mock_user_with_permissions(), _create_mock_auth_payload())):
+        # Autenticar usuario
+        client.force_authenticate(user=test_data['user_with_permission'])
+        
+        invalid_file = create_pdf_file()
+        
+        update_data = {
+            'image': invalid_file,
+            'responsible_user': test_data['user_with_permission'].id_user,
+            'justification': 'Prueba archivo inválido'
+        }
+        
+        response = client.put(
+            f'/machinery/{test_data["machinery"]["main"].id_machinery}/update/',
+            data=update_data,
+            format='multipart'
+        )
+        
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response_data = response.json()
+        assert response_data["success"] == False
+        assert "image" in response_data["errors"]
+        error_message = str(response_data["errors"]["image"])
+        assert "El archivo debe ser una imagen (JPEG, PNG, etc.)" in error_message
 
 
 # ========== CASO 10: UT-MAQ-010.9 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_9_device_already_in_use():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_9_device_already_in_use(mock_check_permission):
     """
     UT-MAQ-010.9: Telemetría: id_device ya usado por otra maquinaria
     """
@@ -719,7 +873,8 @@ def test_ut_maq_010_9_device_already_in_use():
 
 # ========== CASO 11: UT-MAQ-010.10 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_10_cannot_update_machinery_in_registration_status():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_10_cannot_update_machinery_in_registration_status(mock_check_permission):
     """
     UT-MAQ-010.10: Estado operativo: regla "En registro" (no actualizable)
     """
@@ -767,7 +922,8 @@ def test_ut_maq_010_10_cannot_update_machinery_in_registration_status():
 
 # ========== CASO 12: UT-MAQ-010.11 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_11_cannot_change_to_registration_status():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_11_cannot_change_to_registration_status(mock_check_permission):
     """
     UT-MAQ-010.11: Estado operativo: prohibido cambiar a "En registro"
     """
@@ -800,7 +956,8 @@ def test_ut_maq_010_11_cannot_change_to_registration_status():
 
 # ========== CASO 13: UT-MAQ-010.12 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_12_justification_required_when_not_in_registration():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_12_justification_required_when_not_in_registration(mock_check_permission):
     """
     UT-MAQ-010.12: Justificación obligatoria cuando estado ≠ "En registro"
     """
@@ -833,7 +990,8 @@ def test_ut_maq_010_12_justification_required_when_not_in_registration():
 
 # ========== CASO 14: UT-MAQ-010.13 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_13_field_length_limits():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_13_field_length_limits(mock_check_permission):
     """
     UT-MAQ-010.13: Límites de longitud (max_length) en campos de texto
     """
@@ -898,7 +1056,8 @@ def test_ut_maq_010_14_user_without_permission_denied():
 
 # ========== CASO 16: UT-MAQ-010.15 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_15_audit_trail_recording():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_15_audit_trail_recording(mock_check_permission):
     """
     UT-MAQ-010.15: Auditoría: registro de historial de cambios
     """
@@ -937,7 +1096,8 @@ def test_ut_maq_010_15_audit_trail_recording():
 
 # ========== CASO 17: UT-MAQ-010.16 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_16_real_time_consistency():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_16_real_time_consistency(mock_check_permission):
     """
     UT-MAQ-010.16: Consistencia en tiempo real (refresco inmediato)
     """
@@ -977,7 +1137,8 @@ def test_ut_maq_010_16_real_time_consistency():
 
 # ========== CASO 18: UT-MAQ-010.17 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_17_enable_next_step_after_successful_update():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_17_enable_next_step_after_successful_update(mock_check_permission):
     """
     UT-MAQ-010.17: Flujo: permitir avanzar a HU-MAQ-011 tras guardar correcto
     """
@@ -1011,7 +1172,8 @@ def test_ut_maq_010_17_enable_next_step_after_successful_update():
 
 # ========== CASO 19: UT-MAQ-010.18 ==========
 @pytest.mark.django_db(transaction=True)
-def test_ut_maq_010_18_partial_update_without_optional_fields():
+@patch('machinery.api.machinery_viewset.MachineryViewSet.check_permission')
+def test_ut_maq_010_18_partial_update_without_optional_fields(mock_check_permission):
     """
     UT-MAQ-010.18: Campos opcionales: actualización parcial sin enviar image ni tariff_subheading
     """

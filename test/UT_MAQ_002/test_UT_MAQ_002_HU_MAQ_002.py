@@ -8,6 +8,7 @@ import sys
 import os
 import pytest
 from datetime import datetime
+from unittest.mock import patch
 
 # Configurar el SECRET_KEY antes de importar Django
 os.environ.setdefault('SECRET_KEY', 'django-insecure-test-key-only-for-testing-purposes-123456789')
@@ -30,11 +31,13 @@ from parameterization.models import Statues, StatuesCategory, Types, TypesCatego
 
 
 @pytest.mark.django_db
+@patch('machinery.api.machinery_tracker_sheet_viewset.MachineryTrackerViewSet.check_permission')
 class TestMachineryTrackerSheet:
     endpoint = '/machinery-tracker/create/'
 
     def setup_method(self):
         """Configuración inicial para cada prueba"""
+        
         self.client = APIClient()
         
         # Crear datos base necesarios
@@ -44,93 +47,113 @@ class TestMachineryTrackerSheet:
         self.user_with_permission, _ = User.objects.get_or_create(id_user=1)
         self.user_without_permission, _ = User.objects.get_or_create(id_user=2)
         
+        # Agregar atributo is_authenticated para compatibilidad con Django REST Framework
+        self.user_with_permission.is_authenticated = True
+        self.user_without_permission.is_authenticated = True
+        
         # Autenticar con usuario con permisos por defecto
         self.client.force_authenticate(user=self.user_with_permission)
         
-        # Crear categorías base
-        self.statues_category = StatuesCategory.objects.create(
+        # Crear categorías base (usar get_or_create para evitar duplicados)
+        self.statues_category, _ = StatuesCategory.objects.get_or_create(
             id_statues_categories=1,
-            name='Estados Maquinaria',
-            description='Estados de la maquinaria',
-            modification_date=now,
-            creation_date=now,
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'name': 'Estados Maquinaria',
+                'description': 'Estados de la maquinaria',
+                'modification_date': now,
+                'creation_date': now,
+                'id_responsible_user': self.user_with_permission
+            }
         )
         
-        self.types_category = TypesCategory.objects.create(
+        self.types_category, _ = TypesCategory.objects.get_or_create(
             id_types_categories=1,
-            name='Tipos Maquinaria',
-            description='Tipos de maquinaria',
-            modification_date=now,
-            creation_date=now,
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'name': 'Tipos Maquinaria',
+                'description': 'Tipos de maquinaria',
+                'modification_date': now,
+                'creation_date': now,
+                'id_responsible_user': self.user_with_permission
+            }
         )
         
-        self.brands_category = BrandsCategory.objects.create(
+        self.brands_category, _ = BrandsCategory.objects.get_or_create(
             id_brands_categories=1,
-            name='Marcas',
-            description='Marcas de maquinaria',
-            modification_date=now,
-            creation_date=now,
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'name': 'Marcas',
+                'description': 'Marcas de maquinaria',
+                'modification_date': now,
+                'creation_date': now,
+                'id_responsible_user': self.user_with_permission
+            }
         )
         
-        # Crear estados
-        self.status_active = Statues.objects.create(
+        # Crear estados (usar get_or_create para evitar duplicados)
+        self.status_active, _ = Statues.objects.get_or_create(
             id_statues=1,
-            name='Activo',
-            description='Estado activo',
-            id_statues_categories=self.statues_category,
-            modification_date=now,
-            creation_date=now,
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'name': 'Activo',
+                'description': 'Estado activo',
+                'id_statues_categories': self.statues_category,
+                'modification_date': now,
+                'creation_date': now,
+                'id_responsible_user': self.user_with_permission
+            }
         )
         
-        # Crear tipos
-        self.machinery_type = Types.objects.create(
+        # Crear tipos (usar get_or_create para evitar duplicados)
+        self.machinery_type, _ = Types.objects.get_or_create(
             id_types=1,
-            name='Excavadora',
-            description='Excavadora hidráulica',
-            id_types_categories=self.types_category,
-            modification_date=now,
-            creation_date=now,
-            id_responsible_user=self.user_with_permission,
-            id_statues=self.status_active
+            defaults={
+                'name': 'Excavadora',
+                'description': 'Excavadora hidráulica',
+                'id_types_categories': self.types_category,
+                'modification_date': now,
+                'creation_date': now,
+                'id_responsible_user': self.user_with_permission,
+                'id_statues': self.status_active
+            }
         )
         
-        self.machinery_secondary_type = Types.objects.create(
+        self.machinery_secondary_type, _ = Types.objects.get_or_create(
             id_types=2,
-            name='Pesada',
-            description='Maquinaria pesada',
-            id_types_categories=self.types_category,
-            modification_date=now,
-            creation_date=now,
-            id_responsible_user=self.user_with_permission,
-            id_statues=self.status_active
+            defaults={
+                'name': 'Pesada',
+                'description': 'Maquinaria pesada',
+                'id_types_categories': self.types_category,
+                'modification_date': now,
+                'creation_date': now,
+                'id_responsible_user': self.user_with_permission,
+                'id_statues': self.status_active
+            }
         )
         
-        # Crear marca
-        self.brand = Brands.objects.create(
+        # Crear marca (usar get_or_create para evitar duplicados)
+        self.brand, _ = Brands.objects.get_or_create(
             id_brands=1,
-            name='Caterpillar',
-            description='Marca Caterpillar',
-            id_brands_categories=self.brands_category,
-            modification_date=now,
-            creation_date=now,
-            id_responsible_user=self.user_with_permission,
-            id_statues=self.status_active
+            defaults={
+                'name': 'Caterpillar',
+                'description': 'Marca Caterpillar',
+                'id_brands_categories': self.brands_category,
+                'modification_date': now,
+                'creation_date': now,
+                'id_responsible_user': self.user_with_permission,
+                'id_statues': self.status_active
+            }
         )
         
-        # Crear modelo
-        self.model = Models.objects.create(
+        # Crear modelo (usar get_or_create para evitar duplicados)
+        self.model, _ = Models.objects.get_or_create(
             id_model=1,
-            name='320D',
-            description='Modelo 320D',
-            id_brand=self.brand,
-            modification_date=now,
-            creation_date=now,
-            id_responsible_user=self.user_with_permission,
-            id_statues=self.status_active
+            defaults={
+                'name': '320D',
+                'description': 'Modelo 320D',
+                'id_brand': self.brand,
+                'modification_date': now,
+                'creation_date': now,
+                'id_responsible_user': self.user_with_permission,
+                'id_statues': self.status_active
+            }
         )
         
         # Crear maquinarias para pruebas
@@ -142,124 +165,166 @@ class TestMachineryTrackerSheet:
     def create_test_machinery(self):
         """Crear maquinarias para las pruebas"""
         # Maquinaria para caso exitoso 1
-        self.machinery_4 = Machinery.objects.create(
+        self.machinery_4, _ = Machinery.objects.get_or_create(
             id_machinery=4,
-            machinery_name='Excavadora Test 4',
-            serial_number='SN004',
-            machinery_type=self.machinery_type,
-            id_model=self.model,
-            machinery_secondary_type=self.machinery_secondary_type,
-            machinery_operational_status=self.status_active,
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'machinery_name': 'Excavadora Test 4',
+                'serial_number': 'SN004',
+                'machinery_type': self.machinery_type,
+                'id_model': self.model,
+                'machinery_secondary_type': self.machinery_secondary_type,
+                'machinery_operational_status': self.status_active,
+                'id_responsible_user': self.user_with_permission
+            }
         )
         
         # Maquinaria para caso exitoso 2
-        self.machinery_5 = Machinery.objects.create(
+        self.machinery_5, _ = Machinery.objects.get_or_create(
             id_machinery=5,
-            machinery_name='Excavadora Test 5',
-            serial_number='SN005',
-            machinery_type=self.machinery_type,
-            id_model=self.model,
-            machinery_secondary_type=self.machinery_secondary_type,
-            machinery_operational_status=self.status_active,
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'machinery_name': 'Excavadora Test 5',
+                'serial_number': 'SN005',
+                'machinery_type': self.machinery_type,
+                'id_model': self.model,
+                'machinery_secondary_type': self.machinery_secondary_type,
+                'machinery_operational_status': self.status_active,
+                'id_responsible_user': self.user_with_permission
+            }
         )
         
         # Maquinaria que ya tiene ficha de seguimiento
-        self.machinery_6 = Machinery.objects.create(
+        self.machinery_6, _ = Machinery.objects.get_or_create(
             id_machinery=6,
-            machinery_name='Excavadora Test 6',
-            serial_number='SN006',
-            machinery_type=self.machinery_type,
-            id_model=self.model,
-            machinery_secondary_type=self.machinery_secondary_type,
-            machinery_operational_status=self.status_active,
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'machinery_name': 'Excavadora Test 6',
+                'serial_number': 'SN006',
+                'machinery_type': self.machinery_type,
+                'id_model': self.model,
+                'machinery_secondary_type': self.machinery_secondary_type,
+                'machinery_operational_status': self.status_active,
+                'id_responsible_user': self.user_with_permission
+            }
         )
         
         # Crear ficha existente para maquinaria 6
-        MachineryTrackerSheet.objects.create(
+        MachineryTrackerSheet.objects.get_or_create(
             id_machinery=self.machinery_6,
-            terminal_serial_number='EXISTING-TERM-6',
-            gps_serial_number='EXISTING-GPS-6',
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'terminal_serial_number': 'EXISTING-TERM-6',
+                'gps_serial_number': 'EXISTING-GPS-6',
+                'id_responsible_user': self.user_with_permission
+            }
         )
         
         # Más maquinarias para pruebas adicionales
         for i in range(7, 14):
-            Machinery.objects.create(
+            Machinery.objects.get_or_create(
                 id_machinery=i,
-                machinery_name=f'Excavadora Test {i}',
-                serial_number=f'SN00{i}',
-                machinery_type=self.machinery_type,
-                id_model=self.model,
-                machinery_secondary_type=self.machinery_secondary_type,
-                machinery_operational_status=self.status_active,
-                id_responsible_user=self.user_with_permission
+                defaults={
+                    'machinery_name': f'Excavadora Test {i}',
+                    'serial_number': f'SN00{i}',
+                    'machinery_type': self.machinery_type,
+                    'id_model': self.model,
+                    'machinery_secondary_type': self.machinery_secondary_type,
+                    'machinery_operational_status': self.status_active,
+                    'id_responsible_user': self.user_with_permission
+                }
             )
 
     def create_duplicate_test_data(self):
         """Crear datos duplicados para pruebas de validación"""
         # Crear fichas con seriales duplicados para pruebas
-        MachineryTrackerSheet.objects.create(
+        MachineryTrackerSheet.objects.get_or_create(
             id_machinery=self.machinery_5,  # Usar machinery_5 temporalmente
-            terminal_serial_number='TERM-DUP-01',
-            gps_serial_number='GPS-DUP-01',
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'terminal_serial_number': 'TERM-DUP-01',
+                'gps_serial_number': 'GPS-DUP-01',
+                'id_responsible_user': self.user_with_permission
+            }
         )
         
         # Crear fichas adicionales para casos de duplicados combinados
-        machinery_temp = Machinery.objects.create(
+        machinery_temp, _ = Machinery.objects.get_or_create(
             id_machinery=20,
-            machinery_name='Temp Machinery 20',
-            serial_number='SN020',
-            machinery_type=self.machinery_type,
-            id_model=self.model,
-            machinery_secondary_type=self.machinery_secondary_type,
-            machinery_operational_status=self.status_active,
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'machinery_name': 'Temp Machinery 20',
+                'serial_number': 'SN020',
+                'machinery_type': self.machinery_type,
+                'id_model': self.model,
+                'machinery_secondary_type': self.machinery_secondary_type,
+                'machinery_operational_status': self.status_active,
+                'id_responsible_user': self.user_with_permission
+            }
         )
         
-        MachineryTrackerSheet.objects.create(
+        MachineryTrackerSheet.objects.get_or_create(
             id_machinery=machinery_temp,
-            terminal_serial_number='TT-11',
-            gps_serial_number='GG-11',
-            id_responsible_user=self.user_with_permission
+            defaults={
+                'terminal_serial_number': 'TT-11',
+                'gps_serial_number': 'GG-11',
+                'id_responsible_user': self.user_with_permission
+            }
         )
 
     # ========== CASO 1: UT-MAQ-002 ==========
-    def test_create_tracker_sheet_minimum_required_fields_success(self):
+    def test_create_tracker_sheet_minimum_required_fields_success(self, mock_check_permission):
         """
         UT-MAQ-002: Crear ficha de seguimiento con campos mínimos requeridos (camino feliz)
         """
-        payload = {
-            "id_machinery": 4,
-            "terminal_serial_number": "1357910",
-            "gps_serial_number": None,
-            "chassis_number": "",
-            "engine_number": "",
-            "responsible_user": 1
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
+        # Mock del sistema de autenticación JWT
+        mock_user = type('MockUser', (), {
+            'is_authenticated': True,
+            'id': 1,
+            'email': 'test@test.com',
+            'name': 'Test User',
+            'roles': [{'permisos': [{'id': 87}]}],  # machinery_tracker.create
+            'permissions': [{'id': 87}]
+        })()
+        
+        # Mock del request.auth con payload JWT
+        mock_auth_payload = {
+            'id': 1,
+            'email': 'test@test.com',
+            'rol': [{'permisos': [{'id': 87}]}]
         }
         
-        response = self.client.post(self.endpoint, payload, format='json')
-        
-        # Verificar respuesta
-        assert response.status_code == status.HTTP_201_CREATED
-        response_data = response.json()
-        assert response_data["success"] == True
-        assert response_data["message"] == "Ficha tecnica de seguimiento de la maquinaria creado exitosamente"
-        
-        # Verificar que se guardó en la base de datos
-        tracker_sheet = MachineryTrackerSheet.objects.filter(id_machinery_id=4).first()
-        assert tracker_sheet is not None
-        assert tracker_sheet.terminal_serial_number == "1357910"
-        assert tracker_sheet.gps_serial_number is None
+        # Mock de la autenticación JWT
+        with patch('users.authentication.JWTAuthentication.authenticate', return_value=(mock_user, mock_auth_payload)):
+            with patch('machinery.api.machinery_tracker_sheet_viewset.MachineryTrackerViewSet.check_permission', return_value=True):
+                payload = {
+                "id_machinery": 4,
+                "terminal_serial_number": "1357910",
+                "gps_serial_number": None,
+                "chassis_number": "",
+                "engine_number": "",
+                "responsible_user": 1
+            }
+            
+            response = self.client.post(self.endpoint, payload, format='json')
+            
+            # Verificar respuesta
+            assert response.status_code == status.HTTP_201_CREATED
+            response_data = response.json()
+            assert response_data["success"] == True
+            assert response_data["message"] == "Ficha tecnica de seguimiento de la maquinaria creado exitosamente"
+            
+            # Verificar que se guardó en la base de datos
+            tracker_sheet = MachineryTrackerSheet.objects.filter(id_machinery_id=4).first()
+            assert tracker_sheet is not None
+            assert tracker_sheet.terminal_serial_number == "1357910"
+            assert tracker_sheet.gps_serial_number is None
 
     # ========== CASO 2: UT-MAQ-002.1 ==========
-    def test_create_tracker_sheet_all_fields_within_max_length(self):
+    def test_create_tracker_sheet_all_fields_within_max_length(self, mock_check_permission):
         """
         UT-MAQ-002.1: Crear ficha con todos los campos dentro de max_length
         """
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
         payload = {
             "id_machinery": 7,  # Usar maquinaria 7 que no tiene ficha
             "terminal_serial_number": "TERM-0001-OK",
@@ -286,10 +351,13 @@ class TestMachineryTrackerSheet:
         assert tracker_sheet.engine_number == "EN-123"
 
     # ========== CASO 3: UT-MAQ-002.2 ==========
-    def test_validation_missing_required_fields_multiple_errors(self):
+    def test_validation_missing_required_fields_multiple_errors(self, mock_check_permission):
         """
         UT-MAQ-002.2: Validación de obligatorios faltantes (múltiples errores)
         """
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
         payload = {
             "id_machinery": None,
             "terminal_serial_number": "",
@@ -317,10 +385,13 @@ class TestMachineryTrackerSheet:
         assert "This field may not be null." in details["responsible_user"]
 
     # ========== CASO 4: UT-MAQ-002.3 ==========
-    def test_prevent_duplicate_tracker_sheet_per_machinery(self):
+    def test_prevent_duplicate_tracker_sheet_per_machinery(self, mock_check_permission):
         """
         UT-MAQ-002.3: Evitar duplicidad de ficha por maquinaria (ya existe una asociada)
         """
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
         payload = {
             "id_machinery": 6,  # Esta maquinaria ya tiene ficha
             "terminal_serial_number": "T-XYZ",
@@ -340,10 +411,13 @@ class TestMachineryTrackerSheet:
         assert response_data["details"] == "Esta maquinaria ya tiene una ficha tecnica de seguimiento asociada."
 
     # ========== CASO 5: UT-MAQ-002.4 ==========
-    def test_duplicate_terminal_serial_number(self):
+    def test_duplicate_terminal_serial_number(self, mock_check_permission):
         """
         UT-MAQ-002.4: Duplicado de terminal_serial_number
         """
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
         payload = {
             "id_machinery": 8,
             "terminal_serial_number": "TERM-DUP-01",  # Este ya existe
@@ -367,10 +441,13 @@ class TestMachineryTrackerSheet:
         assert "Este número de serie de terminal ya está registrado." in details["terminal_serial_number"]
 
     # ========== CASO 6: UT-MAQ-002.5 ==========
-    def test_duplicate_gps_serial_number(self):
+    def test_duplicate_gps_serial_number(self, mock_check_permission):
         """
         UT-MAQ-002.5: Duplicado de gps_serial_number
         """
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
         payload = {
             "id_machinery": 9,
             "terminal_serial_number": "TERM-NEW-01",
@@ -394,10 +471,13 @@ class TestMachineryTrackerSheet:
         assert "Este número de serie de GPS ya está registrado." in details["gps_serial_number"]
 
     # ========== CASO 7: UT-MAQ-002.6 ==========
-    def test_combined_duplicates_terminal_and_gps(self):
+    def test_combined_duplicates_terminal_and_gps(self, mock_check_permission):
         """
         UT-MAQ-002.6: Duplicados combinados (terminal y GPS ya registrados)
         """
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
         payload = {
             "id_machinery": 10,
             "terminal_serial_number": "TT-11",  # Ambos ya existen
@@ -423,10 +503,13 @@ class TestMachineryTrackerSheet:
         assert "Este número de serie de GPS ya está registrado." in details["gps_serial_number"]
 
     # ========== CASO 8: UT-MAQ-002.7 ==========
-    def test_terminal_serial_number_max_length_exceeded(self):
+    def test_terminal_serial_number_max_length_exceeded(self, mock_check_permission):
         """
         UT-MAQ-002.7: Límite de longitud terminal_serial_number > 100
         """
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
         # Crear string de 101 caracteres
         long_terminal_serial = "A" * 101
         
@@ -453,10 +536,13 @@ class TestMachineryTrackerSheet:
         assert "100" in str(details["terminal_serial_number"])  # Debe mencionar el límite
 
     # ========== CASO 9: UT-MAQ-002.8 ==========
-    def test_optional_fields_max_length_exceeded(self):
+    def test_optional_fields_max_length_exceeded(self, mock_check_permission):
         """
         UT-MAQ-002.8: Límite de longitud en campos opcionales (GPS/Chasis/Motor) > 100
         """
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
         # Crear string de 101 caracteres para GPS
         long_gps_serial = "B" * 101
         
@@ -483,11 +569,14 @@ class TestMachineryTrackerSheet:
         assert "100" in str(details["gps_serial_number"])  # Debe mencionar el límite
 
     # ========== CASO 10: UT-MAQ-002.9 ==========
-    def test_user_without_permission_denied(self):
+    def test_user_without_permission_denied(self, mock_check_permission):
         """
         UT-MAQ-002.9: Permisos: usuario sin permiso intenta crear
         Nota: Para este test, simulamos que el usuario 2 no tiene permisos
         """
+        # Mock para simular que el usuario NO tiene permisos
+        mock_check_permission.return_value = False
+        
         # Cambiar autenticación a usuario sin permisos
         self.client.force_authenticate(user=self.user_without_permission)
         
@@ -519,10 +608,13 @@ class TestMachineryTrackerSheet:
             assert tracker_exists == False
 
     # ========== CASO 11: UT-MAQ-002.10 ==========
-    def test_referential_integrity_nonexistent_machinery(self):
+    def test_referential_integrity_nonexistent_machinery(self, mock_check_permission):
         """
         UT-MAQ-002.10: Integridad referencial: id_machinery inexistente
         """
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
         payload = {
             "id_machinery": 99999,  # Esta maquinaria no existe
             "terminal_serial_number": "TERM-OK-3",
@@ -544,10 +636,13 @@ class TestMachineryTrackerSheet:
         assert tracker_exists == False
 
     # ========== CASO 12: UT-MAQ-002.11 ==========
-    def test_consistency_record_persisted_and_queryable(self):
+    def test_consistency_record_persisted_and_queryable(self, mock_check_permission):
         """
         UT-MAQ-002.11: Consistencia: registro persistido y asociable para consulta posterior
         """
+        # Mock para simular que el usuario tiene permisos
+        mock_check_permission.return_value = True
+        
         payload = {
             "id_machinery": 13,
             "terminal_serial_number": "TERM-QA-13",
