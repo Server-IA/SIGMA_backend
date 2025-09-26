@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from machinery.models import SpecificTechnicalSheet, Machinery
+from parameterization.models import Statues
 from parameterization.models import Types, Units, Statues, TypesCategory
 from parameterization.models.units_category import UnitsCategory
 from users.models.user import User
@@ -161,6 +162,8 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
 
             # Responsable
             "id_responsible_user",
+            # justificación
+            "justification",
         ]
         extra_kwargs = {
             "power": {"required": True},
@@ -186,6 +189,8 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
             "id_machinery": {"required": True},
             "id_responsible_user": {"required": True},
         }
+
+    justification = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     def validate(self, data):
         """
@@ -328,3 +333,18 @@ class SpecificTechnicalSheetCreateSerializer(serializers.ModelSerializer):
 
         except Exception as e:
             raise serializers.ValidationError({"error": f"Error al crear la ficha técnica específica: {str(e)}"})
+
+    def update(self, instance, validated_data):
+        """
+        Reutiliza las validaciones existentes y exige justificación en PUT si la maquinaria asociada no está en estado 3.
+        """
+        request = self.context.get('request')
+        if request and request.method == 'PUT':
+            machinery = instance.id_machinery
+            if machinery and machinery.machinery_operational_status_id and machinery.machinery_operational_status.id_statues != 3:
+                if not validated_data.get('justification'):
+                    status_3_name = Statues.objects.get(id_statues=3).name
+                    raise serializers.ValidationError({
+                        'justification': f"La justificación es obligatoria cuando la maquinaria no está en estado '{status_3_name}'. Estado actual: '{machinery.machinery_operational_status.name}'"
+                    })
+        return super().update(instance, validated_data)

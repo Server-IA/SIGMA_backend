@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from django.utils import timezone
 from machinery.models import MachineryTrackerSheet
+from machinery.models.machinery import Machinery
+from parameterization.models import Statues
 from users.models.user import User
 
 
@@ -19,6 +21,8 @@ class MachineryTrackerSheetUpdateSerializer(serializers.ModelSerializer):
         required=True,
         source='id_responsible_user'
     )
+
+    justification = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = MachineryTrackerSheet
@@ -60,6 +64,17 @@ class MachineryTrackerSheetUpdateSerializer(serializers.ModelSerializer):
             gps_serial_number=gps_serial
         ).exclude(id_tracker_sheet=instance.id_tracker_sheet).exists():
             errors['gps_serial_number'] = "Este número de serie de GPS ya está registrado."
+
+        # Regla de justificación: solo en PUT y cuando la maquinaria asociada no esté en estado 3
+        request = self.context.get('request')
+        if request and request.method == 'PUT':
+            machinery = getattr(instance, 'id_machinery', None)
+            if machinery and getattr(machinery, 'machinery_operational_status', None):
+                if machinery.machinery_operational_status.id_statues != 3:
+                    justification = data.get('justification')
+                    if not justification:
+                        status_3_name = Statues.objects.get(id_statues=3).name
+                        errors['justification'] = f"La justificación es obligatoria cuando la maquinaria no está en estado '{status_3_name}'. Estado actual: '{machinery.machinery_operational_status.name}'"
 
         if errors:
             raise serializers.ValidationError(errors)
