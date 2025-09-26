@@ -1,6 +1,6 @@
 """
 Pruebas unitarias para el endpoint de listado de maquinarias
-ID: UT-MAQ-009 a UT-MAQ-009.13 (HU-MAQ-009)
+ID: UT-MAQ-008 a UT-MAQ-008.13 (HU-MAQ-009)
 Endpoint: GET http://localhost:8000/machinery/list/ (el endpoint real es GET, no POST)
 """
 
