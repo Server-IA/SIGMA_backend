@@ -20,7 +20,29 @@ class MachineryViewSet(viewsets.ViewSet):
     """
     ViewSet para manejar las operaciones de maquinaria.
     """
-    
+
+    def check_permission(self, request, required_permission_id: int):
+        """
+        Verifica si el usuario tiene el permiso (por ID).
+        Adaptado de FastAPI para Django REST Framework.
+        """
+        # Obtener el payload del JWT desde request.auth
+        payload = getattr(request, "auth", None) or {}
+
+        # Obtener roles del payload (soporta "rol" y "roles")
+        user_roles = payload.get("rol") or payload.get("roles") or []
+
+        # Extraer todos los IDs de permisos de todos los roles
+        permisos_usuario = []
+        for rol in user_roles:
+            # Obtener permisos del rol (soporta "permisos" y "permissions")
+            perms = rol.get("permisos") or rol.get("permissions") or []
+            for perm in perms:
+                if isinstance(perm, dict) and "id" in perm:
+                    permisos_usuario.append(perm.get("id"))
+
+        return required_permission_id in permisos_usuario
+
     @action(detail=False, methods=['get'], url_path='list')
     def list_machinery(self, request):
         """
@@ -34,6 +56,23 @@ class MachineryViewSet(viewsets.ViewSet):
         - acquisition_date: Fecha de adquisición (de la ficha de uso)
         - machinery_operational_status: ID y nombre del estado operativo
         """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 82  # machinery.list
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar maquinaria"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             queryset = Machinery.objects.select_related(
                 'machinery_secondary_type',
@@ -86,6 +125,24 @@ class MachineryViewSet(viewsets.ViewSet):
         3. No se puede cambiar a estado 3, si el estado actual es diferente de 3
         4. Si el estado es diferente de 3, se requiere justificación, de lo contrario no se requiere
         """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 83  # machinery.update
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar maquinaria"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+
         try:
             try:
                 machinery = Machinery.objects.get(pk=pk)
@@ -158,6 +215,24 @@ class MachineryViewSet(viewsets.ViewSet):
         - tariff_subheading: Partida arancelaria
         - id_device: ID del dispositivo de telemetría (opcional)
         """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 84  # machinery.create
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar maquinaria"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+
         try:
             serializer = MachineryGeneralSheetCreateSerializer(
                 data=request.data, 
@@ -205,6 +280,24 @@ class MachineryViewSet(viewsets.ViewSet):
         3. Cambia el estado a "Activo" (id=4)
         4. Actualiza automáticamente la fecha de modificación
         """
+
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 85  # machinery.confirm_registration
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar maquinaria"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             # Obtener la maquinaria por ID
             machinery = Machinery.objects.get(pk=pk)
@@ -275,6 +368,24 @@ class MachineryViewSet(viewsets.ViewSet):
         """
         Obtiene los detalles de una máquina por su ID.
         """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 86  # machinery.retrieve
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar maquinaria"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+
         try:
             machinery = Machinery.objects.get(pk=pk)
             serializer = MachineryDetailSerializer(machinery)
