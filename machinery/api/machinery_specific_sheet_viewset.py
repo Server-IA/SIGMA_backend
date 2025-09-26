@@ -2,11 +2,36 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from django.db import transaction
 from django.utils import timezone
+from rest_framework.decorators import action
 from machinery.models import SpecificTechnicalSheet, Machinery
 from machinery.serializers.machinery_serializers.machinery_specific_sheet_create_serializer import SpecificTechnicalSheetCreateSerializer
 from rest_framework import serializers
 
 class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
+
+
+    def check_permission(self, request, required_permission_id: int):
+        """
+        Verifica si el usuario tiene el permiso (por ID).
+        Adaptado de FastAPI para Django REST Framework.
+        """
+        # Obtener el payload del JWT desde request.auth
+        payload = getattr(request, "auth", None) or {}
+
+        # Obtener roles del payload (soporta "rol" y "roles")
+        user_roles = payload.get("rol") or payload.get("roles") or []
+
+        # Extraer todos los IDs de permisos de todos los roles
+        permisos_usuario = []
+        for rol in user_roles:
+            # Obtener permisos del rol (soporta "permisos" y "permissions")
+            perms = rol.get("permisos") or rol.get("permissions") or []
+            for perm in perms:
+                if isinstance(perm, dict) and "id" in perm:
+                    permisos_usuario.append(perm.get("id"))
+
+        return required_permission_id in permisos_usuario
+
     queryset = SpecificTechnicalSheet.objects.all()
     serializer_class = SpecificTechnicalSheetCreateSerializer
     http_method_names = ["get", "post", "put"]
@@ -16,6 +41,23 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
         Crea la ficha técnica específica.
         Valida que no exista ya una ficha técnica para la máquina especificada.
         """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 90  # machinery_specific_sheet.create
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para crear una ficha técnica específica de la maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         serializer = self.get_serializer(data=request.data)
 
         try:
@@ -57,12 +99,83 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=["get"], url_path=r"machinery/(?P<machinery_id>\d+)")
+    def by_machinery(self, request, machinery_id=None):
+        """
+        Obtiene la ficha técnica específica por el ID de maquinaria.
+        Endpoint: GET /machinery-specific-sheet/by-machinery/{machinery_id}/
+        """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 91  # machinery_specific_sheet.retrieve
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para obtener una ficha técnica específica de la maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            sheet = SpecificTechnicalSheet.objects.filter(id_machinery_id=machinery_id).first()
+            if not sheet:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No existe ficha técnica específica para la maquinaria indicada",
+                        "data": None,
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            serializer = self.get_serializer(sheet)
+            return Response(
+                {
+                    "success": True,
+                    "message": "Ficha técnica específica obtenida exitosamente",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error inesperado al consultar la ficha técnica específica",
+                    "details": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
     def update(self, request, *args, **kwargs):
         """
         Actualiza la ficha técnica específica.
         No permite actualizar el ID de la maquinaria.
         Actualiza automáticamente la fecha de modificación y el usuario que realizó la modificación.
         """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 92  # machinery_specific_sheet.update
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para actualizar la ficha técnica específica de la maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         
