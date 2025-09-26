@@ -22,7 +22,7 @@ class SpecificTechnicalSheet(models.Model):
     fuel_capacity_unit = models.ForeignKey('parameterization.Units', on_delete=models.PROTECT, null=True, blank=True, related_name='fuel_capacity_unit')
     carrying_capacity = models.FloatField(null=True, blank=True)
     carrying_capacity_unit = models.ForeignKey('parameterization.Units', on_delete=models.PROTECT, null=True, blank=True, related_name='carrying_capacity_unit')
-    operating_weight = models.CharField(max_length=255, null=False, blank=False)
+    operating_weight = models.FloatField(max_length=255, null=False, blank=False)
     operating_weight_unit = models.ForeignKey('parameterization.Units', on_delete=models.PROTECT, null=False, blank=False, related_name='operating_weight_unit')
     max_speed = models.FloatField(null=False, blank=False)
     max_speed_unit = models.ForeignKey('parameterization.Units', on_delete=models.PROTECT, null=False, blank=False, related_name='max_speed_unit')
