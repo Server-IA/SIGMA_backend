@@ -92,7 +92,7 @@ class PeriodicMaintenanceSchedulingViewSet(
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para obtener un mantenimiento periódico."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -119,7 +119,7 @@ class PeriodicMaintenanceSchedulingViewSet(
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para crear un mantenimiento periódico."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -172,7 +172,7 @@ class PeriodicMaintenanceSchedulingViewSet(
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para actualizar un mantenimiento periódico."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -230,7 +230,7 @@ class PeriodicMaintenanceSchedulingViewSet(
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para actualizar parcialmente un mantenimiento periódico."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -288,7 +288,7 @@ class PeriodicMaintenanceSchedulingViewSet(
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para eliminar un mantenimiento periódico."},
                 status=status.HTTP_403_FORBIDDEN
             )
 

@@ -138,7 +138,7 @@ class MachineryViewSet(viewsets.ViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para actualizar la información de maquinaria."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -228,7 +228,7 @@ class MachineryViewSet(viewsets.ViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para crear una maquinaria."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -294,7 +294,7 @@ class MachineryViewSet(viewsets.ViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para confirmar el registro de maquinaria."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -381,7 +381,7 @@ class MachineryViewSet(viewsets.ViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para ver los detalles de la maquinaria."},
                 status=status.HTTP_403_FORBIDDEN
             )
 

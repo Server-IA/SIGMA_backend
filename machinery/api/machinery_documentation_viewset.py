@@ -46,7 +46,7 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para crear un documento de maquinaria."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -85,7 +85,7 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para actualizar un documento de maquinaria."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -132,7 +132,7 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para eliminar un documento de maquinaria."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -172,7 +172,7 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para listar documentos de maquinaria."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -213,7 +213,7 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para descargar un documento de maquinaria."},
                 status=status.HTTP_403_FORBIDDEN
             )
 

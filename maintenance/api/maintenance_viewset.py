@@ -74,7 +74,7 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para listar los mantenimientos activos."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -115,7 +115,7 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para crear un mantenimiento."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -152,7 +152,7 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para actualizar un mantenimiento."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -206,7 +206,7 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para activar/desactivar un mantenimiento."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -250,7 +250,7 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para eliminar un mantenimiento."},
                 status=status.HTTP_403_FORBIDDEN
             )
 

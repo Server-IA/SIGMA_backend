@@ -62,7 +62,7 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para listar maquinaria"},
+                {"message": "No tiene permisos para listar dispositivos de telemetría activos."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
