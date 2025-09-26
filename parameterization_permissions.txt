@@ -303,3 +303,182 @@ ID: 81
 Nombre: user_visual_parameterization.list
 Descripción: Listar asignaciones de parametrización visual de usuario
 Categoría: Parametrizacion
+
+CATEGORÍA: MAQUINARIA
+-------------------
+ID: 82
+Nombre: machinery.list
+Descripción: Listar maquinaria
+Categoría: Machinery
+
+ID: 83
+Nombre: machinery.update
+Descripción: Actualizar maquinaria
+Categoría: Machinery
+
+ID: 84
+Nombre: machinery.create
+Descripción: Crear maquinaria
+Categoría: Machinery
+
+ID: 85
+Nombre: machinery.confirm_registration
+Descripción: Confirmar registro de maquinaria
+Categoría: Machinery
+
+ID: 86
+Nombre: machinery.retrieve
+Descripción: Obtener información de maquinaria
+Categoría: Machinery
+
+ID: 87
+Nombre: machinery_tracker.create
+Descripción: Crear ficha de seguimiento de maquinaria
+Categoría: Machinery
+
+ID: 88
+Nombre: machinery_tracker.update
+Descripción: Actualizar ficha de seguimiento de maquinaria
+Categoría: Machinery
+
+ID: 89
+Nombre: machinery_tracker.retrieve
+Descripción: Obtener ficha de seguimiento de maquinaria
+Categoría: Machinery
+
+ID: 90
+Nombre: machinery_specific_sheet.create
+Descripción: Crear ficha específica de maquinaria
+Categoría: Machinery
+
+ID: 91
+Nombre: machinery_specific_sheet.retrieve
+Descripción: Obtener ficha específica de maquinaria
+Categoría: Machinery
+
+ID: 92
+Nombre: machinery_specific_sheet.update
+Descripción: Actualizar ficha específica de maquinaria
+Categoría: Machinery
+
+ID: 93
+Nombre: machinery_usage_sheet.create
+Descripción: Crear ficha de uso de maquinaria
+Categoría: Machinery
+
+ID: 94
+Nombre: machinery_usage_sheet.update
+Descripción: Actualizar ficha de uso de maquinaria
+Categoría: Machinery
+
+ID: 95
+Nombre: machinery_usage_sheet.retrieve
+Descripción: Obtener ficha de uso de maquinaria
+Categoría: Machinery
+
+ID: 96
+Nombre: machinery_maintenance.retrieve
+Descripción: Obtener ficha de mantenimiento de maquinaria
+Categoría: Machinery
+
+ID: 97
+Nombre: machinery_maintenance.create
+Descripción: Crear ficha de mantenimiento de maquinaria
+Categoría: Machinery
+
+ID: 98
+Nombre: machinery_maintenance.update
+Descripción: Actualizar ficha de mantenimiento de maquinaria
+Categoría: Machinery
+
+ID: 99
+Nombre: machinery_maintenance.partial_update
+Descripción: Actualizar de forma parcial ficha de mantenimiento de maquinaria
+Categoría: Machinery
+
+ID: 100
+Nombre: machinery_maintenance.delete
+Descripción: Eliminar ficha de mantenimiento de maquinaria
+Categoría: Machinery
+
+ID: 101
+Nombre: machinery_documentation.create
+Descripción: Crear documento de maquinaria
+Categoría: Machinery
+
+ID: 102
+Nombre: machinery_documentation.update
+Descripción: Actualizar documento de maquinaria
+Categoría: Machinery
+
+ID: 103
+Nombre: machinery_documentation.delete
+Descripción: Eliminar documento de maquinaria
+Categoría: Machinery
+
+ID: 104
+Nombre: machinery_documentation.list
+Descripción: Listar documentos de maquinaria
+Categoría: Machinery
+
+ID: 105
+Nombre: machinery_documentation.download
+Descripción: Descargar documentos de maquinaria
+Categoría: Machinery
+
+ID: 111
+Nombre: telemetry_device.list_active
+Descripción: Listar activos dispositivos de telemetría activos
+Categoría: Machinery
+
+ID: 112
+Nombre: telemetry_device.list
+Descripción: Listar dispositivos de telemetría activos
+Categoría: Machinery
+
+ID: 113
+Nombre: telemetry_device.create
+Descripción: Crear dispositivo de telemetría
+Categoría: Machinery
+
+ID: 114
+Nombre: telemetry_device.update
+Descripción: Actualizar dispositivo de telemetría
+Categoría: Machinery
+
+ID: 115
+Nombre: telemetry_device.toggle
+Descripción: Activar/desactivar dispositivo de telemetría
+Categoría: Machinery
+
+ID: 116
+Nombre: telemetry_device.retrieve
+Descripción: obtener dispositivo de telemetría
+Categoría: Machinery
+
+CATEGORÍA: MANTENIMIENTO
+----------------------
+ID: 106
+Nombre: maintenance.list_active
+Descripción: Listar mantenimientos activos
+Categoría: Maintenance
+
+ID: 107
+Nombre: maintenance.create
+Descripción: crear mantenimiento
+Categoría: Maintenance
+
+ID: 108
+Nombre: maintenance.update
+Descripción: Actualizar mantenimiento
+Categoría: Maintenance
+
+ID: 109
+Nombre: maintenance.toggle
+Descripción: Activar/desactivar mantenimiento
+Categoría: Maintenance
+
+ID: 110
+Nombre: maintenance.delete
+Descripción: Eliminar mantenimiento
+Categoría: Maintenance
