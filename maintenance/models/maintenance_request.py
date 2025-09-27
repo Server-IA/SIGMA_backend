@@ -17,6 +17,9 @@ class MaintenanceRequest(models.Model):
     # Prioridad (parametrizable de estados: alta, media, baja)
     priority = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="maintenance_requests_by_priority", db_column="priority_type", null=False, blank=False)
 
+    # Estado de la solicitud (parametrizable de estados)
+    request_status = models.ForeignKey("parameterization.Statues", on_delete=models.PROTECT, related_name="maintenance_requests_by_status", db_column="request_status", null=False, blank=False)
+
     # Fecha de detección (obligatoria)
     detected_at = models.DateField(db_column="detected_at", null=False, blank=False)
 
