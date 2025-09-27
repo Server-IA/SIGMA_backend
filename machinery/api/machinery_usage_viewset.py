@@ -5,6 +5,7 @@ from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from machinery.models.machinery_usage_sheet import MachineryUsageSheet
 from machinery.serializers.machinery_serializers.machinery_usage_sheet_create_serializer import MachineryUsageSheetCreateSerializer
 from machinery.serializers.machinery_serializers.machinery_usage_sheet_update_serializer import MachineryUsageSheetUpdateSerializer
+from machinery.serializers.machinery_serializers.machinery_usage_sheet_detail_serializer import MachineryUsageSheetDetailSerializer
 from django.shortcuts import get_object_or_404
 import logging
 
@@ -117,4 +118,41 @@ class MachineryUsageViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Error al actualizar la información de uso: {str(e)}")
             return Response({"success": False, "message": "Error al actualizar la información de uso de la maquinaria", "details": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+    @action(detail=False, methods=['get'], url_path=r'by-machinery/(?P<machinery_id>[^/.]+)')
+    def get_by_machinery(self, request, machinery_id=None):
+        """
+        HU-MAQ-009: Ver detalle de información de uso por id_machinery.
+        Devuelve estructura legible para UI e incluye 'missing_fields'.
+        """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 95  # machinery_usage_sheet.retrieve
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para obtener una ficha de uso de la maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            instance = MachineryUsageSheet.objects.select_related(
+                'usage_condition', 'distance_unit', 'tenancy_type'
+            ).get(id_machinery_id=machinery_id)
+
+            data = MachineryUsageSheetDetailSerializer(instance).data
+            return Response({'success': True, 'data': data}, status=status.HTTP_200_OK)
+        except MachineryUsageSheet.DoesNotExist:
+            return Response({'success': False, 'message': 'La maquinaria no tiene ficha de uso registrada'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error obteniendo ficha de uso por maquinaria {machinery_id}: {str(e)}")
+            return Response({'success': False, 'message': 'Error al obtener la ficha de uso', 'details': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
