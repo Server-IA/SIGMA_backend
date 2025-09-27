@@ -1,6 +1,7 @@
 # machinery/serializers/machinery_serializers/periodic_maintenance_serializer.py
 from rest_framework import serializers
 from machinery.models import PeriodicMaintenanceScheduling, Machinery
+from parameterization.models import Statues
 from maintenance.models.maintenance import Maintenance
 
 
@@ -32,6 +33,8 @@ class PeriodicMaintenanceCreateUpdateSerializer(serializers.ModelSerializer):
         },
     )
 
+    justification = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
     class Meta:
         model = PeriodicMaintenanceScheduling
         fields = (
@@ -40,6 +43,7 @@ class PeriodicMaintenanceCreateUpdateSerializer(serializers.ModelSerializer):
             "id_maintenance",
             "usage_hours",
             "distance_km",
+            "justification",
         )
         read_only_fields = ("id_periodic_maintenance_scheduling",)
 
@@ -105,6 +109,24 @@ class PeriodicMaintenanceCreateUpdateSerializer(serializers.ModelSerializer):
         # guardamos en attrs los valores “propuestos” para que update/create los vean
         attrs["_proposed_usage_hours"] = proposed_usage
         attrs["_proposed_distance_km"] = proposed_distance
+        # Justificación obligatoria en PUT si estado de la maquinaria asociada != 3
+        request = self.context.get('request')
+        if request and request.method == 'PUT':
+            mach_id = id_machinery
+            if mach_id is None and self.instance is not None:
+                mach_id = self.instance.machinery_id
+            if mach_id is not None:
+                try:
+                    mach = Machinery.objects.select_related('machinery_operational_status').get(pk=mach_id)
+                    if mach.machinery_operational_status_id and mach.machinery_operational_status.id_statues != 3:
+                        if not attrs.get('justification'):
+                            status_3_name = Statues.objects.get(id_statues=3).name
+                            raise serializers.ValidationError({
+                                'justification': f"La justificación es obligatoria cuando la maquinaria no está en estado '{status_3_name}'. Estado actual: '{mach.machinery_operational_status.name}'"
+                            })
+                except Machinery.DoesNotExist:
+                    pass
+
         return attrs
 
     def create(self, validated_data):

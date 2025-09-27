@@ -17,6 +17,29 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
     """
     ViewSet para el modelo Maintenance.
     """
+
+    def check_permission(self, request, required_permission_id: int):
+        """
+        Verifica si el usuario tiene el permiso (por ID).
+        Adaptado de FastAPI para Django REST Framework.
+        """
+        # Obtener el payload del JWT desde request.auth
+        payload = getattr(request, "auth", None) or {}
+
+        # Obtener roles del payload (soporta "rol" y "roles")
+        user_roles = payload.get("rol") or payload.get("roles") or []
+
+        # Extraer todos los IDs de permisos de todos los roles
+        permisos_usuario = []
+        for rol in user_roles:
+            # Obtener permisos del rol (soporta "permisos" y "permissions")
+            perms = rol.get("permisos") or rol.get("permissions") or []
+            for perm in perms:
+                if isinstance(perm, dict) and "id" in perm:
+                    permisos_usuario.append(perm.get("id"))
+
+        return required_permission_id in permisos_usuario
+
     queryset = Maintenance.objects.select_related("maintenance_type", "maintenance_status", "id_responsible_user")
     
     def get_serializer_class(self):
@@ -38,6 +61,23 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         """
         Lista todos los mantenimientos activos.
         """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 106  # maintenance.list_active
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar los mantenimientos activos."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             active_status = Statues.objects.get(pk=1)  # Asumiendo que 1 es el ID para estado activo
             queryset = self.get_queryset().filter(maintenance_status=active_status)
@@ -62,6 +102,24 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 107  # maintenance.create
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para crear un mantenimiento."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+
         ser = self.get_serializer(data=request.data)
         try:
             ser.is_valid(raise_exception=True)
@@ -81,6 +139,23 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_201_CREATED, headers=headers)
 
     def update(self, request, *args, **kwargs):
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 108  # maintenance.update
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para actualizar un mantenimiento."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             instance = self.get_object()
             serializer = self.get_serializer(instance, data=request.data, partial=False)
@@ -119,8 +194,23 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         """
         Toggle maintenance status between active (1) and inactive (2).
         """
-        from parameterization.models import Statues
-        
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 109  # maintenance.toggle
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para activar/desactivar un mantenimiento."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+
         maintenance = self.get_object()
         
         try:
@@ -147,6 +237,23 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 110  # maintenance.delete
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para eliminar un mantenimiento."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             instance = self.get_object()
         except Http404:

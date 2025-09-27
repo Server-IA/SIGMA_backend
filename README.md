@@ -37,6 +37,13 @@ DB_PORT=5432
 
 DEBUG=True
 ALLOWED_HOSTS=*
+
+AUTH_SERVICE_URL=http://backend:8001/
+
+FIREBASE_CREDENTIALS='{""}'
+FIREBASE_STORAGE_BUCKET=
+
+JWT_SECRET=your_secret_key
 ```
 ## 3. Crear la Red de Docker
 

@@ -7,6 +7,7 @@ class MachineryDocumentation(models.Model):
     path = models.CharField(max_length=500, null=False)
     creation_date = models.DateField(null=False)
     id_responsible_user = models.ForeignKey('users.User', on_delete=models.PROTECT, null=False)
+    justification = models.CharField(max_length=300, null=True, blank=True)
 
     class Meta:
         db_table = 'machinery_documentation'

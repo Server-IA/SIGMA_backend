@@ -145,3 +145,13 @@ CSRF_TRUSTED_ORIGINS = [
     os.getenv("FRONTEND_PRUEBAS_URL"),
     os.getenv("FRONTEND_URL"),
 ]
+
+# DRF
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'users.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
