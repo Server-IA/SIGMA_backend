@@ -5,6 +5,8 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from machinery.models.machinery_tracker_sheet import MachineryTrackerSheet
 from machinery.serializers.machinery_serializers.machinery_tracker_sheet_create_serializer import MachineryTrackerSheetCreateSerializer
 from machinery.serializers.machinery_serializers.machinery_tracker_sheet_update_serializer import MachineryTrackerSheetUpdateSerializer
+from machinery.serializers.machinery_serializers.machinery_tracker_detail_serializer import MachineryTrackerDetailSerializer
+
 from django.shortcuts import get_object_or_404
 import logging
 
@@ -182,4 +184,32 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
                     "details": str(e)
                 },
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=True, methods=['get'], url_path='detail')
+    def get_detail(self, request, pk=None):
+        """
+        Obtiene el detalle del tracker de maquinaria.
+        """
+        try:
+            tracker_instance = get_object_or_404(MachineryTrackerSheet, pk=pk)
+            serializer = MachineryTrackerDetailSerializer(tracker_instance)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except MachineryTrackerSheet.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ficha técnica no encontrada"
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error al obtener el detalle: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al obtener el detalle de la maquinaria",
+                    "details": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
