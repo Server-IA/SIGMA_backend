@@ -10,6 +10,7 @@ class MachineryTrackerSheet(models.Model):
     registration_date = models.DateField(auto_now=True)
     modification_date = models.DateField(auto_now=True)
     id_responsible_user = models.ForeignKey('users.User', on_delete=models.PROTECT, null=False)
+    justification = models.CharField(max_length=300, null=True, blank=True)
 
     class Meta:
         db_table = 'machinery_tracker_sheet'

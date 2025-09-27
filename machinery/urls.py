@@ -16,8 +16,9 @@ router.register(r'machinery-tracker', MachineryTrackerViewSet, basename='machine
 router.register(r'machinery-specific-sheet', SpecificTechnicalSheetViewSet, basename='machinery-specific-sheet')
 router.register(r'machinery-usage', MachineryUsageViewSet, basename='machinery-usage')
 router.register(r'machinery-documentation', MachineryDocumentationViewSet, basename='machinery-documentation')
-router.register(r'machinery/periodic-maintenance', PeriodicMaintenanceSchedulingViewSet, basename='periodic-maintenance')
+router.register(r'periodic-maintenance', PeriodicMaintenanceSchedulingViewSet, basename='periodic-maintenance')
 router.register(r'telemetry-devices', TelemetryDevicesViewSet, basename='telemetry-devices')
+
 urlpatterns = [
     path('', include(router.urls))
 ]
