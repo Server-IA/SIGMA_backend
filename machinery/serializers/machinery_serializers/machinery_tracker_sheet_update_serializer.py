@@ -33,6 +33,7 @@ class MachineryTrackerSheetUpdateSerializer(serializers.ModelSerializer):
             'chassis_number',
             'engine_number',
             'responsible_user',
+            'justification',
         ]
         read_only_fields = ['id_tracker_sheet']
         extra_kwargs = {
