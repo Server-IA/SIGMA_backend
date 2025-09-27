@@ -5,6 +5,8 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from machinery.models.machinery_tracker_sheet import MachineryTrackerSheet
 from machinery.serializers.machinery_serializers.machinery_tracker_sheet_create_serializer import MachineryTrackerSheetCreateSerializer
 from machinery.serializers.machinery_serializers.machinery_tracker_sheet_update_serializer import MachineryTrackerSheetUpdateSerializer
+from machinery.serializers.machinery_serializers.machinery_tracker_detail_serializer import MachineryTrackerDetailSerializer
+
 from django.shortcuts import get_object_or_404
 import logging
 
@@ -15,6 +17,29 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
     """
     ViewSet para manejar el modelo MachineryTracker.
     """
+
+    def check_permission(self, request, required_permission_id: int):
+        """
+        Verifica si el usuario tiene el permiso (por ID).
+        Adaptado de FastAPI para Django REST Framework.
+        """
+        # Obtener el payload del JWT desde request.auth
+        payload = getattr(request, "auth", None) or {}
+
+        # Obtener roles del payload (soporta "rol" y "roles")
+        user_roles = payload.get("rol") or payload.get("roles") or []
+
+        # Extraer todos los IDs de permisos de todos los roles
+        permisos_usuario = []
+        for rol in user_roles:
+            # Obtener permisos del rol (soporta "permisos" y "permissions")
+            perms = rol.get("permisos") or rol.get("permissions") or []
+            for perm in perms:
+                if isinstance(perm, dict) and "id" in perm:
+                    permisos_usuario.append(perm.get("id"))
+
+        return required_permission_id in permisos_usuario
+
     queryset = MachineryTrackerSheet.objects.all()
     serializer_class = MachineryTrackerSheetCreateSerializer
     parser_classes = [JSONParser, MultiPartParser, FormParser]
@@ -24,6 +49,23 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
         """
         Crea un registro de MachineryTracker
         """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 87  # machinery_tracker.create
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para crear una ficha de seguimiento de la maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             data = request.data.dict() if hasattr(request.data, 'getlist') else request.data
             
@@ -78,6 +120,24 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
         """
         Actualiza una ficha técnica de seguimiento de la maquinaria.
         """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 88  # machinery_tracker.update
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para actualizar la ficha de seguimiento de la maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+
         try:
             tracker_instance = get_object_or_404(MachineryTrackerSheet, pk=pk)
 
@@ -124,4 +184,49 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
                     "details": str(e)
                 },
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=False, methods=['get'], url_path='by-machinery/(?P<machinery_id>[^/.]+)')
+    def get_detail_by_machinery(self, request, machinery_id=None):
+        """
+        Obtiene el detalle del tracker de maquinaria basado en el ID de la maquinaria.
+        """
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 89  # machinery_tracker.retrieve
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para ver la ficha de seguimiento de la maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Buscar la ficha por el ID de la maquinaria
+            tracker_instance = MachineryTrackerSheet.objects.get(id_machinery_id=machinery_id)
+            serializer = MachineryTrackerDetailSerializer(tracker_instance)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except MachineryTrackerSheet.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No se encontró ficha técnica para la maquinaria especificada"
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error al obtener el detalle: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al obtener el detalle de la maquinaria",
+                    "details": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

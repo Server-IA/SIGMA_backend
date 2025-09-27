@@ -33,6 +33,28 @@ class PeriodicMaintenanceSchedulingViewSet(
             return PeriodicMaintenanceListSerializer
         return PeriodicMaintenanceCreateUpdateSerializer
 
+    def check_permission(self, request, required_permission_id: int):
+        """
+        Verifica si el usuario tiene el permiso (por ID).
+        Adaptado de FastAPI para Django REST Framework.
+        """
+        # Obtener el payload del JWT desde request.auth
+        payload = getattr(request, "auth", None) or {}
+
+        # Obtener roles del payload (soporta "rol" y "roles")
+        user_roles = payload.get("rol") or payload.get("roles") or []
+
+        # Extraer todos los IDs de permisos de todos los roles
+        permisos_usuario = []
+        for rol in user_roles:
+            # Obtener permisos del rol (soporta "permisos" y "permissions")
+            perms = rol.get("permisos") or rol.get("permissions") or []
+            for perm in perms:
+                if isinstance(perm, dict) and "id" in perm:
+                    permisos_usuario.append(perm.get("id"))
+
+        return required_permission_id in permisos_usuario
+
     def get_queryset(self):
         qs = super().get_queryset()
         machinery_id = self.request.query_params.get("machinery")
@@ -55,6 +77,23 @@ class PeriodicMaintenanceSchedulingViewSet(
         )
     
     def retrieve(self, request, *args, **kwargs):
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 96  # machinery_maintenance.retrieve
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para obtener un mantenimiento periódico."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             instance = self.get_object()
         except Http404:
@@ -65,6 +104,24 @@ class PeriodicMaintenanceSchedulingViewSet(
     # --- Respuestas normalizadas ---
     @transaction.atomic
     def create(self, request, *args, **kwargs):
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 97  # machinery_maintenance.create
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para crear un mantenimiento periódico."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+
         ser = self.get_serializer(data=request.data)
         try:
             ser.is_valid(raise_exception=True)
@@ -100,6 +157,23 @@ class PeriodicMaintenanceSchedulingViewSet(
         )
     @transaction.atomic
     def update(self, request, *args, **kwargs):
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 98  # machinery_maintenance.update
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para actualizar un mantenimiento periódico."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             instance = self.get_object()
         except Http404:
@@ -141,6 +215,23 @@ class PeriodicMaintenanceSchedulingViewSet(
 
     @transaction.atomic
     def partial_update(self, request, *args, **kwargs):
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 99  # machinery_maintenance.partial_update
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para actualizar parcialmente un mantenimiento periódico."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             instance = self.get_object()
         except Http404:
@@ -182,6 +273,23 @@ class PeriodicMaintenanceSchedulingViewSet(
 
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 100  # machinery_maintenance.delete
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para eliminar un mantenimiento periódico."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             instance = self.get_object()
         except Http404:
