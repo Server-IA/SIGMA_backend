@@ -186,20 +186,37 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-    @action(detail=True, methods=['get'], url_path='detail')
-    def get_detail(self, request, pk=None):
+    @action(detail=False, methods=['get'], url_path='by-machinery/(?P<machinery_id>[^/.]+)')
+    def get_detail_by_machinery(self, request, machinery_id=None):
         """
-        Obtiene el detalle del tracker de maquinaria.
+        Obtiene el detalle del tracker de maquinaria basado en el ID de la maquinaria.
         """
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 89  # machinery_tracker.retrieve
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para ver la ficha de seguimiento de la maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
-            tracker_instance = get_object_or_404(MachineryTrackerSheet, pk=pk)
+            # Buscar la ficha por el ID de la maquinaria
+            tracker_instance = MachineryTrackerSheet.objects.get(id_machinery_id=machinery_id)
             serializer = MachineryTrackerDetailSerializer(tracker_instance)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except MachineryTrackerSheet.DoesNotExist:
             return Response(
                 {
                     "success": False,
-                    "message": "Ficha técnica no encontrada"
+                    "message": "No se encontró ficha técnica para la maquinaria especificada"
                 },
                 status=status.HTTP_404_NOT_FOUND
             )

@@ -135,11 +135,14 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
                 )
 
             serializer = self.get_serializer(sheet)
+            response_data = serializer.data
+            # Asegurarse de que el ID de la ficha específica esté incluido
+            response_data['id_specific_sheet'] = sheet.id_specific_technical_sheet
             return Response(
                 {
                     "success": True,
                     "message": "Ficha técnica específica obtenida exitosamente",
-                    "data": serializer.data,
+                    "data": response_data,
                 },
                 status=status.HTTP_200_OK,
             )
