@@ -186,24 +186,11 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
                 "status": "error"
             }, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['get'], url_path='list')
+    @action(detail=False, methods=['get'], url_path='list', authentication_classes=[], permission_classes=[])
     def listar_parametrizaciones(self, request):
-        # Verificar que el usuario esté autenticado
-        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
-            return Response(
-                {"message": "Usuario no autenticado"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        
-        permission_id = 75  # visual_parameterization.list
-        
-        # Verificar permiso usando la función check_permission
-        if not self.check_permission(request, permission_id):
-            return Response(
-                {"message": "No tiene permisos para listar parametrizaciones visuales"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
+        """
+        Lista todas las parametrizaciones visuales sin requerir autenticación.
+        """
         parametrizaciones = VisualParameterization.objects.all()
         serializer = VisualParameterizationListSerializer(parametrizaciones, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
