@@ -135,11 +135,14 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
                 )
 
             serializer = self.get_serializer(sheet)
+            response_data = serializer.data
+            # Asegurarse de que el ID de la ficha específica esté incluido
+            response_data['id_specific_sheet'] = sheet.id_specific_technical_sheet
             return Response(
                 {
                     "success": True,
                     "message": "Ficha técnica específica obtenida exitosamente",
-                    "data": serializer.data,
+                    "data": response_data,
                 },
                 status=status.HTTP_200_OK,
             )
@@ -181,24 +184,31 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
         
         # Hacer una copia de los datos de la solicitud
         data = request.data.copy()
-        
         # Si se incluye id_machinery, lo reemplazamos por el valor actual de la instancia
         # para evitar que se modifique pero cumplir con la validación del serializador
         if 'id_machinery' in data:
             data['id_machinery'] = instance.id_machinery_id
-            
+
         serializer = self.get_serializer(instance, data=data, partial=partial)
 
         try:
             serializer.is_valid(raise_exception=True)
 
             with transaction.atomic():
-                # Actualizar la fecha de modificación y el usuario responsable
+                # Actualizar la fecha de modificación
                 instance.modification_date = timezone.now()
-                if request.user and request.user.is_authenticated:
-                    instance.id_responsible_user = request.user
-                instance.save()
                 
+                # Si se proporciona un id_responsible_user en la solicitud, usarlo
+                # De lo contrario, mantener el usuario actual
+                if 'id_responsible_user' in data and data['id_responsible_user']:
+                    from users.models.user import User
+                    try:
+                        responsible_user = User.objects.get(pk=data['id_responsible_user'])
+                        instance.id_responsible_user = responsible_user
+                    except User.DoesNotExist:
+                        pass  # Mantener el usuario actual si el proporcionado no existe
+                
+                instance.save()
                 # Guardar el resto de los datos del serializer
                 serializer.save()
 

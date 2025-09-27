@@ -5,6 +5,8 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from machinery.models.machinery_tracker_sheet import MachineryTrackerSheet
 from machinery.serializers.machinery_serializers.machinery_tracker_sheet_create_serializer import MachineryTrackerSheetCreateSerializer
 from machinery.serializers.machinery_serializers.machinery_tracker_sheet_update_serializer import MachineryTrackerSheetUpdateSerializer
+from machinery.serializers.machinery_serializers.machinery_tracker_detail_serializer import MachineryTrackerDetailSerializer
+
 from django.shortcuts import get_object_or_404
 import logging
 
@@ -182,4 +184,49 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
                     "details": str(e)
                 },
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=False, methods=['get'], url_path='by-machinery/(?P<machinery_id>[^/.]+)')
+    def get_detail_by_machinery(self, request, machinery_id=None):
+        """
+        Obtiene el detalle del tracker de maquinaria basado en el ID de la maquinaria.
+        """
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 89  # machinery_tracker.retrieve
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para ver la ficha de seguimiento de la maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Buscar la ficha por el ID de la maquinaria
+            tracker_instance = MachineryTrackerSheet.objects.get(id_machinery_id=machinery_id)
+            serializer = MachineryTrackerDetailSerializer(tracker_instance)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except MachineryTrackerSheet.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No se encontró ficha técnica para la maquinaria especificada"
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error al obtener el detalle: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al obtener el detalle de la maquinaria",
+                    "details": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
