@@ -14,7 +14,6 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
     """
     ViewSet para manejar la creación de solicitudes de mantenimiento manuales.
     """
-
     def check_permission(self, request, required_permission_id: int):
         payload = getattr(request, "auth", None) or {}
         user_roles = payload.get("rol") or payload.get("roles") or []

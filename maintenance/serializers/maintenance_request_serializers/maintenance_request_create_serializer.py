@@ -14,10 +14,8 @@ class MaintenanceRequestCreateSerializer(serializers.ModelSerializer):
             "description",
             "priority",
             "detected_at",
-            "request_status",
             "id_responsible_user",
         )
-        read_only_fields = ("request_status",)
 
     def validate_detected_at(self, value):
         # La fecha de detección no puede ser futura
@@ -52,18 +50,15 @@ class MaintenanceRequestCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         # Estado inicial por defecto: "Pendiente"
         try:
-            pending_status = Statues.objects.get(name__iexact="Pendiente")
+            pending_status = Statues.objects.get(id_statues=10)
         except Statues.DoesNotExist:
-            raise serializers.ValidationError("No se encontró el estado 'Pendiente' en la parametrización.")
+            raise serializers.ValidationError("No se encontró el estado 'Pendiente' (id=10) en la parametrización.")
 
         validated_data["request_status"] = pending_status
         # Guardar fechas explícitas si deseas forzar (aunque el modelo ya usa auto_now)
         validated_data["registration_date"] = timezone.now()
         validated_data["modification_date"] = timezone.now()
 
-        # TODO: Generar y asociar consecutivo de solicitud
-        # Para persistir un consecutivo se requiere un campo en MaintenanceRequest (p.ej. id_consecutive)
-        # o un modelo como MaintenanceRequestConsecutive. Puedo crearlo si lo apruebas.
-
+        # Crear la solicitud sin consecutivo (solo registro de solicitud, no programación)
         instance = MaintenanceRequest.objects.create(**validated_data)
         return instance
