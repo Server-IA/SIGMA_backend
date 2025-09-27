@@ -31,7 +31,7 @@ class MachineryUsageSheetUpdateSerializer(serializers.ModelSerializer):
         required=True,
         source="id_responsible_user",
     )
-    justification = serializers.CharField(required=True, allow_blank=False, write_only=True)
+    justification = serializers.CharField(required=False, allow_null=True, allow_blank=True, write_only=True)
 
     class Meta:
         model = MachineryUsageSheet
@@ -157,18 +157,25 @@ class MachineryUsageSheetUpdateSerializer(serializers.ModelSerializer):
                     "contract_end_date": "La fecha fin de contrato es obligatoria cuando la maquinaria no es propia."
                 })
 
-        # Justificación obligatoria
-        if not data.get("justification"):
-            raise ValidationError({
-                "justification": "La justificación es obligatoria para registrar la actualización."
-            })
+        # Regla de justificación: solo en PUT cuando la maquinaria asociada no esté en estado 3
+        request = self.context.get('request')
+        if request and request.method == 'PUT':
+            machinery = getattr(instance, 'id_machinery', None)
+            if machinery and getattr(machinery, 'machinery_operational_status', None):
+                if machinery.machinery_operational_status.id_statues != 3:
+                    justification = data.get('justification')
+                    if not justification:
+                        status_3_name = Statues.objects.get(id_statues=3).name
+                        raise ValidationError({
+                            'justification': f"La justificación es obligatoria cuando la maquinaria no está en estado '{status_3_name}'. Estado actual: '{machinery.machinery_operational_status.name}'"
+                        })
 
         return data
 
     def update(self, instance, validated_data):
-        # La justificación no se persiste en este modelo (puede auditarse externamente)
-        validated_data.pop("justification", None)
-
+        # Obtener la justificación antes de sacarla de validated_data
+        justification = validated_data.pop("justification", None)
+        
         registration_date = instance.registration_date
 
         # Asignar campos presentes
@@ -177,9 +184,16 @@ class MachineryUsageSheetUpdateSerializer(serializers.ModelSerializer):
 
         # Actualizar modification_date
         instance.modification_date = timezone.now().date()
+        
+        # Asignar la justificación al modelo si existe
+        if justification is not None:
+            instance.justification = justification
 
-        # Guardar únicamente campos provistos + auditables
+        # Guardar únicamente campos provistos + auditables + justificación
         update_fields = set(list(validated_data.keys()) + ["modification_date", "id_responsible_user"])
+        if justification is not None:
+            update_fields.add("justification")
+            
         instance.save(update_fields=list(update_fields))
 
         # Restaurar registration_date si cambió por auto_now

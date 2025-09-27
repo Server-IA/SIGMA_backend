@@ -80,6 +80,23 @@ class MachineryUsageViewSet(viewsets.ModelViewSet):
         Actualiza la información de uso de una maquinaria (HU-MAQ-013).
         Requiere responsible_user y justification.
         """
+
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 94  # machinery_usage_sheet.update
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para actualizar una ficha de uso de la maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             usage_instance = get_object_or_404(MachineryUsageSheet, pk=pk)
 
