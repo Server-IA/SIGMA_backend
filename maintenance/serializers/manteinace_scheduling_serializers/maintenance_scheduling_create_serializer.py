@@ -3,8 +3,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from maintenance.models import MaintenanceScheduling, MaintenanceSchedulingConsecutive
-from parameterization.models import TypesCategory
-
+from parameterization.models import TypesCategory, Statues
 
 class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -90,10 +89,12 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
             validated_data["registration_date"] = now
             validated_data["modification_date"] = now
 
+            status = Statues.objects.get(id_statues=13)
+            validated_data["maintenance_scheduling_status"] = status
+
             consecutive = self._generate_consecutive()
             validated_data["id_consecutive"] = consecutive
             instance = MaintenanceScheduling.objects.create(**validated_data)
 
-        # Notificaciones (correo/sistema) deberían dispararse en capa de aplicación (View/Signal)
         return instance
 

@@ -139,17 +139,30 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
         validated_data["modification_date"] = now
 
         with transaction.atomic():
+            # Obtener el estado 13 (Programado) para el mantenimiento
+            try:
+                status = Statues.objects.get(id_statues=13)
+            except Statues.DoesNotExist:
+                raise serializers.ValidationError("No se encontró el estado 'Programado' (id=13) en la parametrización.")
+                
+            # Asignar el estado 13 al mantenimiento programado
+            validated_data["maintenance_scheduling_status"] = status
+            
             consecutive = self._generate_consecutive()
             validated_data["id_consecutive"] = consecutive
+            
+            # Crear la instancia del mantenimiento programado
             instance = MaintenanceScheduling.objects.create(
                 id_maintenance_request=request_obj,
                 **validated_data,
             )
+            
             # Cambiar el estado de la solicitud a "Aceptado" (id=11)
             try:
                 accepted = Statues.objects.get(id_statues=11)
             except Statues.DoesNotExist:
                 raise serializers.ValidationError("No se encontró el estado 'Aceptado' (id=11) en la parametrización.")
+           
             request_obj.request_status = accepted
             request_obj.modification_date = timezone.now()
             request_obj.save(update_fields=["request_status", "modification_date"])
