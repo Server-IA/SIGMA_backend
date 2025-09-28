@@ -3,8 +3,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from maintenance.models import MaintenanceScheduling, MaintenanceSchedulingConsecutive
-from parameterization.models import TypesCategory
-
+from parameterization.models import TypesCategory, Statues
 
 class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -18,7 +17,7 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
             "id_consecutive",
             "id_responsible_user",
         )
-        read_only_fields = ("id_consecutive",)
+        read_only_fields = ("id_consecutive", "id_responsible_user")
 
     def validate_scheduled_at(self, value):
         if value < timezone.now():
@@ -26,6 +25,12 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        # Obtenemos el usuario del contexto (que vendrá de la vista)
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
+            # Usamos solo el ID del usuario
+            attrs['id_responsible_user_id'] = request.user.id
+
         scheduled_at = attrs.get("scheduled_at")
         technician = attrs.get("assigned_technician")
 
@@ -84,10 +89,12 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
             validated_data["registration_date"] = now
             validated_data["modification_date"] = now
 
+            status = Statues.objects.get(id_statues=13)
+            validated_data["maintenance_scheduling_status"] = status
+
             consecutive = self._generate_consecutive()
             validated_data["id_consecutive"] = consecutive
             instance = MaintenanceScheduling.objects.create(**validated_data)
 
-        # Notificaciones (correo/sistema) deberían dispararse en capa de aplicación (View/Signal)
         return instance
 

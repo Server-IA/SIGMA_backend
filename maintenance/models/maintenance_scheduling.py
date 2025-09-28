@@ -9,6 +9,8 @@ class MaintenanceScheduling(models.Model):
     details = models.CharField(max_length=350, null=False, blank=False, db_column="details")
     assigned_technician = models.ForeignKey("users.User", on_delete=models.PROTECT, related_name="maintenance_schedulings_assigned", db_column="id_assigned_technician", null=False, blank=False)
     maintenance_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="maintenance_schedulings_by_type", db_column="maintenance_type", null=False, blank=False)
+    maintenance_scheduling_status = models.ForeignKey("parameterization.Statues", on_delete=models.PROTECT, related_name="maintenance_scheduling_by_status", db_column="maintenance_scheduling_status", null=False, blank=False)
+    justification = models.CharField(max_length=300, null=True, blank=True)
     id_consecutive = models.ForeignKey("maintenance.MaintenanceSchedulingConsecutive", on_delete=models.PROTECT, related_name="maintenance_schedulings", db_column="id_consecutive", null=False, blank=False)
     registration_date = models.DateTimeField(auto_now=True, db_column="registration_date")
     modification_date = models.DateTimeField(auto_now=True, db_column="modification_date")
