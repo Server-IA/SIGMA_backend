@@ -27,7 +27,21 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
             "id_consecutive",
             "id_responsible_user",
         )
-        read_only_fields = ("id_consecutive", "id_machinery")
+        read_only_fields = ("id_consecutive", "id_machinery", "id_responsible_user")
+
+    def validate(self, attrs):
+        # Obtenemos el usuario del contexto (que vendrá de la vista)
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
+            # Usamos solo el ID del usuario
+            attrs['id_responsible_user_id'] = request.user.id
+
+        # Validamos que la fecha no sea pasada
+        scheduled_at = attrs.get('scheduled_at')
+        if scheduled_at and scheduled_at < timezone.now():
+            raise serializers.ValidationError({"scheduled_at": "La fecha y hora programada no puede estar en el pasado."})
+            
+        return attrs
 
     def validate_scheduled_at(self, value):
         if value < timezone.now():
@@ -104,6 +118,13 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
 
     def create(self, validated_data):
         request_obj: MaintenanceRequest = validated_data.pop("id_maintenance_request")
+        
+        # Obtener el usuario del contexto
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
+            validated_data['id_responsible_user_id'] = request.user.id
+        else:
+            raise serializers.ValidationError("No se pudo determinar el usuario responsable.")
 
         # Pre-cargar id_machinery desde la solicitud si no fue proporcionado explícitamente
         validated_data["id_machinery"] = request_obj.id_machinery

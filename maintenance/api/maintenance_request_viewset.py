@@ -40,7 +40,7 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
         if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 116  # Ajustar según el ID real de "crear solicitud de mantenimiento"
+        permission_id = 119
         if not self.check_permission(request, permission_id):
             return Response(
                 {"message": "No tiene permisos para registrar solicitudes de mantenimiento."},
@@ -66,7 +66,7 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                     "message": "Error de validación",
                     "details": serializer.errors,
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
         except Exception as e:
             logger.error(f"Error creando solicitud de mantenimiento: {str(e)}")
@@ -89,7 +89,7 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
         if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 117
+        permission_id = 120
         if not self.check_permission(request, permission_id):
             return Response(
                 {"message": "No tiene permisos para programar mantenimientos."},
@@ -126,7 +126,7 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                     "message": "Error de validación",
                     "details": serializer.errors,
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
         except Exception as e:
             logger.error(f"Error programando mantenimiento desde solicitud {pk}: {str(e)}")

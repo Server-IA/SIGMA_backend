@@ -16,6 +16,15 @@ class MaintenanceRequestCreateSerializer(serializers.ModelSerializer):
             "detected_at",
             "id_responsible_user",
         )
+        read_only_fields = ("id_responsible_user",)
+
+    def validate(self, attrs):
+        # Obtenemos el usuario del contexto (que vendrá de la vista)
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
+            # Usamos solo el ID del usuario
+            attrs['id_responsible_user_id'] = request.user.id
+        return attrs
 
     def validate_detected_at(self, value):
         # La fecha de detección no puede ser futura
@@ -31,6 +40,20 @@ class MaintenanceRequestCreateSerializer(serializers.ModelSerializer):
             status_id = None
         if status_id != 4:
             raise serializers.ValidationError("La maquinaria no está en estado activo.")
+        return value
+
+    def validate_priority(self, value):
+        # Debe pertenecer a la categoría con id = 13
+        if getattr(value, "id_types_categories_id", None) != 13:
+            try:
+                expected_category = TypesCategory.objects.get(id_types_categories=13)
+                raise serializers.ValidationError(
+                    f"La prioridad debe pertenecer a la categoría '{expected_category.name}'."
+                )
+            except TypesCategory.DoesNotExist:
+                raise serializers.ValidationError(
+                    "La categoría de prioridades requerida (id=13) no existe en la parametrización."
+                )
         return value
 
     def validate_maintenance_type(self, value):
