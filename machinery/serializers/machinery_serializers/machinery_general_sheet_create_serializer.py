@@ -48,6 +48,8 @@ class MachineryGeneralSheetCreateSerializer(serializers.ModelSerializer):
             'machinery_type',
             'id_model',
             'machinery_secondary_type',
+            'id_country',
+            'id_department',
             'id_city',
             'manufacturing_year',
             'tariff_subheading',

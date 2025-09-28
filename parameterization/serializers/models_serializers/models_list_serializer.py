@@ -11,6 +11,7 @@ class ModelsListSerializer(serializers.ModelSerializer):
             'id_model',
             'name',
             'description',
+            'id_brand',
             'id_statues',
             'estado',
         ]

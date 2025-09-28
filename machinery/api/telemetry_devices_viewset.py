@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from machinery.models.telemetry_devices import TelemetryDevices
+from machinery.models.machinery import Machinery
 from machinery.serializers.telemetry_devices_serializers.telemetry_devices_list_serializer import TelemetryDevicesListSerializer
 
 class TelemetryDevicesViewSet(viewsets.ModelViewSet):
@@ -42,7 +43,24 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
         return TelemetryDevicesListSerializer
     
     def get_queryset(self):
-        return super().get_queryset().order_by('name')
+        queryset = super().get_queryset()
+        
+        # If the request is for active devices, only return active devices (status ID 1)
+        if self.action == 'active':
+            return queryset.filter(id_statues=1).order_by('name')
+            
+        # For list view, return only active devices (status ID 1) that are not assigned to any machinery
+        # Get all devices that are assigned to any machinery
+        used_device_ids = list(Machinery.objects.exclude(
+            id_device_id=""
+        ).values_list('id_device_id', flat=True).distinct())
+        
+        # Return active devices that are not in the used_device_ids list
+        return queryset.filter(
+            id_statues=1
+        ).exclude(
+            id_device__in=used_device_ids
+        ).order_by('name')
     
     @action(detail=False, methods=['get'])
     def active(self, request):
