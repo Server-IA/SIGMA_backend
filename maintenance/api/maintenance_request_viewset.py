@@ -6,6 +6,9 @@ import logging
 from maintenance.serializers.maintenance_request_serializers.maintenance_request_create_serializer import (
     MaintenanceRequestCreateSerializer,
 )
+from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_from_request_create_serializer import (
+    MaintenanceSchedulingFromRequestCreateSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +74,66 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                 {
                     "success": False,
                     "message": "Error al crear la solicitud de mantenimiento",
+                    "details": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=True, methods=["post"], url_path="schedule")
+    def schedule_from_request(self, request, pk=None):
+        """
+        Programa un mantenimiento a partir de una solicitud existente (pk).
+        Requiere permiso ID 117.
+        """
+        # Autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        permission_id = 117
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para programar mantenimientos."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            # Inyectar el ID de la solicitud desde la URL en el payload del serializer
+            data = request.data.copy()
+            data["id_maintenance_request"] = pk
+
+            serializer = MaintenanceSchedulingFromRequestCreateSerializer(
+                data=data,
+                context={"request": request},
+            )
+
+            if serializer.is_valid():
+                scheduling = serializer.save()
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Mantenimiento programado exitosamente desde la solicitud",
+                        "data": {
+                            "id_maintenance_scheduling": scheduling.id_maintenance_scheduling,
+                            "id_maintenance_request": pk,
+                        },
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "details": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(f"Error programando mantenimiento desde solicitud {pk}: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al programar el mantenimiento",
                     "details": str(e),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
