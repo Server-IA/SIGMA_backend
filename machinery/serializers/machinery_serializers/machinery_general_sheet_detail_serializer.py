@@ -18,6 +18,8 @@ class MachineryDetailSerializer(serializers.ModelSerializer):
             'id_model',
             'tariff_subheading',
             'machinery_secondary_type',
+            'id_country',
+            'id_department',
             'id_city',
             'image_path',
             'id_device',
