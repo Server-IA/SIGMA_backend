@@ -262,7 +262,18 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         try:
             instance.delete()
         except IntegrityError:
-            return Response({"success": False, "message": "No se puede eliminar.", "errors": {"detail": ["Existen referencias a este mantenimiento."]}},
-                            status=status.HTTP_409_CONFLICT)
-        return Response({"success": True, "message": "Mantenimiento eliminado correctamente.", "data": None},
-                        status=status.HTTP_200_OK)
+            return Response({
+                "success": False,
+                "code": 409,
+                "message": "No se puede eliminar.",
+                "errors": {
+                    "detail": ["Existen referencias a este mantenimiento."]
+                }
+            }, status=status.HTTP_409_CONFLICT)
+            
+        return Response({
+            "success": True,
+            "code": 200,
+            "message": "Mantenimiento eliminado correctamente.",
+            "data": None
+        }, status=status.HTTP_200_OK)
