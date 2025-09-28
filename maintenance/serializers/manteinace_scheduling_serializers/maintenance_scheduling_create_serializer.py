@@ -18,7 +18,7 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
             "id_consecutive",
             "id_responsible_user",
         )
-        read_only_fields = ("id_consecutive",)
+        read_only_fields = ("id_consecutive", "id_responsible_user")
 
     def validate_scheduled_at(self, value):
         if value < timezone.now():
@@ -26,6 +26,12 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        # Obtenemos el usuario del contexto (que vendrá de la vista)
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
+            # Usamos solo el ID del usuario
+            attrs['id_responsible_user_id'] = request.user.id
+
         scheduled_at = attrs.get("scheduled_at")
         technician = attrs.get("assigned_technician")
 

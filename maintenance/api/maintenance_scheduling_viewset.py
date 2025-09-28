@@ -52,7 +52,11 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
             )
 
         try:
-            serializer = MaintenanceSchedulingCreateSerializer(data=request.data, context={"request": request})
+            # Pasamos el request al contexto del serializador para que pueda acceder al usuario autenticado
+            serializer = MaintenanceSchedulingCreateSerializer(
+                data=request.data, 
+                context={"request": request}
+            )
             if serializer.is_valid():
                 instance = serializer.save()
                 return Response(
@@ -70,7 +74,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
                     "message": "Error de validación",
                     "details": serializer.errors,
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
         except Exception as e:
             logger.error(f"Error creando mantenimiento programado: {str(e)}")
