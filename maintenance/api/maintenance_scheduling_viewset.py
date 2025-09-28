@@ -2,10 +2,15 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 import logging
+from django.shortcuts import get_object_or_404
 
 from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_create_serializer import (
     MaintenanceSchedulingCreateSerializer,
 )
+from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_cancel_serializer import (
+    MaintenanceSchedulingCancelSerializer,
+)
+from maintenance.models import MaintenanceScheduling
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,64 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
                 {
                     "success": False,
                     "message": "Error al crear el mantenimiento programado",
+                    "details": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel_scheduling(self, request, pk=None):
+        """
+        HU-PM-004: Cancelar mantenimiento programado.
+        - Permiso requerido: 121 ('maintenance_scheduling.canceled').
+        - Justificación obligatoria.
+        - No permite cancelar si ya está cancelado (estado=14) o finalizado (estado=15).
+        """
+        # Autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        permission_id = 121
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para cancelar mantenimientos programados."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        scheduling = get_object_or_404(
+            MaintenanceScheduling.objects.select_related("maintenance_scheduling_status"),
+            pk=pk
+        )
+
+        try:
+            serializer = MaintenanceSchedulingCancelSerializer(
+                data=request.data, context={"request": request, "instance": scheduling}
+            )
+            if serializer.is_valid():
+                scheduling = serializer.save()
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Mantenimiento programado cancelado exitosamente.",
+                        "data": {"id_maintenance_scheduling": scheduling.id_maintenance_scheduling},
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "details": serializer.errors,
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except Exception as e:
+            logger.error(f"Error cancelando mantenimiento programado {pk}: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al cancelar el mantenimiento programado",
                     "details": str(e),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
