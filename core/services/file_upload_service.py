@@ -2,7 +2,7 @@ import os
 import uuid
 from datetime import datetime
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
-from config.firebase_config import bucket, firebase_initialized
+from config.firebase_config import bucket
 
 def upload_file_to_firebase(
     file,
@@ -22,10 +22,6 @@ def upload_file_to_firebase(
     Returns:
         str: URL pública del archivo subido.
     """
-    # Verificar si Firebase está inicializado
-    if not firebase_initialized or bucket is None:
-        raise Exception("Firebase no está configurado. No se pueden subir archivos.")
-    
     try:
         # Validar extensión del archivo
         file_extension = os.path.splitext(file.name)[1].lower()
