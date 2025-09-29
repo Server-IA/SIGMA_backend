@@ -1,11 +1,14 @@
 from rest_framework import serializers
-from machinery.models.machinery import Machinery
+
+from machinery.models import Machinery
+
 
 class MachineryDetailSerializer(serializers.ModelSerializer):
     machinery_type = serializers.PrimaryKeyRelatedField(read_only=True)
     machinery_secondary_type = serializers.PrimaryKeyRelatedField(read_only=True)
     machinery_operational_status = serializers.PrimaryKeyRelatedField(read_only=True)
     id_model = serializers.PrimaryKeyRelatedField(read_only=True, allow_null=True)
+    brand_id = serializers.IntegerField(source='id_model.id_brand_id', read_only=True)
     id_device = serializers.PrimaryKeyRelatedField(read_only=True, allow_null=True)
 
     class Meta:
@@ -15,6 +18,7 @@ class MachineryDetailSerializer(serializers.ModelSerializer):
             'manufacturing_year',
             'serial_number',
             'machinery_type',
+            'brand_id',
             'id_model',
             'tariff_subheading',
             'machinery_secondary_type',
@@ -24,5 +28,5 @@ class MachineryDetailSerializer(serializers.ModelSerializer):
             'image_path',
             'id_device',
             'justification',
-            'machinery_operational_status'
+            'machinery_operational_status',
         ]
