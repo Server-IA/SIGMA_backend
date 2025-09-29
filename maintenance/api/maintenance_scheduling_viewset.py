@@ -183,8 +183,8 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
         return Response(
             {"success": True, "data": serializer.data}, status=status.HTTP_200_OK
         )
-    @action(detail=True, methods=["put"], url_path="update")
-    def update_scheduling(self, request, pk=None):
+    @action(detail=True, methods=["patch"], url_path="update")
+    def patch_scheduling(self, request, pk=None):
         """
         Actualiza un mantenimiento programado. Requiere permiso ID 126.
         Valida:

@@ -71,11 +71,17 @@ class MaintenanceSchedulingUpdateSerializer(serializers.ModelSerializer):
         """
         instance: MaintenanceScheduling = self.instance
         
-        # Verificar si el mantenimiento ya está completado (estado_id=15)
-        if hasattr(instance, 'maintenance_scheduling_status') and instance.maintenance_scheduling_status_id == 15:
-            raise serializers.ValidationError(
-                "No se puede actualizar un mantenimiento que ya ha sido completado."
-            )
+        # Verificar si el mantenimiento ya está completado (estado_id=15) o cancelado (estado_id=14)
+        if hasattr(instance, 'maintenance_scheduling_status'):
+            status_id = instance.maintenance_scheduling_status_id
+            if status_id == 15:
+                raise serializers.ValidationError(
+                    "No se puede actualizar un mantenimiento que ya ha sido completado."
+                )
+            if status_id == 14:
+                raise serializers.ValidationError(
+                    "No se puede actualizar un mantenimiento que ha sido cancelado."
+                )
             
         # Establecer el usuario responsable desde el contexto de la petición
         request = self.context.get('request')
