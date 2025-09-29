@@ -9,6 +9,11 @@ from maintenance.serializers.maintenance_request_serializers.maintenance_request
 from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_from_request_create_serializer import (
     MaintenanceSchedulingFromRequestCreateSerializer,
 )
+from maintenance.serializers.maintenance_request_serializers.maintenance_request_reject_serializer import (
+    MaintenanceRequestRejectSerializer,
+)
+from maintenance.models import MaintenanceRequest
+from django.shortcuts import get_object_or_404
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +139,81 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                 {
                     "success": False,
                     "message": "Error al programar el mantenimiento",
+                    "details": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject_request(self, request, pk=None):
+        """
+        Rechaza una solicitud de mantenimiento.
+        - Permiso requerido: 122
+        - No permite rechazar solicitudes ya aceptadas (id=11) o ya rechazadas (id=12).
+        - La justificación es obligatoria.
+        """
+        # Autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permisos (ajustar el ID de permiso según corresponda)
+        permission_id = 122
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {
+                    "success": False,
+                    "message": "No tiene permisos para rechazar solicitudes de mantenimiento.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            # Obtener la instancia de la solicitud
+            instance = get_object_or_404(MaintenanceRequest, id_maintenance_request=pk)
+
+            # Validar y procesar el rechazo
+            serializer = MaintenanceRequestRejectSerializer(
+                data=request.data,
+                context={"request": request, "instance": instance}
+            )
+
+            if not serializer.is_valid():
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Error de validación",
+                        "details": serializer.errors,
+                    },
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+
+            # Guardar los cambios con el usuario responsable
+            instance = serializer.save(id_responsible_user=request.user)
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Solicitud de mantenimiento rechazada exitosamente",
+                    "data": {"id_maintenance_request": instance.id_maintenance_request},
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except MaintenanceRequest.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Solicitud de mantenimiento no encontrada"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        except Exception as e:
+            logger.error(f"Error rechazando solicitud de mantenimiento: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al rechazar la solicitud de mantenimiento",
                     "details": str(e),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
