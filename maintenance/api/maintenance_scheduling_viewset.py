@@ -11,6 +11,10 @@ from maintenance.models.maintenance_scheduling import MaintenanceScheduling
 from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_List_serializer import (
     MaintenanceSchedulingListSerializer,
 )
+from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_update_serializer import (
+    MaintenanceSchedulingUpdateSerializer,
+)
+from maintenance.models import MaintenanceScheduling
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +53,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
         if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 1
+        permission_id = 117
         if not self.check_permission(request, permission_id):
             return Response(
                 {"message": "No tiene permisos para programar mantenimientos."},
@@ -59,7 +63,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
         try:
             # Pasamos el request al contexto del serializador para que pueda acceder al usuario autenticado
             serializer = MaintenanceSchedulingCreateSerializer(
-                data=request.data, 
+                data=request.data,
                 context={"request": request}
             )
             if serializer.is_valid():
@@ -178,4 +182,66 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
         serializer = MaintenanceSchedulingListSerializer(schedulings, many=True)
         return Response(
             {"success": True, "data": serializer.data}, status=status.HTTP_200_OK
+        )
+    @action(detail=True, methods=["put"], url_path="update")
+    def update_scheduling(self, request, pk=None):
+        """
+        Actualiza un mantenimiento programado. Requiere permiso ID 126.
+        Valida:
+         - no permitir si ya fue ejecutado
+         - fecha/hora en futuro
+         - disponibilidad de técnico
+         - tipo de mantenimiento en categoría id=12
+        """
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        permission_id = 126
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para actualizar la programación de mantenimiento."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        scheduling = get_object_or_404(MaintenanceScheduling, pk=pk)
+        
+        previous_tech_id = getattr(scheduling.assigned_technician, "id_user", None) or getattr(
+            scheduling.assigned_technician, "id", None
+        )
+
+        serializer = MaintenanceSchedulingUpdateSerializer(
+            scheduling, data=request.data, partial=True, context={"request": request}
+        )
+        if not serializer.is_valid():
+            return Response(
+                {"success": False, "message": "Error de validación", "details": serializer.errors},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        instance = serializer.save()
+
+        new_tech_id = getattr(instance.assigned_technician, "id_user", None) or getattr(
+            instance.assigned_technician, "id", None
+        )
+
+        # Datos requeridos por HU para mostrar en confirmación
+        machinery = instance.id_machinery
+        request_date = getattr(getattr(instance, "id_maintenance_request", None), "detected_at", None)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Programación de mantenimiento actualizada correctamente.",
+                "data": {
+                    "id_maintenance_scheduling": instance.id_maintenance_scheduling,
+                    "machinery_serial_number": getattr(machinery, "serial_number", None),
+                    "machinery_name": getattr(machinery, "machinery_name", None),
+                    "request_date": request_date,
+                    "scheduled_at": instance.scheduled_at,
+                    "assigned_technician": new_tech_id,
+                    "maintenance_type": instance.maintenance_type_id,
+                    "details": instance.details,
+                },
+            },
+            status=status.HTTP_200_OK,
         )
