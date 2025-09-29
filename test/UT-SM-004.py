@@ -1,6 +1,6 @@
 """
 Pruebas unitarias para el endpoint de consulta de detalle de solicitudes de mantenimiento
-ID: HU-SM-004
+ID: UT-SM-004
 Endpoint: GET /maintenance_request/{id}/detail/
 """
 
@@ -34,7 +34,7 @@ from maintenance.models import MaintenanceRequest, MaintenanceScheduling
 
 @pytest.mark.django_db
 class TestMaintenanceRequestDetail:
-    """Tests para el endpoint de detalle de solicitudes de mantenimiento"""
+    """Tests para el endpoint de detalle de solicitudes de mantenimiento - UT-SM-004"""
     
     def setup_method(self):
         """Configuración inicial para cada test"""
