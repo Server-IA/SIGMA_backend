@@ -7,6 +7,11 @@ from machinery.models import SpecificTechnicalSheet, Machinery
 from machinery.serializers.machinery_serializers.machinery_specific_sheet_create_serializer import SpecificTechnicalSheetCreateSerializer
 from rest_framework import serializers
 
+# Auditoría
+import logging
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info, specific_technical_snapshot
+
 class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
 
 
@@ -65,6 +70,28 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
 
             with transaction.atomic():
                 sheet = serializer.save()
+
+                after = specific_technical_snapshot(sheet)
+
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                    object_id = str(after.get("id_specific_technical_sheet") or after.get("id_machinery") or "")
+
+                    AuditClient(request).create(
+                        object_id=object_id,
+                        after=specific_technical_snapshot(serializer.instance),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="machinery",
+                        submodule="machinery_general_sheet",
+                    )
+                except Exception as e:
+                    logging.warning(
+                        "El servicio de auditoría ha fallado en create_machinery_general_sheet: %s", e
+                    )
 
             headers = self.get_success_headers(serializer.data)
             return Response(
@@ -182,6 +209,8 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         
+        before_snapshot = specific_technical_snapshot(instance)
+
         # Hacer una copia de los datos de la solicitud
         data = request.data.copy()
         # Si se incluye id_machinery, lo reemplazamos por el valor actual de la instancia
@@ -210,7 +239,29 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
                 
                 instance.save()
                 # Guardar el resto de los datos del serializer
-                serializer.save()
+                updated_instance = serializer.save()
+                
+                after = specific_technical_snapshot(updated_instance)
+
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                    object_id = str(after.get("id_specific_technical_sheet") or after.get("id_machinery") or "")
+
+                    # Emitir update a auditoría (AuditClient calculará diff)
+                    AuditClient(request).update(
+                        object_id=object_id,
+                        before=before_snapshot,
+                        after=after,
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="machinery",
+                        submodule="specific_technical_sheet",
+                    )
+                except Exception as e:
+                    logging.warning("El servicio de auditoría ha fallado en update_specific_technical_sheet: %s", e)
+
 
             return Response(
                 {

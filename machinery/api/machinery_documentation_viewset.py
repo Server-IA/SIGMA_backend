@@ -6,6 +6,13 @@ from machinery.models import MachineryDocumentation, Machinery
 from machinery.serializers.machinery_documentation_serializers.machinery_documentation_create_serializer import MachineryDocumentationCreateSerializer
 from machinery.serializers.machinery_documentation_serializers.machinery_documentation_list_serializer import MachineryDocumentationListSerializer
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info, machinery_documentation_snapshot
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class MachineryDocumentationViewSet(viewsets.ViewSet):
 
@@ -53,7 +60,30 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
         serializer = MachineryDocumentationCreateSerializer(data=request.data)
         if serializer.is_valid():
             try:
-                serializer.save()
+                documentation = serializer.save()
+
+                after = machinery_documentation_snapshot(documentation)
+
+                # Auditoría 
+                try:
+                    # obtener actor info centralizada
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                    object_id = str(after.get("id_machinery_documentation") or after.get("id_machinery") or "")
+
+                    AuditClient(request).create(
+                        object_id=object_id,
+                        after=after,
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="machinery",
+                        submodule="machinery_documentation_sheet",
+                    )
+                except Exception as e:
+                    # La auditoría no debe romper la creación
+                    logging.warning("El servicio de auditoría ha fallado en create_machinery_tracker: %s", e)
+
                 return Response({
                     "message": "Documento de maquinaria creado exitosamente",
                     "status": "success"
@@ -91,6 +121,9 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
 
         try:
             document = MachineryDocumentation.objects.get(pk=pk)
+
+            before = machinery_documentation_snapshot(document)
+
         except MachineryDocumentation.DoesNotExist:
             return Response({
                 "message": "Documento de maquinaria no encontrado",
@@ -100,7 +133,31 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
         serializer = MachineryDocumentationCreateSerializer(document, data=request.data, partial=True)
         if serializer.is_valid():
             try:
-                serializer.save()
+                updated_instance = serializer.save()
+
+                after = machinery_documentation_snapshot(updated_instance)
+
+                # Auditoría 
+                try:
+                    # obtener actor info centralizada
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                    object_id = str(after.get("id_machinery_documentation") or after.get("id_machinery") or "")
+
+                    AuditClient(request).update(
+                        object_id=object_id,
+                        before=before,
+                        after=after,
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="machinery",
+                        submodule="machinery_documentation_sheet",
+                    )
+                except Exception as e:
+                    # La auditoría no debe romper la actualización
+                    logging.warning("El servicio de auditoría ha fallado en update_machinery_tracker: %s", e)
+
                 return Response({
                     "message": "Documento de maquinaria actualizado exitosamente",
                     "status": "success"
@@ -127,7 +184,7 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        permission_id = 103  # machinery_tracker.create
+        permission_id = 103  # machinery_documentation.delete (ajusta si corresponde)
 
         # Verificar permiso usando la función check_permission
         if not self.check_permission(request, permission_id):
@@ -138,6 +195,11 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
 
         try:
             document = MachineryDocumentation.objects.get(pk=pk)
+            # snapshot BEFORE (estado previo a la eliminación)
+            try:
+                before = machinery_documentation_snapshot(document)
+            except Exception:
+                before = {"id_machinery_documentation": getattr(document, "id_machinery_documentation", None)}
         except MachineryDocumentation.DoesNotExist:
             return Response({
                 "message": "Documento de maquinaria no encontrado",
@@ -145,16 +207,43 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
             }, status=status.HTTP_404_NOT_FOUND)
 
         try:
+            # Ejecutar delete
             document.delete()
-            return Response({
-                "message": "Documento de maquinaria eliminado exitosamente",
-                "status": "success"
-            }, status=status.HTTP_200_OK)
         except Exception as e:
+            # Mantener misma respuesta/estatus en caso de error al eliminar
+            logger.error(f"Error al eliminar el documento: {str(e)}")
             return Response({
                 "message": f"Error al eliminar el documento: {str(e)}",
                 "status": "error"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # --- Emitir auditoría (no bloqueante) ---
+        try:
+            actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+            object_id = str(before.get("id_machinery_documentation") or before.get("id_machinery") or "")
+
+            ok, status_code, text = AuditClient(request).delete(
+                object_id=object_id,
+                before=before,
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=permission_id,
+                module="machinery",
+                submodule="machinery_documentation_sheet",
+                meta={"action": "delete"},
+            )
+
+            if not ok:
+                logger.warning("Audit delete failed (%s): %s", status_code, text)
+        except Exception as e:
+            # No romper la respuesta por fallo en auditoría
+            logging.warning("El servicio de auditoría ha fallado en delete_machinery_documentation: %s", e)
+
+        return Response({
+            "message": "Documento de maquinaria eliminado exitosamente",
+            "status": "success"
+        }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path=r'list/(?P<machinery_id>\d+)')
     def list_by_machinery(self, request, machinery_id=None):
