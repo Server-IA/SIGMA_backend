@@ -4,13 +4,13 @@ from rest_framework.decorators import action
 import logging
 from django.shortcuts import get_object_or_404
 
-from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_create_serializer import (
-    MaintenanceSchedulingCreateSerializer,
-)
-from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_cancel_serializer import (
-    MaintenanceSchedulingCancelSerializer,
-)
+from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_create_serializer import (MaintenanceSchedulingCreateSerializer)
+from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_cancel_serializer import (MaintenanceSchedulingCancelSerializer)
 from maintenance.models import MaintenanceScheduling
+from maintenance.models.maintenance_scheduling import MaintenanceScheduling
+from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_List_serializer import (
+    MaintenanceSchedulingListSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
         if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 117
+        permission_id = 1
         if not self.check_permission(request, permission_id):
             return Response(
                 {"message": "No tiene permisos para programar mantenimientos."},
@@ -149,3 +149,33 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+    @action(detail=False, methods=["get"], url_path="list")
+    def list_schedulings(self, request):
+        """
+        HU-PM-002: Listar mantenimientos programados.
+        - Permiso requerido: 118 (consulta).
+        """
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        permission_id = 125
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para consultar mantenimientos programados."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        schedulings = MaintenanceScheduling.objects.select_related(
+            "id_machinery", "assigned_technician", "maintenance_scheduling_status"
+        ).all()
+
+        if not schedulings:
+            return Response(
+                {"success": False, "message": "No se encontraron resultados."},
+                status=status.HTTP_200_OK,
+            )
+
+        serializer = MaintenanceSchedulingListSerializer(schedulings, many=True)
+        return Response(
+            {"success": True, "data": serializer.data}, status=status.HTTP_200_OK
+        )

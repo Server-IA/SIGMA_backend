@@ -8,7 +8,6 @@ from rest_framework import serializers
 from maintenance.models import (
     MaintenanceRequest,
     MaintenanceScheduling,
-    MaintenanceSchedulingConsecutive,
 )
 from parameterization.models import TypesCategory, Statues
 
@@ -27,10 +26,9 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
             "details",
             "assigned_technician",
             "maintenance_type",
-            "id_consecutive",
             "id_responsible_user",
         )
-        read_only_fields = ("id_consecutive", "id_machinery", "id_responsible_user")
+        read_only_fields = ("id_machinery", "id_responsible_user")
 
     def validate(self, attrs):
         # Obtenemos el usuario del contexto (que vendrá de la vista)
@@ -107,17 +105,6 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
                 )
         return attrs
 
-    def _generate_consecutive(self):
-        year = timezone.now().year
-        with transaction.atomic():
-            last = (
-                MaintenanceSchedulingConsecutive.objects
-                .filter(anio=year)
-                .order_by("-code")
-                .first()
-            )
-            next_code = (last.code + 1) if last else 1
-            return MaintenanceSchedulingConsecutive.objects.create(anio=year, code=next_code)
 
     def create(self, validated_data):
         request_obj: MaintenanceRequest = validated_data.pop("id_maintenance_request")
@@ -151,9 +138,6 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
             # Asignar el estado 13 al mantenimiento programado
             validated_data["maintenance_scheduling_status"] = status
             
-            consecutive = self._generate_consecutive()
-            validated_data["id_consecutive"] = consecutive
-            
             # Crear la instancia del mantenimiento programado
             instance = MaintenanceScheduling.objects.create(
                 id_maintenance_request=request_obj,
@@ -184,7 +168,7 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
             if not auth_service_url:
                 return
                 
-            notification_endpoint = f"{auth_service_url.rstrip('/')}/sigma/email/send-technician-notification"
+            notification_endpoint = f"{auth_service_url.rstrip('/')}/users/users/send-technician-notification"
             
             notification_data = {
                 "scheduled_at": instance.scheduled_at.isoformat(),
