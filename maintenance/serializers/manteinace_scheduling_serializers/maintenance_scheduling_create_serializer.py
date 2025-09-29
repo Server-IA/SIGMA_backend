@@ -1,3 +1,6 @@
+import requests
+import os
+import json
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
@@ -96,5 +99,36 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
             validated_data["id_consecutive"] = consecutive
             instance = MaintenanceScheduling.objects.create(**validated_data)
 
+        # Enviar notificación por email al técnico asignado
+        self._send_technician_notification_email(instance)
+
         return instance
+
+    def _send_technician_notification_email(self, instance):
+        """
+        Envía una notificación por email al técnico asignado después de crear el agendamiento
+        """
+        try:
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                return
+                
+            notification_endpoint = f"{auth_service_url.rstrip('/')}/sigma/email/send-technician-notification"
+            
+            notification_data = {
+                "scheduled_at": instance.scheduled_at.isoformat(),
+                "details": instance.details,
+                "assigned_technician": instance.assigned_technician.pk
+            }
+            
+            response = requests.post(
+                notification_endpoint,
+                json=notification_data,
+                headers={'Content-Type': 'application/json'},
+                timeout=15
+            )
+                
+        except Exception:
+            # Silenciar errores - no debe afectar el agendamiento principal
+            pass
 
