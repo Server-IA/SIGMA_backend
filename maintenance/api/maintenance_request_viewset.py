@@ -3,6 +3,17 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 import logging
 
+from maintenance.serializers.maintenance_request_serializers.maintenance_request_create_serializer import (
+    MaintenanceRequestCreateSerializer,
+)
+from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_from_request_create_serializer import (
+    MaintenanceSchedulingFromRequestCreateSerializer,
+)
+from maintenance.serializers.maintenance_request_serializers.maintenance_request_reject_serializer import (
+    MaintenanceRequestRejectSerializer,
+)
+from maintenance.models import MaintenanceRequest
+from django.shortcuts import get_object_or_404
 from maintenance.models.maintenance_request import MaintenanceRequest
 from maintenance.serializers.maintenance_request_serializers.maintenance_request_create_serializer import MaintenanceRequestCreateSerializer
 from maintenance.serializers.maintenance_request_serializers.maintenance_request_list_serializer import MaintenanceRequestListSerializer
@@ -33,15 +44,14 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
     def retrieve_request_detail(self, request, pk=None):
         """
         Obtiene el detalle completo de una solicitud de mantenimiento.
-        Requiere permiso ID 122 (ajustar según tu parametrización de permisos).
         """
         if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 1
+        permission_id = 123
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para consultar solicitudes de mantenimiento."},
+                {"message": "No tiene permisos para consultar la solicitud de mantenimiento."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -86,15 +96,14 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
     def list_requests(self, request):
         """
         Lista todas las solicitudes de mantenimiento (manuales y automáticas).
-        Requiere permiso ID 121.
         """
         if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 1
+        permission_id = 124
         if not self.check_permission(request, permission_id):
             return Response(
-                {"message": "No tiene permisos para consultar solicitudes de mantenimiento."},
+                {"message": "No tiene permisos para listar las solicitudes de mantenimiento."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         try:
@@ -140,7 +149,7 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
         if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 1
+        permission_id = 119
         if not self.check_permission(request, permission_id):
             return Response(
                 {"message": "No tiene permisos para registrar solicitudes de mantenimiento."},
@@ -189,7 +198,7 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
         if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 1
+        permission_id = 120
         if not self.check_permission(request, permission_id):
             return Response(
                 {"message": "No tiene permisos para programar mantenimientos."},
@@ -234,6 +243,80 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                 {
                     "success": False,
                     "message": "Error al programar el mantenimiento",
+                    "details": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject_request(self, request, pk=None):
+        """
+        Rechaza una solicitud de mantenimiento.
+        - Permiso requerido: 122
+        - No permite rechazar solicitudes ya aceptadas (id=11) o ya rechazadas (id=12).
+        - La justificación es obligatoria.
+        """
+        # Autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permisos (ajustar el ID de permiso según corresponda)
+        permission_id = 122
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {
+                    "success": False,
+                    "message": "No tiene permisos para rechazar solicitudes de mantenimiento.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            # Obtener la instancia de la solicitud
+            instance = get_object_or_404(MaintenanceRequest, id_maintenance_request=pk)
+
+            # Validar y procesar el rechazo
+            serializer = MaintenanceRequestRejectSerializer(
+                data=request.data,
+                context={"request": request, "instance": instance}
+            )
+
+            if not serializer.is_valid():
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Error de validación",
+                        "details": serializer.errors,
+                    },
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+
+            instance = serializer.save()
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Solicitud de mantenimiento rechazada exitosamente",
+                    "data": {"id_maintenance_request": instance.id_maintenance_request},
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except MaintenanceRequest.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Solicitud de mantenimiento no encontrada"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        except Exception as e:
+            logger.error(f"Error rechazando solicitud de mantenimiento: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al rechazar la solicitud de mantenimiento",
                     "details": str(e),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

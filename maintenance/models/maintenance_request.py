@@ -13,7 +13,7 @@ class MaintenanceRequest(models.Model):
     detected_at = models.DateField(db_column="detected_at", null=False, blank=False)
     registration_date = models.DateTimeField(auto_now=True, db_column="registration_date")
     modification_date = models.DateTimeField(auto_now=True, db_column="modification_date")
-    id_responsible_user = models.ForeignKey("users.User", on_delete=models.PROTECT, null=False, related_name="maintenance_requests_responsible", db_column="id_responsible_user")
+    id_responsible_user = models.ForeignKey("users.User", on_delete=models.PROTECT, null=True, related_name="maintenance_requests_responsible", db_column="id_responsible_user")
 
     class Meta:
         db_table = "maintenance_request"

@@ -158,7 +158,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
         if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 1
+        permission_id = 125
         if not self.check_permission(request, permission_id):
             return Response(
                 {"message": "No tiene permisos para consultar mantenimientos programados."},
