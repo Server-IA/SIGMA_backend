@@ -1,8 +1,11 @@
+import requests
+import os
+import json
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
-from maintenance.models import MaintenanceScheduling, MaintenanceSchedulingConsecutive
+from maintenance.models import MaintenanceScheduling
 from parameterization.models import TypesCategory, Statues
 
 class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
@@ -14,10 +17,9 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
             "details",
             "assigned_technician",
             "maintenance_type",
-            "id_consecutive",
             "id_responsible_user",
         )
-        read_only_fields = ("id_consecutive", "id_responsible_user")
+        read_only_fields = ("id_responsible_user",)
 
     def validate_scheduled_at(self, value):
         if value < timezone.now():
@@ -64,21 +66,6 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
                 )
         return value
 
-    def _generate_consecutive(self) -> MaintenanceSchedulingConsecutive:
-        # Generar consecutivo por año: tomar el año actual y el siguiente código entero disponible.
-        # Si no hay registros para el año, usar code = 1.
-        now = timezone.now()
-        year = now.year
-        with transaction.atomic():
-            last = (
-                MaintenanceSchedulingConsecutive.objects
-                .filter(anio=year)
-                .order_by("-code")
-                .first()
-            )
-            next_code = (last.code + 1) if last else 1
-            obj = MaintenanceSchedulingConsecutive.objects.create(anio=year, code=next_code)
-        return obj
 
     def create(self, validated_data):
         request = self.context.get("request")
@@ -92,9 +79,38 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
             status = Statues.objects.get(id_statues=13)
             validated_data["maintenance_scheduling_status"] = status
 
-            consecutive = self._generate_consecutive()
-            validated_data["id_consecutive"] = consecutive
             instance = MaintenanceScheduling.objects.create(**validated_data)
 
+        # Enviar notificación por email al técnico asignado
+        self._send_technician_notification_email(instance)
+
         return instance
+
+    def _send_technician_notification_email(self, instance):
+        """
+        Envía una notificación por email al técnico asignado después de crear el agendamiento
+        """
+        try:
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                return
+                
+            notification_endpoint = f"{auth_service_url.rstrip('/')}/users/users/send-technician-notification"
+            
+            notification_data = {
+                "scheduled_at": instance.scheduled_at.isoformat(),
+                "details": instance.details,
+                "assigned_technician": instance.assigned_technician.pk
+            }
+            
+            response = requests.post(
+                notification_endpoint,
+                json=notification_data,
+                headers={'Content-Type': 'application/json'},
+                timeout=15
+            )
+                
+        except Exception:
+            # Silenciar errores - no debe afectar el agendamiento principal
+            pass
 
