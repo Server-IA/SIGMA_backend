@@ -4,17 +4,17 @@ from rest_framework.decorators import action
 import logging
 from django.shortcuts import get_object_or_404
 
-from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_create_serializer import (
-    MaintenanceSchedulingCreateSerializer,
+from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_create_serializer import (MaintenanceSchedulingCreateSerializer)
+from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_cancel_serializer import (MaintenanceSchedulingCancelSerializer)
+from maintenance.models import MaintenanceScheduling
+from maintenance.models.maintenance_scheduling import MaintenanceScheduling
+from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_List_serializer import (
+    MaintenanceSchedulingListSerializer,
 )
 from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_update_serializer import (
     MaintenanceSchedulingUpdateSerializer,
 )
 from maintenance.models import MaintenanceScheduling
-from core.services.notification_service import (
-    notify_maintenance_scheduling_update,
-    MaintenanceSchedulingNotificationContext,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,11 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
             )
 
         try:
-            serializer = MaintenanceSchedulingCreateSerializer(data=request.data, context={"request": request})
+            # Pasamos el request al contexto del serializador para que pueda acceder al usuario autenticado
+            serializer = MaintenanceSchedulingCreateSerializer(
+                data=request.data,
+                context={"request": request}
+            )
             if serializer.is_valid():
                 instance = serializer.save()
                 return Response(
@@ -79,7 +83,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
                     "message": "Error de validación",
                     "details": serializer.errors,
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
         except Exception as e:
             logger.error(f"Error creando mantenimiento programado: {str(e)}")
@@ -92,19 +96,97 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    def _is_executed(self, scheduling: MaintenanceScheduling) -> bool:
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel_scheduling(self, request, pk=None):
         """
-        Dado que no hay flag explícito en el modelo, inferimos 'ejecutado' por el estado
-        de la solicitud asociada (si existe) usando el nombre del estado.
+        HU-PM-004: Cancelar mantenimiento programado.
+        - Permiso requerido: 121 ('maintenance_scheduling.canceled').
+        - Justificación obligatoria.
+        - No permite cancelar si ya está cancelado (estado=14) o finalizado (estado=15).
         """
-        req = getattr(scheduling, "id_maintenance_request", None)
-        status_name = (getattr(getattr(req, "request_status", None), "name", "") or "").lower()
-        return any(k in status_name for k in ["ejecut", "finaliz", "complet", "cerrad"])
+        # Autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    @action(detail=True, methods=["put", "patch"], url_path="update")
+        permission_id = 121
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para cancelar mantenimientos programados."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        scheduling = get_object_or_404(
+            MaintenanceScheduling.objects.select_related("maintenance_scheduling_status"),
+            pk=pk
+        )
+
+        try:
+            serializer = MaintenanceSchedulingCancelSerializer(
+                data=request.data, context={"request": request, "instance": scheduling}
+            )
+            if serializer.is_valid():
+                scheduling = serializer.save()
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Mantenimiento programado cancelado exitosamente.",
+                        "data": {"id_maintenance_scheduling": scheduling.id_maintenance_scheduling},
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "details": serializer.errors,
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except Exception as e:
+            logger.error(f"Error cancelando mantenimiento programado {pk}: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al cancelar el mantenimiento programado",
+                    "details": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    @action(detail=False, methods=["get"], url_path="list")
+    def list_schedulings(self, request):
+        """
+        HU-PM-002: Listar mantenimientos programados.
+        - Permiso requerido: 118 (consulta).
+        """
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        permission_id = 125
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para consultar mantenimientos programados."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        schedulings = MaintenanceScheduling.objects.select_related(
+            "id_machinery", "assigned_technician", "maintenance_scheduling_status"
+        ).all()
+
+        if not schedulings:
+            return Response(
+                {"success": False, "message": "No se encontraron resultados."},
+                status=status.HTTP_200_OK,
+            )
+
+        serializer = MaintenanceSchedulingListSerializer(schedulings, many=True)
+        return Response(
+            {"success": True, "data": serializer.data}, status=status.HTTP_200_OK
+        )
+    @action(detail=True, methods=["put"], url_path="update")
     def update_scheduling(self, request, pk=None):
         """
-        Actualiza un mantenimiento programado. Requiere permiso ID 119.
+        Actualiza un mantenimiento programado. Requiere permiso ID 126.
         Valida:
          - no permitir si ya fue ejecutado
          - fecha/hora en futuro
@@ -114,7 +196,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
         if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 119
+        permission_id = 126
         if not self.check_permission(request, permission_id):
             return Response(
                 {"message": "No tiene permisos para actualizar la programación de mantenimiento."},
@@ -122,17 +204,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
             )
 
         scheduling = get_object_or_404(MaintenanceScheduling, pk=pk)
-
-        # Regla HU: No se permite actualizar si ya fue ejecutado
-        if self._is_executed(scheduling):
-            return Response(
-                {
-                    "success": False,
-                    "message": "No es posible actualizar: el mantenimiento ya fue ejecutado.",
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-
+        
         previous_tech_id = getattr(scheduling.assigned_technician, "id_user", None) or getattr(
             scheduling.assigned_technician, "id", None
         )
@@ -143,28 +215,14 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
         if not serializer.is_valid():
             return Response(
                 {"success": False, "message": "Error de validación", "details": serializer.errors},
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
         instance = serializer.save()
 
-        # Notificación: técnico actual y nuevo (si hubo cambio)
         new_tech_id = getattr(instance.assigned_technician, "id_user", None) or getattr(
             instance.assigned_technician, "id", None
         )
-        try:
-            notify_maintenance_scheduling_update(
-                MaintenanceSchedulingNotificationContext(
-                    scheduling_id=instance.id_maintenance_scheduling,
-                    machinery_id=instance.id_machinery_id,
-                    scheduled_at=str(instance.scheduled_at),
-                    previous_technician_id=previous_tech_id,
-                    new_technician_id=new_tech_id,
-                )
-            )
-        except Exception as e:
-            # No bloquear el flujo por falla de notificación
-            logger.warning(f"No se pudo enviar notificación de actualización: {e}")
 
         # Datos requeridos por HU para mostrar en confirmación
         machinery = instance.id_machinery

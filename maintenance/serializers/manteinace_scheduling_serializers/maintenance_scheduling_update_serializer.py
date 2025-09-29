@@ -1,3 +1,5 @@
+import requests
+import os
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
@@ -24,8 +26,8 @@ class MaintenanceSchedulingUpdateSerializer(serializers.ModelSerializer):
             "details",
             "assigned_technician",
             "maintenance_type",
-            "id_responsible_user",
         )
+        read_only_fields = ('registration_date',)
 
     def validate_scheduled_at(self, value):
         # No permitir fechas pasadas
@@ -62,9 +64,24 @@ class MaintenanceSchedulingUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """
-        Verifica disponibilidad del técnico para el `scheduled_at`.
+        Valida:
+        1. Disponibilidad del técnico para el `scheduled_at`
+        2. Que el mantenimiento no esté en estado completado (id=15)
+        3. Establece el usuario responsable desde el contexto de la petición
         """
         instance: MaintenanceScheduling = self.instance
+        
+        # Verificar si el mantenimiento ya está completado (estado_id=15)
+        if hasattr(instance, 'maintenance_scheduling_status') and instance.maintenance_scheduling_status_id == 15:
+            raise serializers.ValidationError(
+                "No se puede actualizar un mantenimiento que ya ha sido completado."
+            )
+            
+        # Establecer el usuario responsable desde el contexto de la petición
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
+            attrs['id_responsible_user_id'] = request.user.id
+            
         scheduled_at = attrs.get("scheduled_at", instance.scheduled_at)
         technician = attrs.get("assigned_technician", instance.assigned_technician)
 
@@ -81,23 +98,71 @@ class MaintenanceSchedulingUpdateSerializer(serializers.ModelSerializer):
             )
         return attrs
 
+
+    def _send_technician_notification_email(self, instance, previous_technician=None):
+        """
+        Envía una notificación por email al técnico asignado después de actualizar el agendamiento.
+        Si hay un previous_technician, se notifica al nuevo técnico.
+        Si no hay previous_technician, se notifica al técnico actual de los cambios.
+        """
+        try:
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                return
+                
+            notification_endpoint = f"{auth_service_url.rstrip('/')}/users/users/send-technician-notification"
+            
+            # Determinar a quién notificar
+            technician_to_notify = instance.assigned_technician
+            
+            notification_data = {
+                "scheduled_at": instance.scheduled_at.isoformat(),
+                "details": instance.details,
+                "assigned_technician": technician_to_notify.pk
+            }
+            
+            response = requests.post(
+                notification_endpoint,
+                json=notification_data,
+                headers={'Content-Type': 'application/json'},
+                timeout=15
+            )
+                
+        except Exception:
+            # Silenciar errores - no debe afectar la actualización principal
+            pass
+
     @transaction.atomic
     def update(self, instance: MaintenanceScheduling, validated_data):
-        # Asignar solo campos permitidos
-        for field in ("scheduled_at", "details", "assigned_technician", "maintenance_type", "id_responsible_user"):
+        # Guardar el técnico anterior si está siendo actualizado
+        previous_technician = None
+        if "assigned_technician" in validated_data and instance.assigned_technician != validated_data["assigned_technician"]:
+            previous_technician = instance.assigned_technician
+        
+        # Update only allowed fields
+        for field in ("scheduled_at", "details", "assigned_technician", "maintenance_type", "id_responsible_user_id"):
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
 
+        # Save with update_fields to only update specific fields
         instance.save(
             update_fields=[
                 "scheduled_at",
                 "details",
                 "assigned_technician",
                 "maintenance_type",
-                "id_responsible_user",
+                "id_responsible_user_id",
                 "modification_date",  # auto_now
             ]
         )
+        
+        # Enviar notificación al nuevo técnico si hubo cambio
+        if previous_technician:
+            self._send_technician_notification_email(instance, previous_technician)
+        # Si no hubo cambio de técnico pero sí actualización de otros datos, notificar al técnico actual
+        elif any(field in validated_data for field in ["scheduled_at", "details"]):
+            self._send_technician_notification_email(instance)
+            
         return instance
 
 
