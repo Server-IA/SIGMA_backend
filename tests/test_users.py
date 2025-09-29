@@ -1,8 +1,12 @@
+"""
+Tests para el módulo de usuarios
+"""
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 from rest_framework import status
 from django.urls import reverse
+from users.models import User
 
 User = get_user_model()
 
@@ -47,6 +51,16 @@ class UserModelTests(TestCase):
         )
         
         self.assertEqual(str(user), 'testuser')
+    
+    def test_user_id_user_field(self):
+        """Test para el campo id_user personalizado"""
+        user = User.objects.create_user(
+            username='testuser',
+            email='test@example.com',
+            id_user='USR001'
+        )
+        
+        self.assertEqual(user.id_user, 'USR001')
 
 
 class UserAPITests(APITestCase):
@@ -81,3 +95,58 @@ class UserAPITests(APITestCase):
         
         # Debería requerir autenticación
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+    
+    def test_user_detail_api(self):
+        """Test para obtener detalles de usuario via API"""
+        url = reverse('user-detail', kwargs={'pk': self.user.pk})
+        response = self.client.get(url)
+        
+        # Debería requerir autenticación
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class UserAuthenticationTests(TestCase):
+    """Tests para la autenticación de usuarios"""
+    
+    def setUp(self):
+        """Configuración inicial"""
+        self.user = User.objects.create_user(
+            username='testuser',
+            email='test@example.com',
+            password='testpass123'
+        )
+    
+    def test_user_login(self):
+        """Test para el login de usuario"""
+        from django.contrib.auth import authenticate
+        
+        # Autenticación exitosa
+        authenticated_user = authenticate(
+            username='testuser',
+            password='testpass123'
+        )
+        
+        self.assertIsNotNone(authenticated_user)
+        self.assertEqual(authenticated_user, self.user)
+    
+    def test_user_login_wrong_password(self):
+        """Test para login con contraseña incorrecta"""
+        from django.contrib.auth import authenticate
+        
+        authenticated_user = authenticate(
+            username='testuser',
+            password='wrongpassword'
+        )
+        
+        self.assertIsNone(authenticated_user)
+    
+    def test_user_login_wrong_username(self):
+        """Test para login con usuario incorrecto"""
+        from django.contrib.auth import authenticate
+        
+        authenticated_user = authenticate(
+            username='wronguser',
+            password='testpass123'
+        )
+        
+        self.assertIsNone(authenticated_user)

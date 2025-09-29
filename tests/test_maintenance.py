@@ -1,9 +1,13 @@
+"""
+Tests para el módulo de mantenimiento
+"""
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 from rest_framework import status
 from django.urls import reverse
 from maintenance.models import Maintenance, MaintenanceRequest, MaintenanceScheduling
+from parameterization.models import EmployeeDepartments
 
 User = get_user_model()
 
@@ -17,6 +21,11 @@ class MaintenanceModelTests(TestCase):
             username='testuser',
             email='test@example.com',
             password='testpass123'
+        )
+        
+        self.department = EmployeeDepartments.objects.create(
+            name='Mantenimiento',
+            description='Departamento de mantenimiento'
         )
     
     def test_maintenance_creation(self):
@@ -53,6 +62,23 @@ class MaintenanceModelTests(TestCase):
         self.assertEqual(maintenance_request.id_responsible_user, self.user)
         self.assertEqual(maintenance_request.description, 'Solicitud de mantenimiento urgente')
         self.assertEqual(maintenance_request.justification, 'La máquina presenta fallas en el motor')
+    
+    def test_maintenance_scheduling_creation(self):
+        """Test para crear una programación de mantenimiento"""
+        maintenance = Maintenance.objects.create(
+            name='Mantenimiento Programado',
+            id_responsible_user=self.user,
+            maintenance_status='PENDING'
+        )
+        
+        scheduling = MaintenanceScheduling.objects.create(
+            id_maintenance=maintenance,
+            id_responsible_user=self.user,
+            description='Programación para el próximo lunes'
+        )
+        
+        self.assertEqual(scheduling.id_maintenance, maintenance)
+        self.assertEqual(scheduling.id_responsible_user, self.user)
 
 
 class MaintenanceAPITests(APITestCase):
@@ -88,6 +114,19 @@ class MaintenanceAPITests(APITestCase):
             'name': 'Nuevo Mantenimiento',
             'description': 'Descripción del nuevo mantenimiento',
             'maintenance_status': 'PENDING'
+        }
+        
+        response = self.client.post(url, data)
+        
+        # Debería requerir autenticación
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+    
+    def test_maintenance_request_api(self):
+        """Test para la API de solicitudes de mantenimiento"""
+        url = reverse('maintenance-request-list')
+        data = {
+            'description': 'Solicitud de mantenimiento urgente',
+            'justification': 'La máquina presenta fallas'
         }
         
         response = self.client.post(url, data)
