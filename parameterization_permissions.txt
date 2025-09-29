@@ -1,0 +1,484 @@
+CATEGORÍA: CATEGORÍAS DE ESTADOS
+-------------------------------
+ID: 26
+Nombre: statues_categories.create
+Descripción: Crear categoría de estado
+Categoría: Parametrizacion
+
+ID: 27
+Nombre: statues_categories.update
+Descripción: Actualizar categoría de estado
+Categoría: Parametrizacion
+
+ID: 28
+Nombre: statues_categories.list
+Descripción: Listar categorías de estado
+Categoría: Parametrizacion
+
+CATEGORÍA: ESTADOS
+------------------
+ID: 29
+Nombre: statues.create
+Descripción: Crear estado
+Categoría: Parametrizacion
+
+ID: 30
+Nombre: statues.update
+Descripción: Actualizar estado
+Categoría: Parametrizacion
+
+ID: 31
+Nombre: statues.list_by_category
+Descripción: Listar estados por categoría
+Categoría: Parametrizacion
+
+CATEGORÍA: CATEGORÍAS DE TIPOS
+------------------------------
+ID: 32
+Nombre: types_categories.create
+Descripción: Crear categoría de tipo
+Categoría: Parametrizacion
+
+ID: 33
+Nombre: types_categories.update
+Descripción: Actualizar categoría de tipo
+Categoría: Parametrizacion
+
+ID: 34
+Nombre: types_categories.list
+Descripción: Listar categorías de tipos
+Categoría: Parametrizacion
+
+CATEGORÍA: TIPOS
+----------------
+ID: 35
+Nombre: types.create
+Descripción: Crear tipo
+Categoría: Parametrizacion
+
+ID: 36
+Nombre: types.update
+Descripción: Actualizar tipo
+Categoría: Parametrizacion
+
+ID: 37
+Nombre: types.list_by_category
+Descripción: Listar tipos por categoría
+Categoría: Parametrizacion
+
+ID: 38
+Nombre: types.list_active_by_category
+Descripción: Listar tipos activos por categoría
+Categoría: Parametrizacion
+
+ID: 39
+Nombre: types.toggle_status
+Descripción: Alternar estado de tipo
+Categoría: Parametrizacion
+
+CATEGORÍA: CATEGORÍAS DE UNIDADES
+---------------------------------
+ID: 40
+Nombre: units_categories.create
+Descripción: Crear categoría de unidades
+Categoría: Parametrizacion
+
+ID: 41
+Nombre: units_categories.update
+Descripción: Actualizar categoría de unidades
+Categoría: Parametrizacion
+
+ID: 42
+Nombre: units_categories.list
+Descripción: Listar categorías de unidades (endpoint base)
+Categoría: Parametrizacion
+
+CATEGORÍA: UNIDADES
+-------------------
+ID: 43
+Nombre: units.create
+Descripción: Crear unidad
+Categoría: Parametrizacion
+
+ID: 44
+Nombre: units.update
+Descripción: Actualizar unidad
+Categoría: Parametrizacion
+
+ID: 45
+Nombre: units.list_by_category
+Descripción: Listar unidades por categoría
+Categoría: Parametrizacion
+
+ID: 46
+Nombre: units.list_active_by_category
+Descripción: Listar unidades activas por categoría
+Categoría: Parametrizacion
+
+ID: 47
+Nombre: units.toggle_status
+Descripción: Alternar estado de unidad
+Categoría: Parametrizacion
+
+CATEGORÍA: CATEGORÍAS DE MARCAS
+-------------------------------
+ID: 48
+Nombre: brands_categories.create
+Descripción: Crear categoría de marcas
+Categoría: Parametrizacion
+
+ID: 49
+Nombre: brands_categories.update
+Descripción: Actualizar categoría de marcas
+Categoría: Parametrizacion
+
+ID: 50
+Nombre: brands_categories.list
+Descripción: Listar categorías de marcas
+Categoría: Parametrizacion
+
+CATEGORÍA: MARCAS
+-----------------
+ID: 51
+Nombre: brands.create
+Descripción: Crear marca
+Categoría: Parametrizacion
+
+ID: 52
+Nombre: brands.update
+Descripción: Actualizar marca
+Categoría: Parametrizacion
+
+ID: 53
+Nombre: brands.list_by_category
+Descripción: Listar marcas por categoría
+Categoría: Parametrizacion
+
+ID: 54
+Nombre: brands.list_active_by_category
+Descripción: Listar marcas activas por categoría
+Categoría: Parametrizacion
+
+ID: 55
+Nombre: brands.toggle_status
+Descripción: Alternar estado de marca
+Categoría: Parametrizacion
+
+CATEGORÍA: MODELOS
+------------------
+ID: 56
+Nombre: models.create
+Descripción: Crear modelo
+Categoría: Parametrizacion
+
+ID: 57
+Nombre: models.update
+Descripción: Actualizar modelo
+Categoría: Parametrizacion
+
+ID: 58
+Nombre: models.list_by_brand
+Descripción: Listar modelos por marca
+Categoría: Parametrizacion
+
+ID: 59
+Nombre: models.list_active_by_brand
+Descripción: Listar modelos activos por marca
+Categoría: Parametrizacion
+
+ID: 60
+Nombre: models.toggle_status
+Descripción: Alternar estado de modelo
+Categoría: Parametrizacion
+
+CATEGORÍA: DEPARTAMENTOS
+------------------------
+ID: 61
+Nombre: employee_departments.create
+Descripción: Crear departamento
+Categoría: Parametrizacion
+
+ID: 62
+Nombre: employee_departments.update
+Descripción: Actualizar departamento
+Categoría: Parametrizacion
+
+ID: 63
+Nombre: employee_departments.list
+Descripción: Listar departamentos
+Categoría: Parametrizacion
+
+ID: 64
+Nombre: employee_departments.list_active
+Descripción: Listar departamentos activos
+Categoría: Parametrizacion
+
+ID: 65
+Nombre: employee_departments.toggle_status
+Descripción: Alternar estado de departamento
+Categoría: Parametrizacion
+
+CATEGORÍA: CARGOS
+-----------------
+ID: 66
+Nombre: employee_charges.create
+Descripción: Crear cargo
+Categoría: Parametrizacion
+
+ID: 67
+Nombre: employee_charges.update
+Descripción: Actualizar cargo
+Categoría: Parametrizacion
+
+ID: 68
+Nombre: employee_charges.list_by_department
+Descripción: Listar cargos por departamento
+Categoría: Parametrizacion
+
+ID: 69
+Nombre: employee_charges.list_active_by_department
+Descripción: Listar cargos activos por departamento
+Categoría: Parametrizacion
+
+ID: 70
+Nombre: employee_charges.toggle_status
+Descripción: Alternar estado de cargo
+Categoría: Parametrizacion
+
+CATEGORÍA: PARAMETRIZACIÓN VISUAL
+---------------------------------
+ID: 71
+Nombre: visual_parameterization.create
+Descripción: Crear parametrización visual
+Categoría: Parametrizacion
+
+ID: 72
+Nombre: visual_parameterization.retrieve
+Descripción: Ver parametrización visual por ID
+Categoría: Parametrizacion
+
+ID: 73
+Nombre: visual_parameterization.update
+Descripción: Actualizar parametrización visual (PUT)
+Categoría: Parametrizacion
+
+ID: 74
+Nombre: visual_parameterization.partial_update
+Descripción: Actualizar parametrización visual (PATCH)
+Categoría: Parametrizacion
+
+ID: 75
+Nombre: visual_parameterization.list
+Descripción: Listar parametrizaciones visuales
+Categoría: Parametrizacion
+
+ID: 76
+Nombre: visual_parameterization.toggle_status
+Descripción: Alternar estado de parametrización
+Categoría: Parametrizacion
+
+CATEGORÍA: PARAMETRIZACIÓN VISUAL DE USUARIO
+--------------------------------------------
+ID: 77
+Nombre: user_visual_parameterization.create
+Descripción: Crear asignación de parametrización visual a usuario
+Categoría: Parametrizacion
+
+ID: 78
+Nombre: user_visual_parameterization.retrieve
+Descripción: Ver asignación por ID
+Categoría: Parametrizacion
+
+ID: 79
+Nombre: user_visual_parameterization.update
+Descripción: Actualizar asignación (PUT)
+Categoría: Parametrizacion
+
+ID: 80
+Nombre: user_visual_parameterization.partial_update
+Descripción: Actualizar asignación (PATCH)
+Categoría: Parametrizacion
+
+ID: 81
+Nombre: user_visual_parameterization.list
+Descripción: Listar asignaciones de parametrización visual de usuario
+Categoría: Parametrizacion
+
+CATEGORÍA: MAQUINARIA
+-------------------
+ID: 82
+Nombre: machinery.list
+Descripción: Listar maquinaria
+Categoría: Machinery
+
+ID: 83
+Nombre: machinery.update
+Descripción: Actualizar maquinaria
+Categoría: Machinery
+
+ID: 84
+Nombre: machinery.create
+Descripción: Crear maquinaria
+Categoría: Machinery
+
+ID: 85
+Nombre: machinery.confirm_registration
+Descripción: Confirmar registro de maquinaria
+Categoría: Machinery
+
+ID: 86
+Nombre: machinery.retrieve
+Descripción: Obtener información de maquinaria
+Categoría: Machinery
+
+ID: 87
+Nombre: machinery_tracker.create
+Descripción: Crear ficha de seguimiento de maquinaria
+Categoría: Machinery
+
+ID: 88
+Nombre: machinery_tracker.update
+Descripción: Actualizar ficha de seguimiento de maquinaria
+Categoría: Machinery
+
+ID: 89
+Nombre: machinery_tracker.retrieve
+Descripción: Obtener ficha de seguimiento de maquinaria
+Categoría: Machinery
+
+ID: 90
+Nombre: machinery_specific_sheet.create
+Descripción: Crear ficha específica de maquinaria
+Categoría: Machinery
+
+ID: 91
+Nombre: machinery_specific_sheet.retrieve
+Descripción: Obtener ficha específica de maquinaria
+Categoría: Machinery
+
+ID: 92
+Nombre: machinery_specific_sheet.update
+Descripción: Actualizar ficha específica de maquinaria
+Categoría: Machinery
+
+ID: 93
+Nombre: machinery_usage_sheet.create
+Descripción: Crear ficha de uso de maquinaria
+Categoría: Machinery
+
+ID: 94
+Nombre: machinery_usage_sheet.update
+Descripción: Actualizar ficha de uso de maquinaria
+Categoría: Machinery
+
+ID: 95
+Nombre: machinery_usage_sheet.retrieve
+Descripción: Obtener ficha de uso de maquinaria
+Categoría: Machinery
+
+ID: 96
+Nombre: machinery_maintenance.retrieve
+Descripción: Obtener ficha de mantenimiento de maquinaria
+Categoría: Machinery
+
+ID: 97
+Nombre: machinery_maintenance.create
+Descripción: Crear ficha de mantenimiento de maquinaria
+Categoría: Machinery
+
+ID: 98
+Nombre: machinery_maintenance.update
+Descripción: Actualizar ficha de mantenimiento de maquinaria
+Categoría: Machinery
+
+ID: 99
+Nombre: machinery_maintenance.partial_update
+Descripción: Actualizar de forma parcial ficha de mantenimiento de maquinaria
+Categoría: Machinery
+
+ID: 100
+Nombre: machinery_maintenance.delete
+Descripción: Eliminar ficha de mantenimiento de maquinaria
+Categoría: Machinery
+
+ID: 101
+Nombre: machinery_documentation.create
+Descripción: Crear documento de maquinaria
+Categoría: Machinery
+
+ID: 102
+Nombre: machinery_documentation.update
+Descripción: Actualizar documento de maquinaria
+Categoría: Machinery
+
+ID: 103
+Nombre: machinery_documentation.delete
+Descripción: Eliminar documento de maquinaria
+Categoría: Machinery
+
+ID: 104
+Nombre: machinery_documentation.list
+Descripción: Listar documentos de maquinaria
+Categoría: Machinery
+
+ID: 105
+Nombre: machinery_documentation.download
+Descripción: Descargar documentos de maquinaria
+Categoría: Machinery
+
+ID: 111
+Nombre: telemetry_device.list_active
+Descripción: Listar activos dispositivos de telemetría activos
+Categoría: Machinery
+
+ID: 112
+Nombre: telemetry_device.list
+Descripción: Listar dispositivos de telemetría activos
+Categoría: Machinery
+
+ID: 113
+Nombre: telemetry_device.create
+Descripción: Crear dispositivo de telemetría
+Categoría: Machinery
+
+ID: 114
+Nombre: telemetry_device.update
+Descripción: Actualizar dispositivo de telemetría
+Categoría: Machinery
+
+ID: 115
+Nombre: telemetry_device.toggle
+Descripción: Activar/desactivar dispositivo de telemetría
+Categoría: Machinery
+
+ID: 116
+Nombre: telemetry_device.retrieve
+Descripción: obtener dispositivo de telemetría
+Categoría: Machinery
+
+CATEGORÍA: MANTENIMIENTO
+----------------------
+ID: 106
+Nombre: maintenance.list_active
+Descripción: Listar mantenimientos activos
+Categoría: Maintenance
+
+ID: 107
+Nombre: maintenance.create
+Descripción: crear mantenimiento
+Categoría: Maintenance
+
+ID: 108
+Nombre: maintenance.update
+Descripción: Actualizar mantenimiento
+Categoría: Maintenance
+
+ID: 109
+Nombre: maintenance.toggle
+Descripción: Activar/desactivar mantenimiento
+Categoría: Maintenance
+
+ID: 110
+Nombre: maintenance.delete
+Descripción: Eliminar mantenimiento
+Categoría: Maintenance
