@@ -8,6 +8,7 @@ from machinery.serializers.machinery_serializers.machinery_general_sheet_create_
     MachineryGeneralSheetCreateSerializer
 )
 from machinery.serializers.machinery_serializers.machinery_list_serializer import MachineryListSerializer
+from machinery.serializers.machinery_serializers.machinery_list_active_serializer import MachineryListActiveSerializer
 from machinery.serializers.machinery_serializers.machinery_general_sheet_update_serializer import MachineryUpdateSerializer
 from machinery.serializers.machinery_serializers.machinery_general_sheet_detail_serializer import MachineryDetailSerializer
 from django.db.models import Q
@@ -413,3 +414,52 @@ class MachineryViewSet(viewsets.ViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+            
+    @action(detail=False, methods=['get'], url_path='active')
+    def list_active_machinery(self, request):
+        """
+        Lista las máquinas con estado 'Activo' (id=4) con información reducida.
+        
+        Retorna:
+        - id_machinery: ID de la máquina
+        - machinery_name: Nombre de la máquina
+        - serial_number: Número de serie
+        """
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 129  # machinery.list_active
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar maquinaria"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Filtrar máquinas con estado 'Activo' (id=4)
+            active_machinery = Machinery.objects.filter(
+                machinery_operational_status_id=4
+            ).order_by('machinery_name')
+            
+            serializer = MachineryListActiveSerializer(active_machinery, many=True)
+            
+            return Response({
+                'success': True,
+                'message': 'Lista de máquinas activas obtenida correctamente',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error listing active machinery: {str(e)}")
+            return Response({
+                'success': False,
+                'message': 'Error al obtener la lista de máquinas activas',
+                'error': str(e),
+                'data': None
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
