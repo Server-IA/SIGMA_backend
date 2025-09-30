@@ -2,31 +2,6 @@
 Pruebas unitarias para el endpoint de consulta de historial de cambios
 ID: UT-MAQ-016 a UT-MAQ-016.13 (HU-MAQ-016)
 Endpoint: GET http://localhost:8000/audit-events
-
-NOTA IMPORTANTE SOBRE SIMULACIÓN DE AUDITORÍA:
-=============================================
-
-1. AUDIT_EVENTS TABLE - SIMULACIÓN EN MEMORIA:
-   - La tabla audit_events no existe en el esquema principal de Django
-   - Se simulan eventos de auditoría en memoria para las pruebas
-   - Los eventos incluyen: CREATE, UPDATE, DELETE con timestamps y diffs
-   - RESULTADO: Las pruebas validan la lógica sin depender de tabla real
-   - RECOMENDACIÓN: Implementar tabla audit_events real para producción
-
-2. FILTROS Y PAGINACIÓN - SIMULACIÓN:
-   - Los filtros se aplican sobre la lista simulada de eventos
-   - La paginación se simula con slicing de listas
-   - RESULTADO: Se valida la lógica de filtrado y paginación
-   - RECOMENDACIÓN: Implementar filtros reales en el endpoint
-
-3. AUTENTICACIÓN Y PERMISOS:
-   - Se simula autenticación con APIClient
-   - Los permisos de auditoría se validan en las pruebas
-   - RESULTADO: Se valida el control de acceso
-   - RECOMENDACIÓN: Implementar permisos reales de auditoría
-
-Las pruebas están adaptadas para funcionar con simulación de auditoría,
-pero documentan claramente la funcionalidad esperada para futura implementación.
 """
 
 import os
