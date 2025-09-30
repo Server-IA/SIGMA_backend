@@ -77,7 +77,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
                         actor_role=actor_role_name,
                         permission_id=permission_id,
                         module="machinery",
-                        submodule="maintenance_scheduling",
+                        submodule="maintenance_scheduling", // mantenimientos programados
                     )
                 except Exception as e:
                     logging.warning("El servicio de auditoría ha fallado en create_maintenance_scheduling: %s", e)
