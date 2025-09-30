@@ -1,4 +1,3 @@
 from .maintenance import Maintenance
 from .maintenance_request import MaintenanceRequest
 from .maintenance_scheduling import MaintenanceScheduling
-from .maintenance_scheduling_consecutive import MaintenanceSchedulingConsecutive
