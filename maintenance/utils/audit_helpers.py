@@ -140,3 +140,25 @@ def maintenance_scheduling_snapshot(ms_obj) -> Dict[str, Any]:
         "modification_date": str(_safe_get(ms_obj, "modification_date")),
         "id_responsible_user": str(responsible_id) if responsible_id else None,
     }
+
+def build_meta_with_machinery_id(
+    before: Optional[Dict[str, Any]] = None,
+    after: Optional[Dict[str, Any]] = None,
+    base_meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Construye un meta que siempre incluye id_machinery si existe
+    en el snapshot before/after.
+    """
+    meta = dict(base_meta or {})
+
+    def extract(snapshot: Optional[Dict[str, Any]]) -> Optional[int]:
+        if not snapshot:
+            return None
+        return snapshot.get("id_machinery")
+
+    mach_id = extract(after) or extract(before)
+    if mach_id is not None:
+        meta["id_machinery"] = mach_id
+
+    return meta

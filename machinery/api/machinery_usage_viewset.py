@@ -11,7 +11,7 @@ import logging
 
 # Auditoría
 from audit_sdk import AuditClient
-from machinery.utils.audit_helpers import get_actor_info, machinery_usage_snapshot
+from machinery.utils.audit_helpers import get_actor_info, machinery_usage_snapshot, build_meta_with_machinery_id
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ class MachineryUsageViewSet(viewsets.ModelViewSet):
                     actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
                     object_id = str(after.get("id_usage_sheet") or after.get("id_machinery") or "")
 
-                    # Emitir update a auditoría (AuditClient calculará diff)
+                    # Auditoría
                     AuditClient(request).update(
                         object_id=object_id,
                         before=before_snapshot,
@@ -155,6 +155,7 @@ class MachineryUsageViewSet(viewsets.ModelViewSet):
                         permission_id=permission_id,
                         module="machinery",
                         submodule="machinery_usage_sheet",
+                        meta=build_meta_with_machinery_id(before_snapshot, after),
                     )
                 except Exception as e:
                     logging.warning("El servicio de auditoría ha fallado en update_specific_technical_sheet: %s", e)

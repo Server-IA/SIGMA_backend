@@ -10,7 +10,7 @@ from rest_framework import serializers
 # Auditoría
 import logging
 from audit_sdk import AuditClient
-from machinery.utils.audit_helpers import get_actor_info, specific_technical_snapshot
+from machinery.utils.audit_helpers import get_actor_info, specific_technical_snapshot, build_meta_with_machinery_id
 
 class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
 
@@ -258,6 +258,7 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
                         permission_id=permission_id,
                         module="machinery",
                         submodule="specific_technical_sheet",
+                        meta=build_meta_with_machinery_id(before_snapshot, after),
                     )
                 except Exception as e:
                     logging.warning("El servicio de auditoría ha fallado en update_specific_technical_sheet: %s", e)

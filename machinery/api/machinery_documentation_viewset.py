@@ -8,7 +8,7 @@ from machinery.serializers.machinery_documentation_serializers.machinery_documen
 
 # Auditoría
 from audit_sdk import AuditClient
-from machinery.utils.audit_helpers import get_actor_info, machinery_documentation_snapshot
+from machinery.utils.audit_helpers import get_actor_info, machinery_documentation_snapshot, build_meta_with_machinery_id
 import logging
 
 logger = logging.getLogger(__name__)
@@ -153,6 +153,7 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
                         permission_id=permission_id,
                         module="machinery",
                         submodule="machinery_documentation_sheet",
+                        meta=build_meta_with_machinery_id(before, after),
                     )
                 except Exception as e:
                     # La auditoría no debe romper la actualización
@@ -217,7 +218,7 @@ class MachineryDocumentationViewSet(viewsets.ViewSet):
                 "status": "error"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # --- Emitir auditoría (no bloqueante) ---
+        # Auditoría
         try:
             actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
             object_id = str(before.get("id_machinery_documentation") or before.get("id_machinery") or "")

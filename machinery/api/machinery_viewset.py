@@ -16,9 +16,10 @@ import logging
 
 # Auditoría 
 from audit_sdk import AuditClient
-from machinery.utils.audit_helpers import get_actor_info, machinery_snapshot
+from machinery.utils.audit_helpers import get_actor_info, machinery_snapshot, build_meta_with_machinery_id
 
 logger = logging.getLogger(__name__)
+
 
 class MachineryViewSet(viewsets.ViewSet):
     """
@@ -186,6 +187,7 @@ class MachineryViewSet(viewsets.ViewSet):
                         permission_id=permission_id,
                         module="machinery",
                         submodule="machinery_general_sheet",
+                        meta=build_meta_with_machinery_id(before, after)
                     )
                 except Exception as e:
                     logger.warning("El servicio de auditoría ha fallado en update_machinery: %s", e)
