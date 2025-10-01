@@ -2,7 +2,7 @@ from django.db import models
 from machinery.models.machinery import Machinery
 
 class MaintenanceScheduling(models.Model):
-    id_maintenance_scheduling = models.AutoField(primary_key=True)
+    id_maintenance_scheduling = models.CharField(primary_key=True, max_length=20, null=False)
     id_maintenance_request = models.ForeignKey("maintenance.MaintenanceRequest", on_delete=models.PROTECT, related_name="maintenance_schedulings", db_column="id_maintenance_request", null=True, blank=True)
     id_machinery = models.ForeignKey(Machinery, on_delete=models.PROTECT, related_name="maintenance_schedulings", db_column="id_machinery", null=False, blank=False)
     scheduled_at = models.DateTimeField(db_column="scheduled_at", null=False, blank=False)
