@@ -1,8 +1,5 @@
 # Caso de Prueba Unitario - UT-PM-001
 
-## Información General
-
-| Campo | Valor |
 |-------|-------|
 | **ID** | UT-PM-001 |
 | **Título** | Programar Mantenimiento Manual |
@@ -26,15 +23,6 @@
   "maintenance_type": 35
 }
 ```
-
-### Escenarios de Entrada
-- **Fecha válida**: Fecha futura
-- **Fecha inválida**: Fecha pasada
-- **Técnico disponible**: Sin conflicto de agenda
-- **Técnico no disponible**: Conflicto de agenda
-- **Tipo de mantenimiento válido**: Pertenece a categoría id=12
-- **Tipo de mantenimiento inválido**: No pertenece a categoría id=12
-- **Usuario sin permisos**: No tiene permiso 117
 
 ## Pasos (AAA)
 
@@ -75,9 +63,5 @@
 ## Fecha Ejecución
 01/10/2025
 
+Alejandro Saenz C
 ---
-
-## Notas Técnicas
-- Uso de mocks para simular disponibilidad de técnicos y permisos
-- Validación estricta de reglas de negocio
-- Estructura AAA clara y extensible
