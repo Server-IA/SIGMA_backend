@@ -4,7 +4,7 @@ from maintenance.models.maintenance_scheduling import MaintenanceScheduling
 
 
 class MaintenanceRequestDetailSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source="id_maintenance_request", read_only=True)
+    id = serializers.CharField(source="id_maintenance_request", read_only=True)
     machinery_serial = serializers.CharField(source="id_machinery.serial_number", read_only=True)
     machinery_name = serializers.CharField(source="id_machinery.machinery_name", read_only=True)
     maintenance_type_name = serializers.CharField(source="maintenance_type.name", read_only=True)
