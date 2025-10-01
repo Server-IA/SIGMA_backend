@@ -57,13 +57,12 @@ class MaintenanceSparePartsViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Permisos deshabilitados temporalmente
-        # permission_id = 127  # maintenance_spare_parts.create
-        # if not self.check_permission(request, permission_id):
-        #     return Response(
-        #         {"message": "No tiene permisos para crear repuestos de mantenimiento."},
-        #         status=status.HTTP_403_FORBIDDEN
-        #     )
+        permission_id = 132  # maintenance_spare_parts.create
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para crear repuestos de mantenimiento."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         try:
             serializer = MaintenanceSparePartsCreateSerializer(
@@ -125,12 +124,12 @@ class MaintenanceSparePartsViewSet(viewsets.ViewSet):
             )
 
         # Permisos deshabilitados temporalmente
-        # permission_id = 128  # maintenance_spare_parts.list
-        # if not self.check_permission(request, permission_id):
-        #     return Response(
-        #         {"message": "No tiene permisos para listar repuestos de mantenimiento."},
-        #         status=status.HTTP_403_FORBIDDEN
-        #     )
+        permission_id = 133  # maintenance_spare_parts.list
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar repuestos de mantenimiento."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         try:
             queryset = MaintenanceSpareParts.objects.select_related(

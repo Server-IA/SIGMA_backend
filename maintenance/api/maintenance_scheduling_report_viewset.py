@@ -65,13 +65,12 @@ class MaintenanceSchedulingReportViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Permisos deshabilitados temporalmente
-        # permission_id = 132  # maintenance_scheduling.create_report
-        # if not self.check_permission(request, permission_id):
-        #     return Response(
-        #         {"message": "No tiene permisos para crear reportes de mantenimiento."},
-        #         status=status.HTTP_403_FORBIDDEN
-        #     )
+        permission_id = 127  # maintenance_scheduling.create_report
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para crear reportes de mantenimiento."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         try:
             # Verificar que el mantenimiento programado existe
