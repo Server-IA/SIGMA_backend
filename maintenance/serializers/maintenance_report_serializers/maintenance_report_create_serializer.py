@@ -15,10 +15,11 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
     """
     
     # Campos para mantenimientos realizados
+    # Ahora acepta objetos: { id_maintenance, maintenance_cost }
     maintenance_items = serializers.ListField(
-        child=serializers.IntegerField(),
+        child=serializers.DictField(),
         write_only=True,
-        help_text="Lista de IDs de mantenimientos realizados"
+        help_text="Lista de objetos con id_maintenance y maintenance_cost"
     )
     
     # Campos para repuestos utilizados
@@ -57,17 +58,31 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
     
     def validate_maintenance_items(self, value):
         """
-        Valida que los mantenimientos existan.
+        Valida que los mantenimientos existan y que el costo sea válido.
         """
         if not value:
             raise serializers.ValidationError("Debe especificar al menos un mantenimiento realizado.")
-        
+        ids = []
+        for item in value:
+            if not isinstance(item, dict):
+                raise serializers.ValidationError("Cada item debe ser un objeto con id_maintenance y maintenance_cost")
+            if 'id_maintenance' not in item:
+                raise serializers.ValidationError("Falta 'id_maintenance' en un item de maintenance_items")
+            if 'maintenance_cost' not in item:
+                raise serializers.ValidationError("Falta 'maintenance_cost' en un item de maintenance_items")
+            try:
+                cost = float(item['maintenance_cost'])
+                if cost < 0:
+                    raise serializers.ValidationError("'maintenance_cost' debe ser >= 0")
+            except (TypeError, ValueError):
+                raise serializers.ValidationError("'maintenance_cost' debe ser numérico")
+            ids.append(item['id_maintenance'])
+
         from maintenance.models import Maintenance
         existing_maintenances = Maintenance.objects.filter(
-            id_maintenance__in=value
+            id_maintenance__in=ids
         ).values_list('id_maintenance', flat=True)
-        
-        missing_ids = set(value) - set(existing_maintenances)
+        missing_ids = set(ids) - set(existing_maintenances)
         if missing_ids:
             raise serializers.ValidationError(
                 f"Los siguientes mantenimientos no existen: {list(missing_ids)}"
@@ -153,17 +168,22 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
             for item in spare_parts
         )
         validated_data['spare_parts_total_cost'] = spare_parts_total_cost
-        validated_data['total_cost'] = spare_parts_total_cost  # Por ahora solo repuestos
+
+        # Calcular costo total de mantenimientos
+        maint_total_cost = sum(float(i.get('maintenance_cost', 0)) for i in maintenance_items)
+        # Total general
+        validated_data['total_cost'] = spare_parts_total_cost + maint_total_cost
         
         # Crear el reporte
         validated_data['id_responsible_user'] = responsible_user
         report = MaintenanceReport.objects.create(**validated_data)
         
         # Crear relaciones con mantenimientos
-        for maintenance_id in maintenance_items:
+        for item in maintenance_items:
             MaintenanceMaintenanceReports.objects.create(
-                id_maintenance_id=maintenance_id,
-                id_maintenance_report=report
+                id_maintenance_id=item['id_maintenance'],
+                id_maintenance_report=report,
+                maintenance_cost=float(item['maintenance_cost'])
             )
         
         # Crear relaciones con repuestos

@@ -19,6 +19,9 @@ class MaintenanceMaintenanceReports(models.Model):
         db_column='id_maintenance_report'
     )
     
+    # Costo del mantenimiento asociado a este reporte
+    maintenance_cost = models.FloatField(null=False, blank=False, default=0.0, db_column="maintenance_cost")
+
     # Fechas de auditoría
     registration_date = models.DateTimeField(auto_now=True, db_column="registration_date")
     modification_date = models.DateTimeField(auto_now=True, db_column="modification_date")
