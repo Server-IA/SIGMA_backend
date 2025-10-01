@@ -1,11 +1,14 @@
+import requests
+import os
+import json
 from django.utils import timezone
-from django.db import transaction
+from django.db import transaction, models
+from django.db.models import Max
 from rest_framework import serializers
 
 from maintenance.models import (
     MaintenanceRequest,
     MaintenanceScheduling,
-    MaintenanceSchedulingConsecutive,
 )
 from parameterization.models import TypesCategory, Statues
 
@@ -14,6 +17,23 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
     id_maintenance_request = serializers.PrimaryKeyRelatedField(
         queryset=MaintenanceRequest.objects.all(), required=True
     )
+    
+    def generate_scheduling_id(self):
+        current_year = timezone.now().year
+        # Find the highest request number for the current year
+        max_scheduling = MaintenanceScheduling.objects.filter(
+            id_maintenance_scheduling__startswith=f'PRO-{current_year}'
+        ).aggregate(Max('id_maintenance_scheduling'))
+        
+        if max_scheduling['id_maintenance_scheduling__max']:
+            # Extract the number part and increment it
+            last_number = int(max_scheduling['id_maintenance_scheduling__max'].split('-')[-1])
+            new_number = last_number + 1
+        else:
+            # First scheduling of the year
+            new_number = 1
+            
+        return f'PRO-{current_year}-{new_number:04d}'
 
     class Meta:
         model = MaintenanceScheduling
@@ -24,10 +44,9 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
             "details",
             "assigned_technician",
             "maintenance_type",
-            "id_consecutive",
             "id_responsible_user",
         )
-        read_only_fields = ("id_consecutive", "id_machinery", "id_responsible_user")
+        read_only_fields = ("id_machinery", "id_responsible_user")
 
     def validate(self, attrs):
         # Obtenemos el usuario del contexto (que vendrá de la vista)
@@ -86,45 +105,56 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
                     {"id_machinery": "La maquinaria asociada no está en estado 'Activo'."}
                 )
 
-        # 3) Evitar programar dos veces la misma solicitud
+        # 3) Validar el estado actual de la solicitud primero
         if req:
+            try:
+                current_status_id = getattr(getattr(req, "request_status", None), "id_statues", None)
+            except Exception:
+                current_status_id = None
+                
+            if current_status_id == 11:  # Aceptado
+                raise serializers.ValidationError(
+                    {"request_status": "La solicitud ya se encuentra en estado 'Aceptado'. No se puede programar nuevamente."}
+                )
+                
+            if current_status_id == 12:  # Rechazado
+                raise serializers.ValidationError(
+                    {"request_status": "No se puede programar una solicitud que ha sido rechazada."}
+                )
+            
+            # 4) Validar si ya existe un mantenimiento programado para esta solicitud
             already_scheduled = MaintenanceScheduling.objects.filter(id_maintenance_request=req).exists()
             if already_scheduled:
                 raise serializers.ValidationError(
                     {"id_maintenance_request": "La solicitud ya cuenta con un mantenimiento programado."}
                 )
-            # 4) Si la solicitud ya está en estado Aceptado (id=11), no permitir reprogramar desde esta vía
-            try:
-                current_status_id = getattr(getattr(req, "request_status", None), "id_statues", None)
-            except Exception:
-                current_status_id = None
-            if current_status_id == 11:
-                raise serializers.ValidationError(
-                    {"request_status": "La solicitud ya se encuentra en estado 'Aceptado'. No se puede programar nuevamente."}
-                )
         return attrs
 
-    def _generate_consecutive(self):
-        year = timezone.now().year
-        with transaction.atomic():
-            last = (
-                MaintenanceSchedulingConsecutive.objects
-                .filter(anio=year)
-                .order_by("-code")
-                .first()
-            )
-            next_code = (last.code + 1) if last else 1
-            return MaintenanceSchedulingConsecutive.objects.create(anio=year, code=next_code)
 
     def create(self, validated_data):
         request_obj: MaintenanceRequest = validated_data.pop("id_maintenance_request")
         
         # Obtener el usuario del contexto
         request = self.context.get('request')
-        if request and hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
-            validated_data['id_responsible_user_id'] = request.user.id
-        else:
+        if not request or not hasattr(request, 'user') or not request.user or not hasattr(request.user, 'id'):
             raise serializers.ValidationError("No se pudo determinar el usuario responsable.")
+            
+        # Obtener la instancia real de User desde la base de datos
+        from users.models import User
+        try:
+            current_user = User.objects.get(pk=request.user.id)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("El usuario autenticado no existe en la base de datos.")
+            
+        now = timezone.now()
+
+        # Update only response_date and id_response_user without triggering modification_date update
+        MaintenanceRequest.objects.filter(pk=request_obj.pk).update(
+            id_response_user=current_user,
+            response_date=now,
+            # Explicitly prevent modification_date from updating
+            modification_date=models.F('modification_date')
+        )
 
         # Pre-cargar id_machinery desde la solicitud si no fue proporcionado explícitamente
         validated_data["id_machinery"] = request_obj.id_machinery
@@ -133,8 +163,10 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
         if not validated_data.get("maintenance_type"):
             validated_data["maintenance_type"] = request_obj.maintenance_type
 
+        # Establecer el usuario responsable como el usuario actual (instancia de User)
+        validated_data['id_responsible_user'] = current_user
+        
         # Fechas de auditoría
-        now = timezone.now()
         validated_data["registration_date"] = now
         validated_data["modification_date"] = now
 
@@ -148,8 +180,8 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
             # Asignar el estado 13 al mantenimiento programado
             validated_data["maintenance_scheduling_status"] = status
             
-            consecutive = self._generate_consecutive()
-            validated_data["id_consecutive"] = consecutive
+            # Generate the custom ID
+            validated_data['id_maintenance_scheduling'] = self.generate_scheduling_id()
             
             # Crear la instancia del mantenimiento programado
             instance = MaintenanceScheduling.objects.create(
@@ -165,5 +197,37 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
            
             request_obj.request_status = accepted
             request_obj.modification_date = timezone.now()
-            request_obj.save(update_fields=["request_status", "modification_date"])
+            request_obj.save(update_fields=["request_status"])
+        
+        # Enviar notificación por email al técnico asignado
+        self._send_technician_notification_email(instance)
+        
         return instance
+
+    def _send_technician_notification_email(self, instance):
+        """
+        Envía una notificación por email al técnico asignado después de crear el agendamiento
+        """
+        try:
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                return
+                
+            notification_endpoint = f"{auth_service_url.rstrip('/')}/users/users/send-technician-notification"
+            
+            notification_data = {
+                "scheduled_at": instance.scheduled_at.isoformat(),
+                "details": instance.details,
+                "assigned_technician": instance.assigned_technician.pk
+            }
+            
+            response = requests.post(
+                notification_endpoint,
+                json=notification_data,
+                headers={'Content-Type': 'application/json'},
+                timeout=15
+            )
+                
+        except Exception:
+            # Silenciar errores - no debe afectar el agendamiento principal
+            pass
