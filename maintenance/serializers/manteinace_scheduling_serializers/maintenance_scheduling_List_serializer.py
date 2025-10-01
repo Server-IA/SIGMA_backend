@@ -10,6 +10,7 @@ class MaintenanceSchedulingListSerializer(serializers.ModelSerializer):
     status_name = serializers.CharField(source="maintenance_scheduling_status.name", read_only=True)
     status_id = serializers.IntegerField(source="maintenance_scheduling_status.id_statues", read_only=True)
     scheduled_at = serializers.DateTimeField(read_only=True)
+    request_creation_date = serializers.DateTimeField(source="id_maintenance_request.registration_date", read_only=True, allow_null=True)
 
     class Meta:
         model = MaintenanceScheduling
@@ -21,7 +22,8 @@ class MaintenanceSchedulingListSerializer(serializers.ModelSerializer):
             "scheduled_at",
             "assigned_technician_id",
             "status_id",
-            "status_name"
+            "status_name",
+            "request_creation_date"
         ]
 
     def get_assigned_technician_id(self, obj):

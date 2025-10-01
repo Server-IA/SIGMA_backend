@@ -2,7 +2,7 @@ import requests
 import os
 import json
 from django.utils import timezone
-from django.db import transaction
+from django.db import transaction, models
 from rest_framework import serializers
 
 from maintenance.models import (
@@ -87,21 +87,28 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
                     {"id_machinery": "La maquinaria asociada no está en estado 'Activo'."}
                 )
 
-        # 3) Evitar programar dos veces la misma solicitud
+        # 3) Validar el estado actual de la solicitud primero
         if req:
-            already_scheduled = MaintenanceScheduling.objects.filter(id_maintenance_request=req).exists()
-            if already_scheduled:
-                raise serializers.ValidationError(
-                    {"id_maintenance_request": "La solicitud ya cuenta con un mantenimiento programado."}
-                )
-            # 4) Si la solicitud ya está en estado Aceptado (id=11), no permitir reprogramar desde esta vía
             try:
                 current_status_id = getattr(getattr(req, "request_status", None), "id_statues", None)
             except Exception:
                 current_status_id = None
-            if current_status_id == 11:
+                
+            if current_status_id == 11:  # Aceptado
                 raise serializers.ValidationError(
                     {"request_status": "La solicitud ya se encuentra en estado 'Aceptado'. No se puede programar nuevamente."}
+                )
+                
+            if current_status_id == 12:  # Rechazado
+                raise serializers.ValidationError(
+                    {"request_status": "No se puede programar una solicitud que ha sido rechazada."}
+                )
+            
+            # 4) Validar si ya existe un mantenimiento programado para esta solicitud
+            already_scheduled = MaintenanceScheduling.objects.filter(id_maintenance_request=req).exists()
+            if already_scheduled:
+                raise serializers.ValidationError(
+                    {"id_maintenance_request": "La solicitud ya cuenta con un mantenimiento programado."}
                 )
         return attrs
 
@@ -111,10 +118,25 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
         
         # Obtener el usuario del contexto
         request = self.context.get('request')
-        if request and hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
-            validated_data['id_responsible_user_id'] = request.user.id
-        else:
+        if not request or not hasattr(request, 'user') or not request.user or not hasattr(request.user, 'id'):
             raise serializers.ValidationError("No se pudo determinar el usuario responsable.")
+            
+        # Obtener la instancia real de User desde la base de datos
+        from users.models import User
+        try:
+            current_user = User.objects.get(pk=request.user.id)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("El usuario autenticado no existe en la base de datos.")
+            
+        now = timezone.now()
+
+        # Update only response_date and id_response_user without triggering modification_date update
+        MaintenanceRequest.objects.filter(pk=request_obj.pk).update(
+            id_response_user=current_user,
+            response_date=now,
+            # Explicitly prevent modification_date from updating
+            modification_date=models.F('modification_date')
+        )
 
         # Pre-cargar id_machinery desde la solicitud si no fue proporcionado explícitamente
         validated_data["id_machinery"] = request_obj.id_machinery
@@ -123,8 +145,10 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
         if not validated_data.get("maintenance_type"):
             validated_data["maintenance_type"] = request_obj.maintenance_type
 
+        # Establecer el usuario responsable como el usuario actual (instancia de User)
+        validated_data['id_responsible_user'] = current_user
+        
         # Fechas de auditoría
-        now = timezone.now()
         validated_data["registration_date"] = now
         validated_data["modification_date"] = now
 
@@ -152,7 +176,7 @@ class MaintenanceSchedulingFromRequestCreateSerializer(serializers.ModelSerializ
            
             request_obj.request_status = accepted
             request_obj.modification_date = timezone.now()
-            request_obj.save(update_fields=["request_status", "modification_date"])
+            request_obj.save(update_fields=["request_status"])
         
         # Enviar notificación por email al técnico asignado
         self._send_technician_notification_email(instance)
