@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import transaction, models
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -31,8 +31,13 @@ class MaintenanceRequestRejectSerializer(serializers.Serializer):
         return attrs
 
     def save(self, **kwargs):
+        request = self.context.get('request')
+        if not request or not hasattr(request, 'user') or not request.user or not hasattr(request.user, 'id'):
+            raise serializers.ValidationError("No se pudo determinar el usuario que responde.")
+            
         instance: MaintenanceRequest = self.context["instance"]
         justification = self.validated_data["justification"]
+        now = timezone.now()
 
         with transaction.atomic():
             try:
@@ -41,10 +46,14 @@ class MaintenanceRequestRejectSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     "No se encontró el estado 'Rechazado' (id=12) en la parametrización."
                 )
-
-            instance.justification = justification
-            instance.request_status = rejected_status
-            instance.modification_date = timezone.now()
-            instance.save(update_fields=["justification", "request_status", "modification_date"])
+            
+            # Update the instance with direct database update to avoid auto_now on modification_date
+            MaintenanceRequest.objects.filter(pk=instance.pk).update(
+                justification=justification,
+                request_status=rejected_status,
+                id_response_user_id=request.user.id,  # Use user.id instead of user object
+                response_date=now,
+                modification_date=models.F('modification_date')  # Keep original modification_date
+            )
 
         return instance
