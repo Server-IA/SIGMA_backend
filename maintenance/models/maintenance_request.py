@@ -11,8 +11,10 @@ class MaintenanceRequest(models.Model):
     request_status = models.ForeignKey("parameterization.Statues", on_delete=models.PROTECT, related_name="maintenance_requests_by_status", db_column="request_status", null=False, blank=False)
     justification = models.CharField(max_length=300, null=True, blank=True)
     detected_at = models.DateField(db_column="detected_at", null=False, blank=False)
+    response_date = models.DateTimeField(db_column="response_date", null=True)
     registration_date = models.DateTimeField(auto_now=True, db_column="registration_date")
     modification_date = models.DateTimeField(auto_now=True, db_column="modification_date")
+    id_response_user = models.ForeignKey("users.User", on_delete=models.PROTECT, null=True, related_name="maintenance_requests_response_user", db_column="id_response_user")
     id_responsible_user = models.ForeignKey("users.User", on_delete=models.PROTECT, null=True, related_name="maintenance_requests_responsible", db_column="id_responsible_user")
 
     class Meta:

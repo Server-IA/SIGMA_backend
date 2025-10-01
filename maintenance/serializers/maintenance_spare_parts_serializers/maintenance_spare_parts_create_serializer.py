@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from maintenance.models import MaintenanceSpareParts
-from parameterization.models import Brands
+from parameterization.models import Brands, BrandsCategory
 
 
 class MaintenanceSparePartsCreateSerializer(serializers.ModelSerializer):
@@ -11,17 +11,21 @@ class MaintenanceSparePartsCreateSerializer(serializers.ModelSerializer):
     
     def validate_spare_part_brand(self, value):
         """
-        Valida que la marca pertenezca a la categoría 4 (marcas de repuestos).
+        Validar que la marca pertenezca a la categoría con id = 2 (marcas de repuestos).
         """
         if not value:
             raise serializers.ValidationError("La marca es obligatoria.")
         
-        # Verificar que la marca pertenezca a la categoría 4
-        if value.id_brands_categories.id_brands_categories != 4:
-            raise serializers.ValidationError(
-                "La marca debe pertenecer a la categoría de marcas de repuestos (categoría 4)."
-            )
-        
+        if getattr(value.id_brands_categories, "id_brands_categories", None) != 2:
+            try:
+                expected_category = BrandsCategory.objects.get(id_brands_categories=2)
+                raise serializers.ValidationError(
+                    f"La marca debe pertenecer a la categoría '{expected_category.name}' (categoría 2)."
+                )
+            except BrandsCategory.DoesNotExist:
+                raise serializers.ValidationError(
+                    "La categoría de marcas requerida (id=2) no existe en la parametrización."
+                )
         return value
     
     def validate(self, data):
