@@ -21,6 +21,7 @@ class MaintenanceSchedulingListSerializer(serializers.ModelSerializer):
             "machinery_image",
             "scheduled_at",
             "assigned_technician_id",
+            "maintenance_type",
             "status_id",
             "status_name",
             "request_creation_date"
