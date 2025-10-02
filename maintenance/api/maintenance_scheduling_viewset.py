@@ -194,7 +194,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
 
         schedulings = MaintenanceScheduling.objects.select_related(
             "id_machinery", "assigned_technician", "maintenance_scheduling_status"
-        ).all()
+        ).all().order_by('scheduled_at')
 
         if not schedulings:
             return Response(
