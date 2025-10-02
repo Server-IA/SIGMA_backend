@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework.decorators import action
 from machinery.models import SpecificTechnicalSheet, Machinery
 from machinery.serializers.machinery_serializers.machinery_specific_sheet_create_serializer import SpecificTechnicalSheetCreateSerializer
+from machinery.serializers.machinery_serializers.machinery_specific_sheet_detail_serializer import SpecificTechnicalSheetDetailSerializer
 from rest_framework import serializers
 
 # Auditoría
@@ -161,15 +162,12 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            serializer = self.get_serializer(sheet)
-            response_data = serializer.data
-            # Asegurarse de que el ID de la ficha específica esté incluido
-            response_data['id_specific_sheet'] = sheet.id_specific_technical_sheet
+            serializer = SpecificTechnicalSheetDetailSerializer(sheet)
             return Response(
                 {
                     "success": True,
                     "message": "Ficha técnica específica obtenida exitosamente",
-                    "data": response_data,
+                    "data": serializer.data,
                 },
                 status=status.HTTP_200_OK,
             )
