@@ -6,6 +6,7 @@ from maintenance.models import (
     MaintenanceScheduling
 )
 from users.models.user import User
+from parameterization.models import Brands
 
 
 class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
@@ -47,10 +48,9 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
         except MaintenanceScheduling.DoesNotExist:
             raise serializers.ValidationError("El mantenimiento programado no existe.")
         
-        # Validar que el mantenimiento esté en estado 13 (pendiente de reporte)
         if scheduling.maintenance_scheduling_status.id_statues != 13:
             raise serializers.ValidationError(
-                "Solo se pueden crear reportes para mantenimientos en estado 13."
+                f"Solo se pueden crear reportes para mantenimientos en estado Programado. Estado actual: {scheduling.maintenance_scheduling_status.name}"
             )
         
         return value
@@ -105,15 +105,13 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
                         f"Cada repuesto debe tener '{field}'"
                     )
             
-            # Validar que la marca exista y sea de categoría 4
-            from parameterization.models import Brands
             try:
                 brand = Brands.objects.select_related('id_brands_categories').get(
                     id_brands=spare_part['spare_part_brand']
                 )
-                if brand.id_brands_categories.id_brands_categories != 4:
+                if brand.id_brands_categories.id_brands_categories != 2:
                     raise serializers.ValidationError(
-                        f"La marca {spare_part['spare_part_brand']} no pertenece a la categoría de repuestos (categoría 4)"
+                        f"La marca {spare_part['spare_part_brand']} no pertenece a la categoría de repuestos"
                     )
             except Brands.DoesNotExist:
                 raise serializers.ValidationError(
