@@ -15,7 +15,12 @@ from django.db.models import Q
 from django.utils import timezone
 import logging
 
+# Auditoría 
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info, machinery_snapshot, build_meta_with_machinery_id
+
 logger = logging.getLogger(__name__)
+
 
 class MachineryViewSet(viewsets.ViewSet):
     """
@@ -155,7 +160,8 @@ class MachineryViewSet(viewsets.ViewSet):
                     },
                     status=status.HTTP_404_NOT_FOUND
                 )
-                
+            
+            before = machinery_snapshot(machinery)
             
             serializer = MachineryUpdateSerializer(
                 instance=machinery,
@@ -167,6 +173,26 @@ class MachineryViewSet(viewsets.ViewSet):
             if serializer.is_valid():
                 updated_machinery = serializer.save()
                 
+                after = machinery_snapshot(updated_machinery)
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                    AuditClient(request).update(
+                        object_id=str(updated_machinery.id_machinery),
+                        before=before,
+                        after=after,
+                        actor_id=str(actor_id) if actor_id is not None else None,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="machinery",
+                        submodule="machinery_general_sheet",
+                        meta=build_meta_with_machinery_id(before, after)
+                    )
+                except Exception as e:
+                    logger.warning("El servicio de auditoría ha fallado en update_machinery: %s", e)
+
                 return Response(
                     {
                         "success": True,
@@ -242,6 +268,26 @@ class MachineryViewSet(viewsets.ViewSet):
             
             if serializer.is_valid():
                 serializer.save()
+
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                    AuditClient(request).create(
+                        object_id=str(serializer.instance.id_machinery),
+                        after=machinery_snapshot(serializer.instance),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="machinery",
+                        submodule="machinery_general_sheet",
+                    )
+                except Exception as e:
+                    logging.warning(
+                        "El servicio de auditoría ha fallado en create_machinery_general_sheet: %s", e
+                    )
+
                 return Response(
                     {
                         "success": True,

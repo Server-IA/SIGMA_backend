@@ -10,6 +10,10 @@ from machinery.serializers.machinery_serializers.machinery_tracker_detail_serial
 from django.shortcuts import get_object_or_404
 import logging
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info, machinery_tracker_snapshot, build_meta_with_machinery_id
+
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +72,7 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
 
         try:
             data = request.data.dict() if hasattr(request.data, 'getlist') else request.data
-            
+
             # Verificar si ya existe un tracker para esta maquinaria
             machinery_id = data.get('id_machinery')
             if machinery_id and MachineryTrackerSheet.objects.filter(id_machinery_id=machinery_id).exists():
@@ -80,10 +84,33 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
+
             serializer = self.get_serializer(data=data)
             if serializer.is_valid():
-                serializer.save()
+                # guardar
+                tracker = serializer.save()
+
+                # --- Auditoría ---
+                try:
+                    # obtener actor info centralizada
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                    after = machinery_tracker_snapshot(tracker)
+                    object_id = str(after.get("id_tracker_sheet") or after.get("id_machinery") or "")
+
+                    AuditClient(request).create(
+                        object_id=object_id,
+                        after=after,
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="machinery",
+                        submodule="machinery_tracker_sheet",
+                    )
+                except Exception as e:
+                    # La auditoría no debe romper la creación
+                    logging.warning("El servicio de auditoría ha fallado en create_machinery_tracker: %s", e)
+
                 return Response(
                     {
                         "success": True,
@@ -91,6 +118,8 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
                     },
                     status=status.HTTP_201_CREATED
                 )
+
+            # validación fallida
             return Response(
                 {
                     "success": False,
@@ -99,12 +128,13 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
+
         except Exception as e:
             error_message = str(e)
             # Extraer el mensaje de error específico si está en el formato de validación
             if hasattr(e, 'detail') and isinstance(e.detail, dict) and 'id_machinery' in e.detail:
                 error_message = str(e.detail['id_machinery'][0])
-                
+
             logger.error(f"Error al crear la ficha tecnica de seguimiento de la maquinaria: {error_message}")
             return Response(
                 {
@@ -114,7 +144,6 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
-
     @action(detail=True, methods=['put'], url_path='update')
     def update_machinery_tracker(self, request, pk=None):
         """
@@ -141,15 +170,42 @@ class MachineryTrackerViewSet(viewsets.ModelViewSet):
         try:
             tracker_instance = get_object_or_404(MachineryTrackerSheet, pk=pk)
 
+            before = machinery_tracker_snapshot(tracker_instance)
+
             serializer = MachineryTrackerSheetUpdateSerializer(
                 tracker_instance,
                 data=request.data,
-                partial=True,  # permite actualizar parcialmente
+                partial=True,  
                 context={'request': request}
             )
 
             if serializer.is_valid():
-                serializer.save()
+                updated_instance = serializer.save()
+
+                after = machinery_tracker_snapshot(updated_instance)
+
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                    object_id = str(after.get("id_tracker_sheet") or after.get("id_machinery") or "")
+
+                    AuditClient(request).update(
+                        object_id=object_id,
+                        before=before,
+                        after=after,
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="machinery",
+                        submodule="machinery_tracker_sheet",
+                        meta=build_meta_with_machinery_id(before, after),
+                    )
+                except Exception as e:
+                    logging.warning(
+                        "El servicio de auditoría ha fallado en update_machinery_general_sheet: %s", e
+                    )
+                
                 return Response(
                     {
                         "success": True,
