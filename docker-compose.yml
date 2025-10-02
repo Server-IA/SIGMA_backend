@@ -8,6 +8,13 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      SERVICE_NAME: machpayroll
+      AUDIT_URL: ${AUDIT_URL}
+      AUDIT_TOKEN: ${AUDIT_TOKEN}
+      AUDIT_HTTP_TIMEOUT: "1.5"
+    depends_on:
+      - db
     networks:
       - shared_net
 
