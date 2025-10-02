@@ -239,8 +239,17 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                 context={"request": request},
             )
 
-            if serializer.is_valid():
-                scheduling = serializer.save()
+            if not serializer.is_valid():
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Error de validación",
+                        "details": serializer.errors,
+                    },
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+
+            scheduling = serializer.save()
 
             # Auditoría: 
             try:
@@ -262,25 +271,16 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                 logging.warning("El servicio de auditoría ha fallado en schedule_from_request: %s", e)
                 
 
-                return Response(
-                    {
-                        "success": True,
-                        "message": "Mantenimiento programado exitosamente desde la solicitud",
-                        "data": {
-                            "id_maintenance_scheduling": scheduling.id_maintenance_scheduling,
-                            "id_maintenance_request": pk,
-                        },
-                    },
-                    status=status.HTTP_201_CREATED,
-                )
-
             return Response(
                 {
-                    "success": False,
-                    "message": "Error de validación",
-                    "details": serializer.errors,
+                    "success": True,
+                    "message": "Mantenimiento programado exitosamente desde la solicitud",
+                    "data": {
+                        "id_maintenance_scheduling": scheduling.id_maintenance_scheduling,
+                        "id_maintenance_request": pk,
+                    },
                 },
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status=status.HTTP_201_CREATED,
             )
         except Exception as e:
             logger.error(f"Error programando mantenimiento desde solicitud {pk}: {str(e)}")
