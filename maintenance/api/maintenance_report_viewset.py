@@ -68,13 +68,12 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Permisos deshabilitados temporalmente
-        # permission_id = 130  # maintenance_report.list
-        # if not self.check_permission(request, permission_id):
-        #     return Response(
-        #         {"message": "No tiene permisos para listar reportes de mantenimiento."},
-        #         status=status.HTTP_403_FORBIDDEN
-        #     )
+        permission_id = 130  # maintenance_report.list
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar reportes de mantenimiento."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         try:
             queryset = MaintenanceReport.objects.select_related(
@@ -119,13 +118,12 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Permisos deshabilitados temporalmente
-        # permission_id = 131  # maintenance_report.detail
-        # if not self.check_permission(request, permission_id):
-        #     return Response(
-        #         {"message": "No tiene permisos para ver detalles de reportes de mantenimiento."},
-        #         status=status.HTTP_403_FORBIDDEN
-        #     )
+        permission_id = 131  # maintenance_report.detail
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para ver detalles de reportes de mantenimiento."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         try:
             report = MaintenanceReport.objects.select_related(
@@ -175,10 +173,9 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
             return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # Permisos deshabilitados temporalmente
-        # permission_id = 133  # maintenance_report.download
-        # if not self.check_permission(request, permission_id):
-        #     return Response({"message": "No tiene permisos para descargar reportes."}, status=status.HTTP_403_FORBIDDEN)
+        permission_id = 128  # maintenance_report.download
+        if not self.check_permission(request, permission_id):
+            return Response({"message": "No tiene permisos para descargar reportes."}, status=status.HTTP_403_FORBIDDEN)
 
         try:
             report = MaintenanceReport.objects.select_related(

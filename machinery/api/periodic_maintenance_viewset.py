@@ -4,6 +4,14 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.http import Http404
 
+import logging
+
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info, periodic_maintenance_snapshot
+
+logger = logging.getLogger(__name__)
+
 from machinery.models import PeriodicMaintenanceScheduling
 from machinery.serializers.machinery_serializers.periodic_maintenance_serializer import (
     PeriodicMaintenanceCreateUpdateSerializer,
@@ -132,6 +140,29 @@ class PeriodicMaintenanceSchedulingViewSet(
             )
         try:
             instance = ser.save()
+
+            after = periodic_maintenance_snapshot(instance)
+
+            # Auditoría 
+            try:
+                # obtener actor info centralizada
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                object_id = str(after.get("id_periodic_maintenance_scheduling") or after.get("id_machinery") or "")
+
+                AuditClient(request).create(
+                    object_id=object_id,
+                    after=after,
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="machinery",
+                    submodule="machinery_periodic_maintenance_sheet",
+                )
+            except Exception as e:
+                # La auditoría no debe romper la creación
+                logging.warning("El servicio de auditoría ha fallado en create_machinery_tracker: %s", e)
+
         except IntegrityError:
             return Response(
                 {
@@ -179,9 +210,12 @@ class PeriodicMaintenanceSchedulingViewSet(
         except Http404:
             return self._not_found()
 
+        before_snapshot = periodic_maintenance_snapshot(instance)
+
         ser = self.get_serializer(instance, data=request.data, partial=False)
         try:
             ser.is_valid(raise_exception=True)
+
         except serializers.ValidationError as ve:
             return Response(
                 {"success": False, "message": "Datos inválidos.", "errors": ve.detail},
@@ -189,6 +223,28 @@ class PeriodicMaintenanceSchedulingViewSet(
             )
         try:
             instance = ser.save()
+
+            after = periodic_maintenance_snapshot(instance)
+
+            # Auditoría 
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                object_id = str(after.get("id_periodic_maintenance_scheduling") or after.get("id_machinery") or "")
+
+                AuditClient(request).update(
+                    object_id=object_id,
+                    before=before_snapshot,
+                    after=after,
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="machinery",
+                    submodule="machinery_periodic_maintenance_sheet",
+                )
+            except Exception as e:
+                # La auditoría no debe romper la creación
+                logging.warning("El servicio de auditoría ha fallado en update_machinery_periodic_maintenance: %s", e)
         except IntegrityError:
             return Response(
                 {
@@ -294,8 +350,29 @@ class PeriodicMaintenanceSchedulingViewSet(
             instance = self.get_object()
         except Http404:
             return self._not_found()
+        
+        before_snapshot = periodic_maintenance_snapshot(instance)
 
         instance.delete()
+
+        try:
+            actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+            object_id = str(before_snapshot.get("id_periodic_maintenance_scheduling") or before_snapshot.get("machinery") or "")
+
+            ok, status_code, text = AuditClient(request).delete(
+                object_id=object_id,
+                before=before_snapshot,
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=permission_id,
+                module="machinery",
+                submodule="periodic_maintenance_scheduling",
+            )
+            if not ok:
+                logger.warning("Audit delete failed (%s): %s", status_code, text)
+        except Exception as e:
+            logging.warning("El servicio de auditoría ha fallado en delete_periodic_maintenance: %s", e)
         return Response(
             {"success": True, "message": "Mantenimiento periódico eliminado correctamente.", "data": None},
             status=status.HTTP_200_OK,

@@ -2,6 +2,7 @@ import requests
 import os
 import json
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -20,6 +21,23 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
             "id_responsible_user",
         )
         read_only_fields = ("id_responsible_user",)
+        
+    def generate_scheduling_id(self):
+        current_year = timezone.now().year
+        # Find the highest request number for the current year
+        max_scheduling = MaintenanceScheduling.objects.filter(
+            id_maintenance_scheduling__startswith=f'PRO-{current_year}'
+        ).aggregate(Max('id_maintenance_scheduling'))
+        
+        if max_scheduling['id_maintenance_scheduling__max']:
+            # Extract the number part and increment it
+            last_number = int(max_scheduling['id_maintenance_scheduling__max'].split('-')[-1])
+            new_number = last_number + 1
+        else:
+            # First scheduling of the year
+            new_number = 1
+            
+        return f'PRO-{current_year}-{new_number:04d}'
 
     def validate_scheduled_at(self, value):
         if value < timezone.now():
@@ -32,6 +50,9 @@ class MaintenanceSchedulingCreateSerializer(serializers.ModelSerializer):
         if request and hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
             # Usamos solo el ID del usuario
             attrs['id_responsible_user_id'] = request.user.id
+            
+        # Generate the custom ID
+        attrs['id_maintenance_scheduling'] = self.generate_scheduling_id()
 
         scheduled_at = attrs.get("scheduled_at")
         technician = attrs.get("assigned_technician")

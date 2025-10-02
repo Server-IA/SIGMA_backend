@@ -44,6 +44,11 @@ FIREBASE_CREDENTIALS='{""}'
 FIREBASE_STORAGE_BUCKET=
 
 JWT_SECRET=your_secret_key
+
+SERVICE_NAME=machpayroll
+AUDIT_URL=http://audit-service:8002/audit-events
+AUDIT_TOKEN=devtoken
+AUDIT_HTTP_TIMEOUT=1.5
 ```
 ## 3. Crear la Red de Docker
 

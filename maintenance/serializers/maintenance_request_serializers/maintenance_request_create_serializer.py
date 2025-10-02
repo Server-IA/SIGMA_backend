@@ -1,4 +1,5 @@
 from django.utils import timezone
+from django.db.models import Max
 from rest_framework import serializers
 
 from maintenance.models import MaintenanceRequest
@@ -17,6 +18,23 @@ class MaintenanceRequestCreateSerializer(serializers.ModelSerializer):
             "id_responsible_user",
         )
         read_only_fields = ("id_responsible_user",)
+        
+    def generate_request_id(self):
+        current_year = timezone.now().year
+        # Find the highest request number for the current year
+        max_request = MaintenanceRequest.objects.filter(
+            id_maintenance_request__startswith=f'SOL-{current_year}'
+        ).aggregate(Max('id_maintenance_request'))
+        
+        if max_request['id_maintenance_request__max']:
+            # Extract the number part and increment it
+            last_number = int(max_request['id_maintenance_request__max'].split('-')[-1])
+            new_number = last_number + 1
+        else:
+            # First request of the year
+            new_number = 1
+            
+        return f'SOL-{current_year}-{new_number:04d}'
 
     def validate(self, attrs):
         # Obtenemos el usuario del contexto (que vendrá de la vista)
@@ -24,6 +42,9 @@ class MaintenanceRequestCreateSerializer(serializers.ModelSerializer):
         if request and hasattr(request, 'user') and request.user and hasattr(request.user, 'id'):
             # Usamos solo el ID del usuario
             attrs['id_responsible_user_id'] = request.user.id
+            
+        # Generate the custom ID
+        attrs['id_maintenance_request'] = self.generate_request_id()
         return attrs
 
     def validate_detected_at(self, value):
