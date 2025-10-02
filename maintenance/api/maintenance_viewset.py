@@ -154,7 +154,7 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
                 actor_name=actor_name,
                 actor_role=actor_role_name,
                 permission_id=permission_id,
-                module="machinery",
+                module="maintenance",
                 submodule="maintenance",
             )
         except Exception as e:
@@ -205,7 +205,7 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
                     actor_name=actor_name,
                     actor_role=actor_role_name,
                     permission_id=permission_id,
-                    module="machinery",
+                    module="maintenance",
                     submodule="maintenance",
                 )
             except Exception as e:
@@ -334,7 +334,7 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
                 actor_name=actor_name,
                 actor_role=actor_role_name,
                 permission_id=permission_id,
-                module="machinery",
+                module="maintenance",
                 submodule="maintenance",
             )
             if not ok:

@@ -177,7 +177,7 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                         actor_name=actor_name,
                         actor_role=actor_role_name,
                         permission_id=permission_id,
-                        module="machinery",
+                        module="maintenance",
                         submodule="maintenance_request",
                     )
                 except Exception as e:
