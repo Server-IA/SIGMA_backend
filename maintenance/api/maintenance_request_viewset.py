@@ -260,7 +260,6 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                 )
             except Exception as e:
                 logging.warning("El servicio de auditoría ha fallado en schedule_from_request: %s", e)
-            #
                 
 
                 return Response(

@@ -14,6 +14,11 @@ from django.http import HttpResponse
 import os
 import requests
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info, build_meta_with_machinery_id
+from maintenance.utils.audit_helpers import maintenance_report_snapshot
+
 logger = logging.getLogger(__name__)
 
 
