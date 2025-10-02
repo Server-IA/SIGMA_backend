@@ -22,7 +22,7 @@ from maintenance.serializers.maintenance_request_serializers.maintenance_request
 
 # Auditoría
 from audit_sdk import AuditClient
-from machinery.utils.audit_helpers import get_actor_info
+from machinery.utils.audit_helpers import get_actor_info, build_meta_with_machinery_id
 from maintenance.utils.audit_helpers import maintenance_request_snapshot, maintenance_scheduling_snapshot
 
 logger = logging.getLogger(__name__)
@@ -241,24 +241,26 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
 
             if serializer.is_valid():
                 scheduling = serializer.save()
+
+            # Auditoría: 
+            try:
+                after = maintenance_scheduling_snapshot(scheduling)
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).create(
+                    object_id=str(getattr(scheduling, "id_maintenance_scheduling", "") or ""),
+                    after=after,
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="maintenance",
+                    submodule="maintenance_request",
+                    meta=build_meta_with_machinery_id(before=None, after=after),
+                )
+            except Exception as e:
+                logging.warning("El servicio de auditoría ha fallado en schedule_from_request: %s", e)
                 
-                # Auditoría 
-                try:
-                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
-
-                    AuditClient(request).create(
-                        object_id=str(getattr(scheduling, "id_maintenance_scheduling", "")),
-                        after=maintenance_scheduling_snapshot(scheduling),
-                        actor_id=actor_id,
-                        actor_name=actor_name,
-                        actor_role=actor_role_name,
-                        permission_id=permission_id,
-                        module="machinery",
-                        submodule="maintenance_request_scheduled",
-                    )
-                except Exception as e:
-                    logging.warning("El servicio de auditoría ha fallado en create_maintenance_scheduling_from_request: %s", e)
-
 
                 return Response(
                     {
@@ -321,6 +323,8 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
             # Obtener la instancia de la solicitud
             instance = get_object_or_404(MaintenanceRequest, id_maintenance_request=pk)
 
+            before = maintenance_request_snapshot(instance)
+
             # Validar y procesar el rechazo
             serializer = MaintenanceRequestRejectSerializer(
                 data=request.data,
@@ -338,6 +342,26 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                 )
 
             instance = serializer.save()
+
+            # Auditoría 
+            try:
+                after = maintenance_request_snapshot(instance)
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).update(
+                    object_id=str(getattr(instance, "id_maintenance_request", "") or(pk or "")),
+                    before=before,
+                    after=after,
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="maintenance",
+                    submodule="maintenance_request",
+                    meta=build_meta_with_machinery_id(before=before, after=after),
+                )
+            except Exception as e:
+                logger.warning("El servicio de auditoría ha fallado en reject_request: %s", e)
 
             return Response(
                 {
