@@ -1,2 +1,0 @@
-from .maintenance_spare_parts_create_serializer import MaintenanceSparePartsCreateSerializer
-from .maintenance_spare_parts_list_serializer import MaintenanceSparePartsListSerializer

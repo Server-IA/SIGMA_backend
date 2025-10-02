@@ -75,22 +75,17 @@ class MaintenanceReportDetailSerializer(serializers.ModelSerializer):
         """
         Obtiene los repuestos utilizados en este reporte.
         """
-        from maintenance.models import MaintenanceSparePartsMaintenance
-        
-        spare_parts_relations = MaintenanceSparePartsMaintenance.objects.filter(
-            id_maintenance_report=obj
-        ).select_related('id_maintenance_spare_part', 'id_maintenance_spare_part__spare_part_brand')
+        from maintenance.models import MaintenanceReportSpareParts
         
         spare_parts_used = []
-        for relation in spare_parts_relations:
-            spare_part = relation.id_maintenance_spare_part
+        for spare_part in obj.spare_parts_used.all():
             spare_parts_used.append({
-                'id_maintenance_spare_part': spare_part.id_maintenance_spare_parts,
+                'id_maintenance_report_spare_part': spare_part.id_maintenance_report_spare_part,
                 'name': spare_part.name,
                 'brand_name': spare_part.spare_part_brand.name,
-                'quantity_used': relation.quantity_used,
-                'unit_cost': relation.cost_at_time,
-                'total_cost': relation.quantity_used * relation.cost_at_time
+                'quantity_used': spare_part.quantity_used,
+                'unit_cost': spare_part.cost_at_time,
+                'total_cost': spare_part.quantity_used * spare_part.cost_at_time
             })
         
         return spare_parts_used

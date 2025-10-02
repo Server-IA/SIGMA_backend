@@ -189,7 +189,7 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                 'id_responsible_user'
             ).prefetch_related(
                 'maintenance_relations__id_maintenance__maintenance_type',
-                'spare_parts_relations__id_maintenance_spare_part__spare_part_brand'
+                'spare_parts_used__spare_part_brand'
             ).get(pk=pk)
 
             # Preparar datos de tablas
@@ -237,14 +237,13 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
 
             # Repuestos usados
             spare_parts = []
-            for rel in getattr(report, 'spare_parts_relations').all():
-                sp = rel.id_maintenance_spare_part
-                total = float(rel.quantity_used) * float(rel.cost_at_time)
+            for sp in getattr(report, 'spare_parts_used').all():
+                total = float(sp.quantity_used) * float(sp.cost_at_time)
                 spare_parts.append({
                     'name': getattr(sp, 'name', 'N/D'),
                     'brand': getattr(getattr(sp, 'spare_part_brand', None), 'name', 'N/D'),
-                    'quantity': rel.quantity_used,
-                    'unit_cost': rel.cost_at_time,
+                    'quantity': sp.quantity_used,
+                    'unit_cost': sp.cost_at_time,
                     'total': total
                 })
 
