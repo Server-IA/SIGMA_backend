@@ -18,7 +18,7 @@ from maintenance.models import MaintenanceScheduling
 
 # Auditoría
 from audit_sdk import AuditClient
-from machinery.utils.audit_helpers import get_actor_info
+from machinery.utils.audit_helpers import get_actor_info, build_meta_with_machinery_id
 from maintenance.utils.audit_helpers import maintenance_scheduling_snapshot
 
 logger = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
                         actor_name=actor_name,
                         actor_role=actor_role_name,
                         permission_id=permission_id,
-                        module="machinery",
+                        module="maintenance",
                         submodule="maintenance_scheduling",
                     )
                 except Exception as e:
@@ -143,12 +143,35 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
             pk=pk
         )
 
+        before = maintenance_scheduling_snapshot(scheduling)
+
         try:
             serializer = MaintenanceSchedulingCancelSerializer(
                 data=request.data, context={"request": request, "instance": scheduling}
             )
             if serializer.is_valid():
                 scheduling = serializer.save()
+
+                # Auditoría
+                try:
+                    after = maintenance_scheduling_snapshot(scheduling)
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                    AuditClient(request).update(
+                        object_id=str(getattr(scheduling, "id_maintenance_scheduling", "") or pk or ""),
+                        before=before,
+                        after=after,
+                        actor_id=str(actor_id) if actor_id is not None else None,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="maintenance",
+                        submodule="maintenance_scheduling",
+                        meta=build_meta_with_machinery_id(before=before, after=after),
+                    )
+                except Exception as e:
+                    logger.warning("El servicio de auditoría ha fallado en cancel_scheduling: %s", e)
+
                 return Response(
                     {
                         "success": True,
@@ -227,6 +250,8 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
             )
 
         scheduling = get_object_or_404(MaintenanceScheduling, pk=pk)
+
+        before = maintenance_scheduling_snapshot(scheduling)
         
         previous_tech_id = getattr(scheduling.assigned_technician, "id_user", None) or getattr(
             scheduling.assigned_technician, "id", None
@@ -242,6 +267,26 @@ class MaintenanceSchedulingViewSet(viewsets.ViewSet):
             )
 
         instance = serializer.save()
+
+        # Auditoría 
+        try:
+            after = maintenance_scheduling_snapshot(instance)
+            actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+            AuditClient(request).update(
+                object_id=str(getattr(instance, "id_maintenance_scheduling", "") or pk or ""),
+                before=before,
+                after=after,
+                actor_id=str(actor_id) if actor_id is not None else None,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=permission_id,
+                module="maintenance",
+                submodule="maintenance_scheduling",
+                meta=build_meta_with_machinery_id(before=before, after=after),
+            )
+        except Exception as e:
+            logger.warning("El servicio de auditoría ha fallado en patch_scheduling: %s", e)
 
         new_tech_id = getattr(instance.assigned_technician, "id_user", None) or getattr(
             instance.assigned_technician, "id", None
