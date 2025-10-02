@@ -2,6 +2,5 @@ from .maintenance import Maintenance
 from .maintenance_request import MaintenanceRequest
 from .maintenance_scheduling import MaintenanceScheduling
 from .maintenance_report import MaintenanceReport
-from .maintenance_spare_parts import MaintenanceSpareParts
-from .maintenance_spare_parts_maintenance import MaintenanceSparePartsMaintenance
+from .maintenance_report_spare_parts import MaintenanceReportSpareParts
 from .maintenance_maintenance_reports import MaintenanceMaintenanceReports

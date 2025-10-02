@@ -35,20 +35,6 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name='MaintenanceSpareParts',
-            fields=[
-                ('id_maintenance_spare_parts', models.AutoField(primary_key=True, serialize=False)),
-                ('name', models.CharField(db_column='name', max_length=255)),
-                ('spare_parts_cost', models.FloatField(db_column='spare_parts_cost')),
-                ('registration_date', models.DateTimeField(auto_now=True, db_column='registration_date')),
-                ('modification_date', models.DateTimeField(auto_now=True, db_column='modification_date')),
-                ('spare_part_brand', models.ForeignKey(db_column='spare_part_brand', on_delete=django.db.models.deletion.PROTECT, related_name='maintenance_spare_parts_by_brand', to='parameterization.brands')),
-            ],
-            options={
-                'db_table': 'maintenance_spare_parts',
-            },
-        ),
-        migrations.CreateModel(
             name='MaintenanceMaintenanceReports',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -60,22 +46,6 @@ class Migration(migrations.Migration):
             options={
                 'db_table': 'maintenance_maintenance_reports',
                 'unique_together': {('id_maintenance', 'id_maintenance_report')},
-            },
-        ),
-        migrations.CreateModel(
-            name='MaintenanceSparePartsMaintenance',
-            fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('quantity_used', models.IntegerField(db_column='quantity_used', default=1)),
-                ('cost_at_time', models.FloatField(db_column='cost_at_time')),
-                ('registration_date', models.DateTimeField(auto_now=True, db_column='registration_date')),
-                ('modification_date', models.DateTimeField(auto_now=True, db_column='modification_date')),
-                ('id_maintenance_report', models.ForeignKey(db_column='id_maintenance_report', on_delete=django.db.models.deletion.CASCADE, related_name='spare_parts_relations', to='maintenance.maintenancereport')),
-                ('id_maintenance_spare_part', models.ForeignKey(db_column='id_maintenance_spare_part', on_delete=django.db.models.deletion.CASCADE, related_name='maintenance_relations', to='maintenance.maintenancespareparts')),
-            ],
-            options={
-                'db_table': 'maintenance_spare_parts_maintenance',
-                'unique_together': {('id_maintenance_spare_part', 'id_maintenance_report')},
             },
         ),
     ]

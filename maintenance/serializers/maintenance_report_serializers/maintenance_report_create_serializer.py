@@ -2,10 +2,9 @@ from rest_framework import serializers
 from maintenance.models import (
     MaintenanceReport, 
     MaintenanceMaintenanceReports, 
-    MaintenanceSparePartsMaintenance,
+    MaintenanceReportSpareParts,
     MaintenanceScheduling
 )
-from maintenance.models import MaintenanceSpareParts
 from users.models.user import User
 
 
@@ -92,38 +91,41 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
     
     def validate_spare_parts(self, value):
         """
-        Valida que los repuestos existan y tengan datos válidos.
+        Valida que los repuestos tengan datos válidos.
         """
         if not value:
             return value
         
         for spare_part in value:
-            if 'id_maintenance_spare_part' not in spare_part:
-                raise serializers.ValidationError(
-                    "Cada repuesto debe tener 'id_maintenance_spare_part'"
-                )
+            # Validar campos requeridos
+            required_fields = ['spare_part_brand', 'name', 'spare_parts_cost', 'quantity_used', 'cost_at_time']
+            for field in required_fields:
+                if field not in spare_part:
+                    raise serializers.ValidationError(
+                        f"Cada repuesto debe tener '{field}'"
+                    )
             
-            if 'quantity_used' not in spare_part:
-                raise serializers.ValidationError(
-                    "Cada repuesto debe tener 'quantity_used'"
-                )
-            
-            if 'cost_at_time' not in spare_part:
-                raise serializers.ValidationError(
-                    "Cada repuesto debe tener 'cost_at_time'"
-                )
-            
-            # Validar que el repuesto exista
+            # Validar que la marca exista y sea de categoría 4
+            from parameterization.models import Brands
             try:
-                MaintenanceSpareParts.objects.get(
-                    id_maintenance_spare_parts=spare_part['id_maintenance_spare_part']
+                brand = Brands.objects.select_related('id_brands_categories').get(
+                    id_brands=spare_part['spare_part_brand']
                 )
-            except MaintenanceSpareParts.DoesNotExist:
+                if brand.id_brands_categories.id_brands_categories != 4:
+                    raise serializers.ValidationError(
+                        f"La marca {spare_part['spare_part_brand']} no pertenece a la categoría de repuestos (categoría 4)"
+                    )
+            except Brands.DoesNotExist:
                 raise serializers.ValidationError(
-                    f"El repuesto {spare_part['id_maintenance_spare_part']} no existe"
+                    f"La marca {spare_part['spare_part_brand']} no existe"
                 )
             
             # Validar valores positivos
+            if spare_part['spare_parts_cost'] <= 0:
+                raise serializers.ValidationError(
+                    "El costo del repuesto debe ser mayor a 0"
+                )
+            
             if spare_part['quantity_used'] <= 0:
                 raise serializers.ValidationError(
                     "La cantidad utilizada debe ser mayor a 0"
@@ -131,7 +133,7 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
             
             if spare_part['cost_at_time'] <= 0:
                 raise serializers.ValidationError(
-                    "El costo debe ser mayor a 0"
+                    "El costo en el momento debe ser mayor a 0"
                 )
         
         return value
@@ -186,11 +188,13 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
                 maintenance_cost=float(item['maintenance_cost'])
             )
         
-        # Crear relaciones con repuestos
+        # Crear repuestos del reporte
         for spare_part_data in spare_parts:
-            MaintenanceSparePartsMaintenance.objects.create(
-                id_maintenance_spare_part_id=spare_part_data['id_maintenance_spare_part'],
+            MaintenanceReportSpareParts.objects.create(
                 id_maintenance_report=report,
+                spare_part_brand_id=spare_part_data['spare_part_brand'],
+                name=spare_part_data['name'],
+                spare_parts_cost=spare_part_data['spare_parts_cost'],
                 quantity_used=spare_part_data['quantity_used'],
                 cost_at_time=spare_part_data['cost_at_time']
             )
