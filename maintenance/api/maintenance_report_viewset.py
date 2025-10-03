@@ -98,9 +98,14 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
 
+            # Pasar el usuario autenticado como responsible_user si no se proporciona
+            data = request.data.copy()
+            if 'responsible_user' not in data:
+                data['responsible_user'] = request.user.id
+                
             serializer = MaintenanceReportCreateSerializer(
-                data=request.data,
-                context={'request': request}
+                data=data,
+                context={'request': request, 'user': request.user}
             )
 
             if serializer.is_valid():
@@ -123,7 +128,7 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                         "message": "Reporte de mantenimiento creado exitosamente",
                         "data": {
                             "id_maintenance_report": instance.id_maintenance_report,
-                            "id_machinery": str(scheduling.id_machinery.id_machinery),
+                            "id_machinery_status": scheduling.id_machinery.machinery_operational_status.id_statues,
                             "maintenance_scheduling_status": scheduling.maintenance_scheduling_status.id_statues
                         }
                     },

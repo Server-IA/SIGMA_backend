@@ -30,7 +30,9 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
     
     # Usuario responsable (viene del body y se mapea al FK id_responsible_user)
     responsible_user = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(), write_only=True
+        queryset=User.objects.all(), 
+        required=False,  # No es requerido en el input
+        write_only=True
     )
     
     currency_unit = serializers.PrimaryKeyRelatedField(
@@ -228,6 +230,21 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
         """
         Validaciones adicionales del serializer.
         """
+        # Obtener el usuario del contexto si está disponible
+        user = self.context.get('user')
+        if not user and 'request' in self.context:
+            user = self.context['request'].user
+            
+        # Si no hay usuario autenticado y no se proporcionó responsable, lanzar error
+        if not user and 'responsible_user' not in data:
+            raise serializers.ValidationError({
+                'non_field_errors': ['Usuario no autenticado']
+            })
+            
+        # Si no se proporcionó responsable, usar el usuario autenticado
+        if 'responsible_user' not in data and user:
+            data['responsible_user'] = user
+            
         # Validar que el tiempo invertido sea positivo
         if data.get('time_invested_hours', 0) < 0:
             raise serializers.ValidationError({
