@@ -246,14 +246,19 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
             data['responsible_user'] = user
             
         # Validar que el tiempo invertido sea positivo
-        if data.get('time_invested_hours', 0) < 0:
+        if data.get('time_invested_hours', 0) < 0 or data.get('time_invested_hours', 0) >= 100:
             raise serializers.ValidationError({
-                'time_invested_hours': 'Las horas deben ser mayor o igual a 0'
+                'time_invested_hours': 'Las horas deben estar entre 0 y 99'
             })
         
         if data.get('time_invested_minutes', 0) < 0 or data.get('time_invested_minutes', 0) >= 60:
             raise serializers.ValidationError({
                 'time_invested_minutes': 'Los minutos deben estar entre 0 y 59'
+            })
+            
+        if data.get('time_invested_seconds', 0) < 0 or data.get('time_invested_seconds', 0) >= 60:
+            raise serializers.ValidationError({
+                'time_invested_seconds': 'Los segundos deben estar entre 0 y 59'
             })
         
         # Validar que los técnicos en maintenance_items estén en la lista de technicians
@@ -396,6 +401,7 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
             'id_maintenance_scheduling',
             'time_invested_hours',
             'time_invested_minutes',
+            'time_invested_seconds',
             'currency_unit',
             'recommendations',
             'maintenance_items',

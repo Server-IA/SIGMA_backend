@@ -30,6 +30,7 @@ class MaintenanceReport(models.Model):
     # Campos adicionales para la historia de usuario
     time_invested_hours = models.IntegerField(null=False, blank=False, db_column="time_invested_hours")
     time_invested_minutes = models.IntegerField(null=False, blank=False, db_column="time_invested_minutes")
+    time_invested_seconds = models.IntegerField(null=False, blank=False, db_column="time_invested_seconds")
     recommendations = models.TextField(null=True, blank=True, db_column="recommendations")
     total_cost = models.FloatField(default=0.0, db_column="total_cost")
     
