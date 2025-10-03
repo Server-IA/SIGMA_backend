@@ -1,7 +1,6 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-
 import logging
 
 from maintenance.models import MaintenanceScheduling, MaintenanceReport
@@ -379,24 +378,52 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                     'total': total
                 })
 
-            # Construir el nombre completo del usuario que descarga consultando la BD
-            # para asegurarnos de obtener primer y segundo apellido.
+            # Construir el nombre completo del usuario que descarga usando el
+            # mismo endpoint externo que usamos para los técnicos (no consultar
+            # la tabla local de users, porque en esta BD no están los apellidos).
             downloader_user = None
             try:
                 ru = getattr(request, 'user', None)
                 if ru is not None:
-                    # Obtener posible id_user (campo PK usado en este proyecto)
                     user_id = getattr(ru, 'id_user', None) or getattr(ru, 'id', None) or getattr(ru, 'pk', None)
-                    if user_id:
+
+                    # 1) Intentar resolver desde technicians_map si el id está allí
+                    if user_id and technicians_map:
                         try:
-                            u = User.objects.filter(id_user=user_id).values('name', 'first_last_name', 'second_last_name').first()
-                            if u:
-                                parts = [p for p in [ (u.get('name') or '').strip(), (u.get('first_last_name') or '').strip(), (u.get('second_last_name') or '').strip() ] if p]
-                                downloader_user = ' '.join(parts) if parts else None
+                            if user_id in technicians_map:
+                                downloader_user = technicians_map.get(user_id)
+                            else:
+                                downloader_user = technicians_map.get(int(user_id), technicians_map.get(str(user_id)))
                         except Exception:
                             downloader_user = None
 
-                    # Fallback final: usar atributos de request.user si aún no tenemos apellidos
+                    # 2) Si no se resolvió, llamar al servicio de autenticación externo
+                    if not downloader_user and user_id:
+                        base_url = os.getenv('AUTH_SERVICE_URL', '').rstrip('/')
+                        if base_url:
+                            url = f"{base_url}/sigma/users/users/basic-user-list/by-ids"
+                            headers = {}
+                            auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or request.headers.get('Authorization')
+                            if auth_header:
+                                headers['Authorization'] = auth_header
+                            try:
+                                resp = requests.post(url, json={'ids': [user_id]}, headers=headers, timeout=10)
+                                if resp.status_code == 200:
+                                    payload = resp.json()
+                                    data = payload.get('data', []) or []
+                                    if data:
+                                        u = data[0]
+                                        name = u.get('name') or ''
+                                        fln = u.get('first_last_name') or ''
+                                        sln = u.get('second_last_name') or ''
+                                        parts = [p for p in [name.strip(), fln.strip(), sln.strip()] if p]
+                                        if parts:
+                                            downloader_user = ' '.join(parts)
+                            except Exception:
+                                # ignore external service errors; fallback later
+                                pass
+
+                    # 3) Fallback final: intentar atributos en request.user
                     if not downloader_user:
                         given = (getattr(ru, 'name', None) or getattr(ru, 'first_name', None) or '').strip()
                         fln = (getattr(ru, 'first_last_name', None) or getattr(ru, 'last_name', None) or '').strip()
@@ -428,20 +455,3 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
         except Exception as e:
             logger.error(f"Error generando PDF del reporte {pk}: {str(e)}")
             return Response({"success": False, "message": "Error generando PDF"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
