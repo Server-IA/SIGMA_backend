@@ -82,11 +82,13 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
             )
 
         try:
-            # Verificar que el mantenimiento programado existe
+            # Obtener el mantenimiento programado
             try:
                 scheduling = MaintenanceScheduling.objects.select_related(
                     'maintenance_scheduling_status'
                 ).get(pk=pk)
+                # Agregar el ID del mantenimiento programado a los datos de la solicitud
+                request.data['id_maintenance_scheduling'] = scheduling.id_maintenance_scheduling
             except MaintenanceScheduling.DoesNotExist:
                 return Response(
                     {
@@ -95,35 +97,6 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                     },
                     status=status.HTTP_404_NOT_FOUND
                 )
-
-            # Validar que el mantenimiento esté en estado 13 (pendiente de reporte)
-            if scheduling.maintenance_scheduling_status.id_statues != 13:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Solo se pueden crear reportes para mantenimientos en estado Programado",
-                        "details": f"Estado actual: {scheduling.maintenance_scheduling_status.id_statues}"
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-# Verificar que no exista ya un reporte para este mantenimiento
-            existing_report = MaintenanceReport.objects.filter(
-                id_maintenance_scheduling=scheduling
-            ).first()
-
-            if existing_report:
-                return Response(
-                    {
-                        "success": False,
-                        "message": "Ya existe un reporte para este mantenimiento programado",
-                        "details": f"Reporte ID: {existing_report.id_maintenance_report}"
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Agregar el ID del mantenimiento programado. El usuario responsable viene en el body como 'responsible_user'
-            request.data['id_maintenance_scheduling'] = scheduling.id_maintenance_scheduling
 
             serializer = MaintenanceReportCreateSerializer(
                 data=request.data,
@@ -141,13 +114,8 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                 except Statues.DoesNotExist:
                     logger.error("Estado 15 (ejecutado) no encontrado en Statues")
 
-                # Cambiar estado de la maquinaria a Activo (id=4)
-                try:
-                    active_status = Statues.objects.get(pk=4)
-                    machinery.machinery_operational_status = active_status
-                    machinery.save(update_fields=["machinery_operational_status"])
-                except Statues.DoesNotExist:
-                    logger.error("Estado 4 (Activo) no encontrado en Statues")
+                # Actualizar el estado de la maquinaria (esto ahora se maneja en el serializer)
+                pass
 
                 return Response(
                     {
@@ -155,21 +123,31 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                         "message": "Reporte de mantenimiento creado exitosamente",
                         "data": {
                             "id_maintenance_report": instance.id_maintenance_report,
-                            "title": instance.title,
-                            "total_cost": instance.total_cost,
-                            "machinery_serial": scheduling.id_machinery.serial_number,
-                            "machinery_name": scheduling.id_machinery.machinery_name,
-                            "assigned_technician_id": scheduling.assigned_technician.id_user
+                            "id_machinery": str(scheduling.id_machinery.id_machinery),
+                            "maintenance_scheduling_status": scheduling.maintenance_scheduling_status.id_statues
                         }
                     },
                     status=status.HTTP_201_CREATED
                 )
 
+            # Formatear los errores de validación
+            error_details = {}
+            for field, errors in serializer.errors.items():
+                if isinstance(errors, dict):
+                    # Si el error ya está en el formato correcto, usarlo directamente
+                    error_details.update(errors)
+                elif isinstance(errors, list):
+                    # Si es una lista de errores, extraer los mensajes
+                    error_details[field] = [str(error) for error in errors]
+                else:
+                    # Cualquier otro formato de error
+                    error_details[field] = [str(errors)]
+            
             return Response(
                 {
                     "success": False,
                     "message": "Error de validación",
-                    "details": serializer.errors
+                    "details": error_details
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
