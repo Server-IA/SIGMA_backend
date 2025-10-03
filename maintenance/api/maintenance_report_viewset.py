@@ -1,6 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
+
 import logging
 
 from maintenance.models import MaintenanceScheduling, MaintenanceReport
@@ -306,42 +307,63 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
             # Mantenimientos realizados
             maintenance_items = []
 
-            # Obtener nombre del técnico desde servicio de usuarios (si es posible)
-            tech_name = None
+            # Obtener información de todos los técnicos asignados al reporte desde servicio de usuarios
+            technicians_map = {}
+            technicians_list = []
             try:
-                assigned_id = getattr(getattr(report.id_maintenance_scheduling, 'assigned_technician', None), 'id_user', None)
-                if assigned_id is not None:
+                assigned_user_ids = list(report.assigned_users.values_list('id_user', flat=True))
+                if assigned_user_ids:
                     base_url = os.getenv('AUTH_SERVICE_URL', '').rstrip('/')
                     if base_url:
-                        url = f"{base_url}/sigma/users/users/{assigned_id}"
+                        url = f"{base_url}/sigma/users/users/basic-user-list/by-ids"
                         headers = {}
                         # Pasar el mismo JWT recibido
                         auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or request.headers.get('Authorization')
                         if auth_header:
                             headers['Authorization'] = auth_header
-                        resp = requests.get(url, headers=headers, timeout=10)
-                        if resp.status_code == 200:
-                            payload = resp.json()
-                            # La API de usuarios responde { success, data: [...] } o { success, data: { ... } }
-                            data_obj = payload.get('data', payload)
-                            if isinstance(data_obj, list):
-                                data_obj = data_obj[0] if data_obj else {}
-                            # Nombre completo si existen campos
-                            name = (data_obj or {}).get('name') or ''
-                            fln = (data_obj or {}).get('first_last_name') or ''
-                            sln = (data_obj or {}).get('second_last_name') or ''
-                            full = ' '.join([p for p in [name, fln, sln] if p]).strip()
-                            tech_name = full or str(assigned_id)
-                        else:
-                            tech_name = str(assigned_id)
+                        try:
+                            resp = requests.post(url, json={'ids': assigned_user_ids}, headers=headers, timeout=10)
+                            if resp.status_code == 200:
+                                payload = resp.json()
+                                data = payload.get('data', []) or []
+                                for u in data:
+                                    uid = u.get('id')
+                                    name = u.get('name') or ''
+                                    fln = u.get('first_last_name') or ''
+                                    sln = u.get('second_last_name') or ''
+                                    full = ' '.join([p for p in [name, fln, sln] if p]).strip()
+                                    technicians_map[uid] = full or str(uid)
+                                    technicians_list.append(technicians_map[uid])
+                            else:
+                                # Fallback: map ids to string ids
+                                for uid in assigned_user_ids:
+                                    technicians_map[uid] = str(uid)
+                        except Exception:
+                            # En caso de error de red, mapear a ids crudos
+                            for uid in assigned_user_ids:
+                                technicians_map[uid] = str(uid)
             except Exception:
-                tech_name = None
+                technicians_map = {}
+                technicians_list = []
+
+            # Construir items de mantenimiento usando el nombre del técnico correspondiente (si existe en el mapping)
             for rel in getattr(report, 'maintenance_relations').all():
                 m = rel.id_maintenance
+                # Obtener id del técnico que realizó este mantenimiento
+                try:
+                    tech_id = getattr(getattr(rel, 'id_technician', None), 'id_user', None)
+                except Exception:
+                    tech_id = None
+                technician_display = None
+                if tech_id is not None:
+                    technician_display = technicians_map.get(tech_id, str(tech_id))
+                else:
+                    technician_display = 'N/D'
+
                 maintenance_items.append({
                     'name': getattr(m, 'name', 'N/D'),
                     'type': getattr(getattr(m, 'maintenance_type', None), 'name', 'N/D'),
-                    'technician': tech_name or getattr(getattr(report.id_maintenance_scheduling, 'assigned_technician', None), 'id_user', 'N/D'),
+                    'technician': technician_display,
                     'cost': getattr(rel, 'maintenance_cost', 'N/D'),
                 })
 
@@ -357,12 +379,44 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                     'total': total
                 })
 
+            # Construir el nombre completo del usuario que descarga consultando la BD
+            # para asegurarnos de obtener primer y segundo apellido.
+            downloader_user = None
+            try:
+                ru = getattr(request, 'user', None)
+                if ru is not None:
+                    # Obtener posible id_user (campo PK usado en este proyecto)
+                    user_id = getattr(ru, 'id_user', None) or getattr(ru, 'id', None) or getattr(ru, 'pk', None)
+                    if user_id:
+                        try:
+                            u = User.objects.filter(id_user=user_id).values('name', 'first_last_name', 'second_last_name').first()
+                            if u:
+                                parts = [p for p in [ (u.get('name') or '').strip(), (u.get('first_last_name') or '').strip(), (u.get('second_last_name') or '').strip() ] if p]
+                                downloader_user = ' '.join(parts) if parts else None
+                        except Exception:
+                            downloader_user = None
+
+                    # Fallback final: usar atributos de request.user si aún no tenemos apellidos
+                    if not downloader_user:
+                        given = (getattr(ru, 'name', None) or getattr(ru, 'first_name', None) or '').strip()
+                        fln = (getattr(ru, 'first_last_name', None) or getattr(ru, 'last_name', None) or '').strip()
+                        sln = (getattr(ru, 'second_last_name', None) or getattr(ru, 'secondLastName', None) or '').strip()
+                        parts = [p for p in [given, fln, sln] if p]
+                        if parts:
+                            downloader_user = ' '.join(parts)
+                        else:
+                            downloader_user = str(getattr(ru, 'id_user', None) or getattr(ru, 'username', '') or ru)
+            except Exception:
+                downloader_user = None
+
             pdf_bytes = build_maintenance_report_pdf(
-                report=report,
-                maintenance_items=maintenance_items,
-                spare_parts=spare_parts,
-                downloader_user_id=getattr(getattr(request, 'user', None), 'id_user', None),
-                technician_name=tech_name
+                report,
+                maintenance_items,
+                spare_parts,
+                downloader_user,
+                None,
+                None,
+                technicians_list
             )
 
             response = HttpResponse(pdf_bytes, content_type='application/pdf')
@@ -374,3 +428,20 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
         except Exception as e:
             logger.error(f"Error generando PDF del reporte {pk}: {str(e)}")
             return Response({"success": False, "message": "Error generando PDF"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
