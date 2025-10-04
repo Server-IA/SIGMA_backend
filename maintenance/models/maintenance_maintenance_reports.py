@@ -1,4 +1,5 @@
 from django.db import models
+from users.models.user import User
 
 
 class MaintenanceMaintenanceReports(models.Model):
@@ -17,6 +18,17 @@ class MaintenanceMaintenanceReports(models.Model):
         blank=False,
         related_name='maintenance_relations',
         db_column='id_maintenance_report'
+    )
+    
+    # Técnico que realizó el mantenimiento
+    id_technician = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        null=False,
+        blank=False,
+        related_name='maintenance_tasks_performed',
+        db_column='id_technician',
+        help_text="Técnico que realizó el mantenimiento"
     )
     
     # Costo del mantenimiento asociado a este reporte
