@@ -194,10 +194,58 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                 'id_maintenance_scheduling__id_machinery',
                 'id_maintenance_scheduling__assigned_technician',
                 'id_responsible_user'
+            ).prefetch_related(
+                'maintenance_relations__id_maintenance',
+                'maintenance_relations__id_technician'
             ).all().order_by('-registration_date')
-            
-            serializer = MaintenanceReportListSerializer(queryset, many=True)
-            
+
+            # Construir mapping de técnicos asignados a partir de los scheduling para evitar N llamadas desde el serializer
+            technicians_map = {}
+            try:
+                assigned_ids = set()
+                for r in queryset:
+                    sched = getattr(r, 'id_maintenance_scheduling', None)
+                    if not sched:
+                        continue
+                    tech = getattr(sched, 'assigned_technician', None)
+                    if not tech:
+                        continue
+                    uid = getattr(tech, 'id_user', None) or getattr(tech, 'id', None)
+                    if uid is not None:
+                        assigned_ids.add(uid)
+
+                if assigned_ids:
+                    base_url = os.getenv('AUTH_SERVICE_URL', '').rstrip('/')
+                    if base_url:
+                        url = f"{base_url}/users/users/basic-user-list/by-ids"
+                        headers = {}
+                        auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or (request.headers.get('Authorization') if hasattr(request, 'headers') else None)
+                        if auth_header:
+                            headers['Authorization'] = auth_header
+                        try:
+                            resp = requests.post(url, json={'ids': list(assigned_ids)}, headers=headers, timeout=10)
+                            if resp.status_code == 200:
+                                payload = resp.json()
+                                data = payload.get('data', []) or []
+                                for u in data:
+                                    uid = u.get('id')
+                                    name = u.get('name') or ''
+                                    fln = u.get('first_last_name') or ''
+                                    sln = u.get('second_last_name') or ''
+                                    full = ' '.join([p for p in [name, fln, sln] if p]).strip()
+                                    if uid is not None:
+                                        technicians_map[str(uid)] = full or str(uid)
+                            else:
+                                for uid in assigned_ids:
+                                    technicians_map[str(uid)] = str(uid)
+                        except Exception:
+                            for uid in assigned_ids:
+                                technicians_map[str(uid)] = str(uid)
+            except Exception:
+                technicians_map = {}
+
+            serializer = MaintenanceReportListSerializer(queryset, many=True, context={'request': request, 'technicians_map': technicians_map})
+
             return Response(
                 {
                     "success": True,
@@ -315,7 +363,7 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                 if assigned_user_ids:
                     base_url = os.getenv('AUTH_SERVICE_URL', '').rstrip('/')
                     if base_url:
-                        url = f"{base_url}/sigma/users/users/basic-user-list/by-ids"
+                        url = f"{base_url}/users/users/basic-user-list/by-ids"
                         headers = {}
                         # Pasar el mismo JWT recibido
                         auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or request.headers.get('Authorization')
@@ -402,7 +450,7 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                     if not downloader_user and user_id:
                         base_url = os.getenv('AUTH_SERVICE_URL', '').rstrip('/')
                         if base_url:
-                            url = f"{base_url}/sigma/users/users/basic-user-list/by-ids"
+                            url = f"{base_url}/users/users/basic-user-list/by-ids"
                             headers = {}
                             auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or request.headers.get('Authorization')
                             if auth_header:
