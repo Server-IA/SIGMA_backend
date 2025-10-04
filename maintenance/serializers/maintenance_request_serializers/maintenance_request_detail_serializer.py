@@ -4,7 +4,7 @@ from maintenance.models.maintenance_scheduling import MaintenanceScheduling
 
 
 class MaintenanceRequestDetailSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source="id_maintenance_request", read_only=True)
+    id = serializers.CharField(source="id_maintenance_request", read_only=True)
     machinery_serial = serializers.CharField(source="id_machinery.serial_number", read_only=True)
     machinery_name = serializers.CharField(source="id_machinery.machinery_name", read_only=True)
     maintenance_type_name = serializers.CharField(source="maintenance_type.name", read_only=True)
@@ -13,7 +13,6 @@ class MaintenanceRequestDetailSerializer(serializers.ModelSerializer):
     status_name = serializers.CharField(source="request_status.name", read_only=True)
     status_id = serializers.IntegerField(source="request_status.id_statues", read_only=True)
     
-    # Campos de programación (si existe)
     scheduled_at = serializers.SerializerMethodField()
     assigned_technician_id = serializers.SerializerMethodField()
 
@@ -29,9 +28,11 @@ class MaintenanceRequestDetailSerializer(serializers.ModelSerializer):
             "status_id",
             "status_name",
             "fecha_solicitud",
-            "modification_date",
+            "response_date",
             "scheduled_at",
             "assigned_technician_id",
+            "justification",
+            "id_response_user",
         ]
 
     def get_scheduled_at(self, obj):

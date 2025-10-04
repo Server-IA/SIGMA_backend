@@ -8,7 +8,7 @@ class MaintenanceRequestListSerializer(serializers.ModelSerializer):
     Cumple con los criterios de aceptación de la HU.
     """
 
-    id = serializers.IntegerField(source="id_maintenance_request", read_only=True)
+    id = serializers.CharField(source="id_maintenance_request", read_only=True)
     machinery_serial = serializers.CharField(source="id_machinery.serial_number", read_only=True)
     machinery_name = serializers.CharField(source="id_machinery.machinery_name", read_only=True)
     requester_id = serializers.SerializerMethodField()
