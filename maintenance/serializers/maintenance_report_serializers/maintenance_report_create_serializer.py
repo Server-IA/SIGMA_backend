@@ -89,13 +89,15 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
     
     def validate_maintenance_items(self, value):
         """
-        Valida que los mantenimientos y técnicos existan, y que el costo sea válido.
+        Valida que los mantenimientos y técnicos existan, que el costo sea válido
+        y que no haya mantenimientos duplicados.
         """
         if not value:
             raise serializers.ValidationError("Debe especificar al menos un mantenimiento realizado.")
         
         maintenance_ids = []
         user_ids = []
+        seen_maintenance_ids = set()
         
         for item in value:
             if not isinstance(item, dict):
@@ -106,6 +108,14 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
             for field in required_fields:
                 if field not in item:
                     raise serializers.ValidationError(f"Falta '{field}' en un item de maintenance_items")
+            
+            # Validar que no haya id_maintenance duplicados
+            maintenance_id = item['id_maintenance']
+            if maintenance_id in seen_maintenance_ids:
+                raise serializers.ValidationError(
+                    f"El mantenimiento con ID {maintenance_id} está duplicado en la lista de items"
+                )
+            seen_maintenance_ids.add(maintenance_id)
             
             # Validar costo
             try:
@@ -123,7 +133,7 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
             except (TypeError, ValueError):
                 raise serializers.ValidationError("El id_technician debe ser un número entero positivo")
                 
-            maintenance_ids.append(item['id_maintenance'])
+            maintenance_ids.append(maintenance_id)
             user_ids.append(technician_id)
             
         # Verificar que existan los mantenimientos
@@ -148,11 +158,7 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 f"Los siguientes IDs de técnico no existen: {list(missing_users)}"
             )
-
-        # This block is redundant and can be removed since we already did this validation above
-        # The previous validation already checks for missing maintenance items
-        pass
-        
+            
         return value
     
     def validate_spare_parts(self, value):
@@ -285,10 +291,18 @@ class MaintenanceReportCreateSerializer(serializers.ModelSerializer):
     
     def validate_technicians(self, value):
         """
-        Valida que los IDs de los técnicos existan.
+        Valida que los IDs de los técnicos existan y no estén duplicados.
         """
         if not value:
             return value
+            
+        # Verificar que no haya IDs duplicados
+        if len(value) != len(set(value)):
+            from collections import Counter
+            duplicates = [k for k, v in Counter(value).items() if v > 1]
+            raise serializers.ValidationError(
+                f"Hay IDs de técnicos duplicados: {duplicates}. Cada técnico solo puede aparecer una vez."
+            )
             
         # Verificar que todos los IDs de usuario existan
         existing_users = set(User.objects.filter(id_user__in=value).values_list('id_user', flat=True))

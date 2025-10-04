@@ -280,7 +280,7 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
     @action(detail=True, methods=['get'], url_path='download')
     def download_report(self, request, pk=None):
         """
-        Descarga el PDF del reporte de mantenimiento.
+        Descarga el PDF del reporte de mantenimiento por id_maintenance_scheduling.
         """
         # Verificar autenticación
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
@@ -291,6 +291,7 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
             return Response({"message": "No tiene permisos para descargar reportes."}, status=status.HTTP_403_FORBIDDEN)
 
         try:
+            # Obtener el reporte por id_maintenance_scheduling
             report = MaintenanceReport.objects.select_related(
                 'id_maintenance_scheduling',
                 'id_maintenance_scheduling__id_machinery',
@@ -300,7 +301,7 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
             ).prefetch_related(
                 'maintenance_relations__id_maintenance__maintenance_type',
                 'spare_parts_used__spare_part_brand'
-            ).get(pk=pk)
+            ).get(id_maintenance_scheduling_id=pk)
 
             # Preparar datos de tablas
             # Mantenimientos realizados
