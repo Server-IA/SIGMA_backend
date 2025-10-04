@@ -6,7 +6,6 @@ class MaintenanceReport(models.Model):
     id_maintenance_report = models.AutoField(primary_key=True)
     title = models.CharField(max_length=255, null=False, blank=False, db_column="title")
     description = models.CharField(max_length=600, null=False, blank=False, db_column="description")
-    creation_date = models.DateField(auto_now_add=True, db_column="creation_date")
     id_responsible_user = models.ForeignKey(
         'users.User',
         on_delete=models.PROTECT,
