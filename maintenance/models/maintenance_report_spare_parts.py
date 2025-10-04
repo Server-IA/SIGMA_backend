@@ -24,7 +24,6 @@ class MaintenanceReportSpareParts(models.Model):
         db_column='spare_part_brand'
     )
     name = models.CharField(max_length=255, null=False, blank=False, db_column="name")
-    spare_parts_cost = models.FloatField(null=False, blank=False, db_column="spare_parts_cost")
     
     # Datos específicos del uso en este reporte (antes en MaintenanceSparePartsMaintenance)
     quantity_used = models.IntegerField(null=False, blank=False, default=1, db_column="quantity_used")
