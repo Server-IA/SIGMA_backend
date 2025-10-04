@@ -7,6 +7,7 @@ class MaintenanceSchedulingListSerializer(serializers.ModelSerializer):
     machinery_name = serializers.CharField(source="id_machinery.machinery_name", read_only=True)
     machinery_image = serializers.CharField(source="id_machinery.image_path", read_only=True)
     assigned_technician_id = serializers.SerializerMethodField()
+    maintenance_type_name = serializers.CharField(source="maintenance_type.name", read_only=True)
     status_name = serializers.CharField(source="maintenance_scheduling_status.name", read_only=True)
     status_id = serializers.IntegerField(source="maintenance_scheduling_status.id_statues", read_only=True)
     scheduled_at = serializers.DateTimeField(read_only=True)
@@ -22,6 +23,7 @@ class MaintenanceSchedulingListSerializer(serializers.ModelSerializer):
             "scheduled_at",
             "assigned_technician_id",
             "maintenance_type",
+            "maintenance_type_name",
             "status_id",
             "status_name",
             "request_creation_date"
