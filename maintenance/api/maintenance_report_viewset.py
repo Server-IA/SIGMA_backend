@@ -119,8 +119,36 @@ class MaintenanceReportViewSet(viewsets.ViewSet):
                 except Statues.DoesNotExist:
                     logger.error("Estado 15 (ejecutado) no encontrado en Statues")
 
-                # Actualizar el estado de la maquinaria (esto ahora se maneja en el serializer)
-                pass
+                # Enviar notificación a usuarios con permiso 132
+                try:
+                    # Obtener datos de la maquinaria
+                    machinery = getattr(scheduling, 'id_machinery', None)
+                    machinery_name = getattr(machinery, 'machinery_name', 'Maquinaria')
+                    serial_number = getattr(machinery, 'serial_number', 'N/D')
+                    notif_title = f"Nuevo reporte de mantenimiento creado"
+                    notif_message = f"se creo el reporte de la maquinaria {machinery_name} - {serial_number} del mantenimiento programado {scheduling.id_maintenance_scheduling}."
+                    notif_type = "report_creation"
+                    notif_body = {
+                        "title": notif_title,
+                        "message": notif_message,
+                        "type": notif_type,
+                        "user_id": request.user.id  # Add user_id to the request body
+                    }
+                    base_url = os.getenv('AUTH_SERVICE_URL', '').rstrip('/')
+                    if base_url:
+                        url = f"{base_url}/users/users/notifications/send-to-permission/?permission_id=132"
+                        headers = {}
+                        auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or (request.headers.get('Authorization') if hasattr(request, 'headers') else None)
+                        if auth_header:
+                            headers['Authorization'] = auth_header
+                        try:
+                            resp = requests.post(url, json=notif_body, headers=headers, timeout=10)
+                            if resp.status_code != 200:
+                                logger.warning(f"No se pudo enviar la notificación: {resp.text}")
+                        except Exception as notif_exc:
+                            logger.warning(f"Error enviando notificación de reporte: {notif_exc}")
+                except Exception as notif_outer_exc:
+                    logger.warning(f"Error general en notificación de reporte: {notif_outer_exc}")
 
                 return Response(
                     {
