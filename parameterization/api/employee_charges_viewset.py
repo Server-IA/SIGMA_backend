@@ -6,6 +6,13 @@ from parameterization.serializers.employee_charges_serializers.employee_charges_
 from parameterization.serializers.employee_charges_serializers.employee_charges_list_serializer import EmployeeChargeListSerializer
 from users.permissions import HasPermissionId
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info
+from parameterization.utils.audit_helpers import employee_charge_snapshot
+import logging
+
+logger = logging.getLogger(__name__)
 
 class EmployeeChargeViewSet(viewsets.ViewSet):
     # permission_classes = [HasPermissionId]  # Temporalmente deshabilitado para usar check_permission
@@ -51,7 +58,25 @@ class EmployeeChargeViewSet(viewsets.ViewSet):
         
         serializer = EmployeeChargeCreateSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            instance = serializer.save()
+
+            # Auditoría
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).create(
+                    object_id=str(getattr(instance, "id_employee_charge", None) or ""),
+                    after=employee_charge_snapshot(instance),
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",
+                    submodule="employee_charges",
+                )
+            except Exception as e:
+                logger.error(f"Error al registrar auditoría para creación de cargo: {str(e)}")
+
             return Response({"message": "Cargo creado exitosamente"},
                             status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -80,7 +105,30 @@ class EmployeeChargeViewSet(viewsets.ViewSet):
 
         serializer = EmployeeChargeCreateSerializer(charge, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save()
+
+            before = employee_charge_snapshot(charge)
+
+            instance = serializer.save()
+
+            # Auditoría
+            try:
+                after = employee_charge_snapshot(instance)
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).update(
+                    object_id=str(getattr(instance, "id_employee_charge", None) or ""),
+                    before=before,
+                    after=after,
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",
+                    submodule="employee_charges",
+                )
+            except Exception as e:
+                logger.error(f"Error al registrar auditoría para actualización de cargo: {str(e)}")
+                
             return Response({"message": "Cargo actualizado exitosamente"},
                             status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
