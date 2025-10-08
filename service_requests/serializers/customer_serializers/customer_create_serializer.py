@@ -43,14 +43,19 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
 
     def validate_document_number(self, value):
         """
-        Validar que el document_number sea único y solo contenga números positivos.
+        Validar que el document_number sea único, solo contenga números positivos
+        y no exceda los 10 dígitos.
         """
         if value is not None:
-            if not str(value).isdigit():
+            str_value = str(value)
+            if not str_value.isdigit():
                 raise serializers.ValidationError("El número de documento solo puede contener dígitos.")
             
             if int(value) < 0:
                 raise serializers.ValidationError("El número de documento no puede ser negativo.")
+            
+            if len(str_value) > 10:
+                raise serializers.ValidationError("El número de documento no puede tener más de 10 dígitos.")
             
             if Customer.objects.filter(document_number=value).exists():
                 raise serializers.ValidationError("Ya existe un cliente con este número de documento.")
