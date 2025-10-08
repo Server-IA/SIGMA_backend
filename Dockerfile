@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copiar requerimientos primero para aprovechar cache
 COPY requirements.txt /app/
+COPY vendor/ /app/vendor/
 
 # Instalar dependencias de Python
 RUN pip install --no-cache-dir -r requirements.txt

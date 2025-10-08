@@ -13,6 +13,14 @@ from maintenance.models import Maintenance
 from maintenance.serializers.maintenance_serializer import MaintenanceSerializer
 from maintenance.serializers.maintenance_list_serializer import MaintenanceListSerializer
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info
+from maintenance.utils.audit_helpers import maintenance_snapshot
+import logging
+
+logger = logging.getLogger(__name__)
+
 class MaintenanceViewSet(viewsets.ModelViewSet):
     """
     ViewSet para el modelo Maintenance.
@@ -102,7 +110,6 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-
         # Verificar que el usuario esté autenticado
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
             return Response(
@@ -119,7 +126,6 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-
         ser = self.get_serializer(data=request.data)
         try:
             ser.is_valid(raise_exception=True)
@@ -133,6 +139,26 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"success": False, "message": "Error inesperado.", "errors": {"detail": [str(e)]}},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # instancia creada por el serializer
+        instance = getattr(ser, "instance", None)
+
+        # Auditoría
+        try:
+            actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+            AuditClient(request).create(
+                object_id=str(getattr(instance, "id_maintenance", "") if instance is not None else ""),
+                after=maintenance_snapshot(instance) if instance is not None else {},
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=permission_id,
+                module="maintenance",
+                submodule="maintenance",
+            )
+        except Exception as e:
+            logging.warning("El servicio de auditoría ha fallado en create_maintenance: %s", e)
 
         headers = self.get_success_headers(ser.data)
         return Response({"success": True, "message": "Mantenimiento creado correctamente."},
@@ -158,10 +184,33 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
 
         try:
             instance = self.get_object()
+
+            before_snapshot = maintenance_snapshot(instance)
+
             serializer = self.get_serializer(instance, data=request.data, partial=False)
             serializer.is_valid(raise_exception=True)
-            serializer.save()
+            updated_instance = serializer.save()
         
+            # Auditoría
+            try:
+                after = maintenance_snapshot(updated_instance)
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                object_id = str(after.get("id_maintenance") or after.get("name") or "")
+
+                ok, status_code, text = AuditClient(request).update(
+                    object_id=object_id,
+                    before=before_snapshot,
+                    after=after,
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="maintenance",
+                    submodule="maintenance",
+                )
+            except Exception as e:
+                logging.warning("El servicio de auditoría ha fallado en update_maintenance: %s", e)
+
             return Response({
                 "success": True,
                 "message": "Mantenimiento actualizado correctamente."
@@ -258,6 +307,8 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
             instance = self.get_object()
         except Http404:
             return self._not_found()
+        
+        before_snapshot = maintenance_snapshot(instance)
 
         try:
             instance.delete()
@@ -271,6 +322,26 @@ class MaintenanceViewSet(viewsets.ModelViewSet):
                 }
             }, status=status.HTTP_409_CONFLICT)
             
+        # Auditoría
+        try:
+            actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+            object_id = str(before_snapshot.get("id_maintenance") or before_snapshot.get("name") or "")
+
+            ok, status_code, text = AuditClient(request).delete(
+                object_id=object_id,
+                before=before_snapshot,
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=permission_id,
+                module="maintenance",
+                submodule="maintenance",
+            )
+            if not ok:
+                logger.warning("Audit delete failed (%s): %s", status_code, text)
+        except Exception as e:
+            logging.warning("El servicio de auditoría ha fallado en delete_maintenance: %s", e)
+
         return Response({
             "success": True,
             "code": 200,

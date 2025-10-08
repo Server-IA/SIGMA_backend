@@ -190,8 +190,9 @@ class VisualParameterizationViewSet(viewsets.ViewSet):
     def listar_parametrizaciones(self, request):
         """
         Lista todas las parametrizaciones visuales sin requerir autenticación.
+        Las parametrizaciones se ordenan por id_visual_parameterization de forma ascendente.
         """
-        parametrizaciones = VisualParameterization.objects.all()
+        parametrizaciones = VisualParameterization.objects.all().order_by('id_visual_parameterization')
         serializer = VisualParameterizationListSerializer(parametrizaciones, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

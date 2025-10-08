@@ -9,6 +9,9 @@ from machinery.serializers.machinery_serializers.machinery_usage_sheet_detail_se
 from django.shortcuts import get_object_or_404
 import logging
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info, machinery_usage_snapshot, build_meta_with_machinery_id
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,30 @@ class MachineryUsageViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(data=data)
 
             if serializer.is_valid():
-                serializer.save()
+                usage = serializer.save()
+
+                after = machinery_usage_snapshot(usage)
+
+                # Auditoría 
+                try:
+                    # obtener actor info centralizada
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                    object_id = str(after.get("id_usage_sheet") or after.get("id_machinery") or "")
+
+                    AuditClient(request).create(
+                        object_id=object_id,
+                        after=after,
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="machinery",
+                        submodule="machinery_usage_sheet",
+                    )
+                except Exception as e:
+                    # La auditoría no debe romper la creación
+                    logging.warning("El servicio de auditoría ha fallado en create_machinery_tracker: %s", e)
+
                 return Response({"success": True, "message": "Ficha de uso registrada exitosamente."}, status=status.HTTP_201_CREATED)
 
             return Response({"success": False, "message": "Error de validación", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
@@ -100,6 +126,7 @@ class MachineryUsageViewSet(viewsets.ModelViewSet):
 
         try:
             usage_instance = get_object_or_404(MachineryUsageSheet, pk=pk)
+            before_snapshot = machinery_usage_snapshot(usage_instance)
 
             serializer = MachineryUsageSheetUpdateSerializer(
                 usage_instance,
@@ -109,7 +136,31 @@ class MachineryUsageViewSet(viewsets.ModelViewSet):
             )
 
             if serializer.is_valid():
-                serializer.save()
+                updated_instance = serializer.save()
+
+                after = machinery_usage_snapshot(updated_instance)
+
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                    object_id = str(after.get("id_usage_sheet") or after.get("id_machinery") or "")
+
+                    # Auditoría
+                    AuditClient(request).update(
+                        object_id=object_id,
+                        before=before_snapshot,
+                        after=after,
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="machinery",
+                        submodule="machinery_usage_sheet",
+                        meta=build_meta_with_machinery_id(before_snapshot, after),
+                    )
+                except Exception as e:
+                    logging.warning("El servicio de auditoría ha fallado en update_specific_technical_sheet: %s", e)
+
+                
                 return Response({"success": True, "message": "Información de uso actualizada correctamente"}, status=status.HTTP_200_OK)
 
             return Response({"success": False, "message": "Error de validación al actualizar la información de uso", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
