@@ -69,6 +69,7 @@ def maintenance_request_snapshot(instance) -> dict:
         "priority": instance.priority_id,
         "request_status": instance.request_status_id,
         "justification": instance.justification,
+        "is_automatic": instance.is_automatic,
         "detected_at": (
             instance.detected_at.isoformat() if instance.detected_at else None
         ),
