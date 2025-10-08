@@ -13,10 +13,11 @@ class MaintenanceRequestListSerializer(serializers.ModelSerializer):
     machinery_name = serializers.CharField(source="id_machinery.machinery_name", read_only=True)
     requester_id = serializers.SerializerMethodField()
     maintenance_type_name = serializers.CharField(source="maintenance_type.name", read_only=True)
-    fecha_solicitud = serializers.DateField(source="detected_at", read_only=True)
+    fecha_solicitud = serializers.DateTimeField(source="detected_at", read_only=True)
     priority_name = serializers.CharField(source="priority.name", read_only=True)
     status_name = serializers.CharField(source="request_status.name", read_only=True)
     status_id = serializers.IntegerField(source="request_status.id_statues", read_only=True)
+    is_automatic = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = MaintenanceRequest
@@ -30,6 +31,7 @@ class MaintenanceRequestListSerializer(serializers.ModelSerializer):
             "priority_name",
             "status_name",
             "status_id",
+            "is_automatic",
         ]
 
     def get_requester_id(self, obj):

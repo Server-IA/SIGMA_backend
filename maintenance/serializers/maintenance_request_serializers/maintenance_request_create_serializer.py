@@ -48,9 +48,16 @@ class MaintenanceRequestCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def validate_detected_at(self, value):
-        # La fecha de detección no puede ser futura
-        if value > timezone.now().date():
-            raise serializers.ValidationError("La fecha de detección no puede ser futura.")
+        # La fecha y hora de detección no puede ser futura
+        # El campo ahora acepta DateTime, pero también puede recibir solo Date
+        if hasattr(value, 'date'):
+            # Es un datetime
+            if value > timezone.now():
+                raise serializers.ValidationError("La fecha y hora de detección no puede ser futura.")
+        else:
+            # Es una fecha
+            if value > timezone.now().date():
+                raise serializers.ValidationError("La fecha de detección no puede ser futura.")
         return value
 
     def validate_id_machinery(self, value):

@@ -323,6 +323,16 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
             # Obtener la instancia de la solicitud
             instance = get_object_or_404(MaintenanceRequest, id_maintenance_request=pk)
 
+            # HU-SM-002 Criterio #8: No permitir modificar/eliminar solicitudes automáticas
+            if instance.is_automatic:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No se puede rechazar una solicitud automática. Las solicitudes automáticas son generadas por el sistema y no pueden ser modificadas ni eliminadas.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
             before = maintenance_request_snapshot(instance)
 
             # Validar y procesar el rechazo

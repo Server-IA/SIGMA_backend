@@ -27,15 +27,24 @@ class PeriodicMaintenanceScheduling(models.Model):
 
     # Longitud de medida 2 
     distance_km = models.PositiveIntegerField(db_column="distance_km", null=True, blank=True)
+    
+    # Fecha programada para el próximo mantenimiento preventivo
+    next_maintenance_date = models.DateField(
+        db_column="next_maintenance_date", 
+        null=True, 
+        blank=True,
+        help_text="Fecha programada para el próximo mantenimiento preventivo"
+    )
 
     class Meta:
         db_table = "periodic_maintenance_scheduling"
         constraints = [
             models.CheckConstraint(
-                name="pm_exactly_one_trigger",
+                name="pm_at_least_one_trigger",
                 check=(
-                    (Q(usage_hours__isnull=False) & Q(distance_km__isnull=True)) |
-                    (Q(usage_hours__isnull=True) & Q(distance_km__isnull=False))
+                    Q(usage_hours__isnull=False) |
+                    Q(distance_km__isnull=False) |
+                    Q(next_maintenance_date__isnull=False)
                 ),
             ),
             # Evitar duplicados por maquinaria + mantenimiento + modalidad
@@ -48,6 +57,11 @@ class PeriodicMaintenanceScheduling(models.Model):
                 fields=["machinery", "maintenance", "distance_km"],
                 name="uniq_pm_by_mach_maint_distance",
                 condition=Q(distance_km__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["machinery", "maintenance", "next_maintenance_date"],
+                name="uniq_pm_by_mach_maint_date",
+                condition=Q(next_maintenance_date__isnull=False),
             ),
         ]
 

@@ -6,10 +6,11 @@ from typing import Dict, Optional, Tuple
 
 import requests
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 
 from machinery.models import Machinery, MachineryUsageSheet, PeriodicMaintenanceScheduling
-from maintenance.models import MaintenanceRequest
+from maintenance.models import MaintenanceRequest, SensorReadingIncident
 from maintenance.models.maintenance import Maintenance
 from parameterization.models import Statues, Types
 
@@ -31,6 +32,29 @@ DEFAULT_PRIORITY_TYPE_ID = int(os.getenv("DEFAULT_PRIORITY_TYPE_ID", "16"))
 INACTIVITY_DAYS_THRESHOLD = int(os.getenv("INACTIVITY_DAYS_THRESHOLD", "14"))
 
 AUTO_JUSTIFICATION = "AUTO"
+
+
+def _generate_request_id() -> str:
+    """
+    Genera un consecutivo único para la solicitud de mantenimiento.
+    Formato: SOL-YYYY-NNNN
+    Cumple con criterio de aceptación #4 de HU-SM-002.
+    """
+    current_year = timezone.now().year
+    # Find the highest request number for the current year
+    max_request = MaintenanceRequest.objects.filter(
+        id_maintenance_request__startswith=f'SOL-{current_year}'
+    ).aggregate(Max('id_maintenance_request'))
+    
+    if max_request['id_maintenance_request__max']:
+        # Extract the number part and increment it
+        last_number = int(max_request['id_maintenance_request__max'].split('-')[-1])
+        new_number = last_number + 1
+    else:
+        # First request of the year
+        new_number = 1
+        
+    return f'SOL-{current_year}-{new_number:04d}'
 
 
 def _km_from(raw_value: Optional[Decimal], unit_symbol: Optional[str]) -> Optional[Decimal]:
@@ -56,6 +80,74 @@ def _km_from(raw_value: Optional[Decimal], unit_symbol: Optional[str]) -> Option
     # Unidad desconocida: evitar decisiones incorrectas
     logger.warning("Unidad de distancia no soportada para conversión a km: %s", symbol)
     return None
+
+
+def _log_sensor_incident(
+    machinery: Machinery,
+    incident_type: str,
+    description: str,
+    error_details: Optional[str] = None
+) -> None:
+    """
+    Registra un incidente de lectura de sensores o telemetría y notifica al jefe de mantenimiento.
+    Cumple con criterio de aceptación #9 de HU-SM-002.
+    """
+    try:
+        incident = SensorReadingIncident.objects.create(
+            id_machinery=machinery,
+            incident_type=incident_type,
+            description=description,
+            error_details=error_details,
+            notified=False
+        )
+        
+        # Enviar notificación al jefe de mantenimiento
+        auth_service_url = os.getenv("AUTH_SERVICE_URL")
+        if auth_service_url:
+            endpoint = f"{auth_service_url.rstrip('/')}/users/users/notifications/send-to-permission/"
+            # Permission ID for maintenance chief (ajustar según la configuración del sistema)
+            permission_id = int(os.getenv("MAINTENANCE_CHIEF_PERMISSION_ID", "121"))
+            
+            payload = {
+                "title": f"Error en lectura de sensores/telemetría",
+                "message": f"Se detectó un error de {incident_type} en la maquinaria {machinery.machinery_name} ({machinery.serial_number}). {description}",
+                "type": "sensor_error",
+            }
+            
+            try:
+                response = requests.post(
+                    f"{endpoint}?permission_id={permission_id}",
+                    json=payload,
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    incident.notified = True
+                    incident.notification_date = timezone.now()
+                    incident.save(update_fields=['notified', 'notification_date'])
+                    logger.info(
+                        "Incidente de sensor %s notificado exitosamente para maquinaria %s",
+                        incident.id_sensor_incident,
+                        machinery.id_machinery
+                    )
+            except Exception as exc:
+                logger.error(
+                    "Error al enviar notificación de incidente de sensor %s: %s",
+                    incident.id_sensor_incident,
+                    exc
+                )
+        
+        logger.info(
+            "Incidente de sensor registrado: id=%s, maquinaria=%s, tipo=%s",
+            incident.id_sensor_incident,
+            machinery.id_machinery,
+            incident_type
+        )
+    except Exception as exc:
+        logger.error(
+            "Error al registrar incidente de sensor para maquinaria %s: %s",
+            machinery.id_machinery,
+            exc
+        )
 
 
 def _pending_status() -> Optional[Statues]:
@@ -132,7 +224,7 @@ def _create_request(
     detected_at,
     pending_status: Statues,
     dry_run: bool,
-) -> Optional[int]:
+) -> Optional[str]:
     if dry_run:
         logger.info(
             "[dry-run] Generar solicitud automática para maquinaria %s (tipo=%s)",
@@ -143,7 +235,9 @@ def _create_request(
 
     try:
         with transaction.atomic():
+            request_id = _generate_request_id()
             request = MaintenanceRequest.objects.create(
+                id_maintenance_request=request_id,
                 id_machinery=machinery,
                 maintenance_type=maintenance_type,
                 description=description,
@@ -152,6 +246,7 @@ def _create_request(
                 detected_at=detected_at,
                 id_responsible_user=None,
                 justification=AUTO_JUSTIFICATION,
+                is_automatic=True,
             )
         logger.info(
             "Solicitud automática creada: id=%s maquinaria=%s",
@@ -177,10 +272,14 @@ def _evaluate_periodic_schedules(now, pending_status: Statues, dry_run: bool) ->
         .all()
     )
 
-    usage_by_machinery = {
-        usage.id_machinery_id: usage
-        for usage in MachineryUsageSheet.objects.select_related("distance_unit").all()
-    }
+    usage_by_machinery = {}
+    try:
+        for usage in MachineryUsageSheet.objects.select_related("distance_unit").all():
+            usage_by_machinery[usage.id_machinery_id] = usage
+    except Exception as exc:
+        logger.error("Error al obtener hojas de uso de maquinaria: %s", exc)
+        # No podemos continuar sin datos de uso
+        return total_checked, total_created
 
     for schedule in schedules:
         total_checked += 1
@@ -189,50 +288,115 @@ def _evaluate_periodic_schedules(now, pending_status: Statues, dry_run: bool) ->
         if not machinery or _should_skip_machinery(machinery):
             continue
 
-        usage_sheet = usage_by_machinery.get(machinery.id_machinery)
-        if not usage_sheet:
-            logger.debug(
-                "Maquinaria %s sin ficha de uso: no se evalúa mantenimiento periódico",
-                machinery.id_machinery,
-            )
-            continue
-
         trigger_reason = None
         trigger_extra = None
 
-        if schedule.usage_hours is not None:
+        # Criterio 1: Evaluar fecha programada de mantenimiento preventivo
+        if trigger_reason is None and schedule.next_maintenance_date is not None:
             try:
-                current_hours = Decimal(usage_sheet.usage_hours or 0)
-            except (InvalidOperation, TypeError):
-                logger.warning(
-                    "Horas de uso inválidas para maquinaria %s: %s",
+                today = now.date()
+                if today >= schedule.next_maintenance_date:
+                    trigger_reason = (
+                        f"Fecha de mantenimiento programada alcanzada o vencida "
+                        f"({schedule.next_maintenance_date})"
+                    )
+                    trigger_extra = "Disparo por fecha programada"
+            except Exception as exc:
+                logger.error(
+                    "Error al evaluar fecha programada para maquinaria %s: %s",
                     machinery.id_machinery,
-                    usage_sheet.usage_hours,
+                    exc
                 )
-                current_hours = Decimal(0)
-
-            if current_hours >= Decimal(schedule.usage_hours):
-                trigger_reason = (
-                    f"Umbral de horas alcanzado ({current_hours} h >= {schedule.usage_hours} h)"
+                _log_sensor_incident(
+                    machinery,
+                    "date_evaluation_error",
+                    f"Error al evaluar fecha programada de mantenimiento",
+                    str(exc)
                 )
-                trigger_extra = "Disparo por horas de uso"
 
+        # Criterio 2: Evaluar horas de uso
+        usage_sheet = usage_by_machinery.get(machinery.id_machinery)
+        if trigger_reason is None and schedule.usage_hours is not None:
+            if not usage_sheet:
+                logger.debug(
+                    "Maquinaria %s sin ficha de uso: no se puede evaluar mantenimiento por horas",
+                    machinery.id_machinery,
+                )
+                _log_sensor_incident(
+                    machinery,
+                    "missing_usage_sheet",
+                    f"No se encontró hoja de uso para evaluar mantenimiento por horas",
+                    None
+                )
+            else:
+                try:
+                    current_hours = Decimal(usage_sheet.usage_hours or 0)
+                    if current_hours >= Decimal(schedule.usage_hours):
+                        trigger_reason = (
+                            f"Umbral de horas alcanzado ({current_hours} h >= {schedule.usage_hours} h)"
+                        )
+                        trigger_extra = "Disparo por horas de uso"
+                except (InvalidOperation, TypeError) as exc:
+                    logger.warning(
+                        "Horas de uso inválidas para maquinaria %s: %s",
+                        machinery.id_machinery,
+                        usage_sheet.usage_hours,
+                    )
+                    _log_sensor_incident(
+                        machinery,
+                        "invalid_usage_hours",
+                        f"Datos de horas de uso inválidos: {usage_sheet.usage_hours}",
+                        str(exc)
+                    )
+
+        # Criterio 3: Evaluar distancia
         if trigger_reason is None and schedule.distance_km is not None:
-            km_value = _km_from(
-                usage_sheet.distance_value,
-                getattr(usage_sheet.distance_unit, "symbol", None),
-            )
-            if km_value is None:
-                logger.warning(
-                    "No se pudo convertir distancia para maquinaria %s (unidad=%s)",
+            if not usage_sheet:
+                logger.debug(
+                    "Maquinaria %s sin ficha de uso: no se puede evaluar mantenimiento por distancia",
                     machinery.id_machinery,
-                    getattr(usage_sheet.distance_unit, "symbol", None),
                 )
-            elif km_value >= Decimal(schedule.distance_km):
-                trigger_reason = (
-                    f"Umbral de distancia alcanzado ({km_value} km >= {schedule.distance_km} km)"
+                _log_sensor_incident(
+                    machinery,
+                    "missing_usage_sheet",
+                    f"No se encontró hoja de uso para evaluar mantenimiento por distancia",
+                    None
                 )
-                trigger_extra = "Disparo por distancia"
+            else:
+                try:
+                    km_value = _km_from(
+                        usage_sheet.distance_value,
+                        getattr(usage_sheet.distance_unit, "symbol", None),
+                    )
+                    if km_value is None:
+                        logger.warning(
+                            "No se pudo convertir distancia para maquinaria %s (unidad=%s)",
+                            machinery.id_machinery,
+                            getattr(usage_sheet.distance_unit, "symbol", None),
+                        )
+                        _log_sensor_incident(
+                            machinery,
+                            "distance_conversion_error",
+                            f"No se pudo convertir distancia a km. Unidad: {getattr(usage_sheet.distance_unit, 'symbol', 'N/A')}",
+                            f"distance_value={usage_sheet.distance_value}"
+                        )
+                    elif km_value >= Decimal(schedule.distance_km):
+                        trigger_reason = (
+                            f"Umbral de distancia alcanzado ({km_value} km >= {schedule.distance_km} km)"
+                        )
+                        trigger_extra = "Disparo por distancia"
+                except Exception as exc:
+                    logger.error(
+                        "Error al evaluar distancia para maquinaria %s: %s",
+                        machinery.id_machinery,
+                        exc
+                    )
+                    _log_sensor_incident(
+                        machinery,
+                        "distance_evaluation_error",
+                        f"Error al evaluar criterio de distancia",
+                        str(exc)
+                    )
 
         if trigger_reason is None:
             continue
@@ -261,7 +425,7 @@ def _evaluate_periodic_schedules(now, pending_status: Statues, dry_run: bool) ->
             maintenance_type=maintenance_type,
             priority=priority,
             description=description,
-            detected_at=now.date(),
+            detected_at=now,
             pending_status=pending_status,
             dry_run=dry_run,
         )
@@ -323,7 +487,7 @@ def _evaluate_inactivity(now, pending_status: Statues, dry_run: bool) -> Tuple[i
             maintenance_type=corrective_type,
             priority=priority,
             description=description,
-            detected_at=now.date(),
+            detected_at=now,
             pending_status=pending_status,
             dry_run=dry_run,
         )
