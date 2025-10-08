@@ -92,8 +92,8 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
         id_user = data.get('id_user')
         document_number = data.get('document_number')
         
-        # Si se proporciona id_user, no validar ni usar document_number
-        if id_user is not None:
+        # Si se proporciona id_user (y no es null), no validar ni usar document_number
+        if id_user is not None and id_user != 'null':
             # Eliminar document_number si está presente para que no se guarde
             if 'document_number' in data:
                 del data['document_number']
@@ -106,7 +106,6 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
             })
         
         # 2. Si no hay id_user, validar el documento en servicio externo
-        document_number = data.get('document_number')
         if document_number:
             try:
                 # Obtener el token del usuario autenticado
@@ -150,17 +149,39 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
                                     logger.warning(f"Usuario con id {user_data['id']} no encontrado en la base de datos local")
                                     # Si el usuario no existe localmente, continuamos con el flujo normal
                                     return data
+                            else:
+                                # Si el documento no fue encontrado en el servicio externo, devolvemos todos los datos
+                                logger.info(f"Documento {document_number} no encontrado en el servicio externo")
+                                # Eliminamos id_user si es null para que no afecte la lógica de creación
+                                if 'id_user' in data and data['id_user'] is None:
+                                    del data['id_user']
+                                return data
+                        elif response.status_code == 404:
+                            # Si el servicio externo devuelve 404, el documento no existe
+                            logger.info(f"Documento {document_number} no encontrado en el servicio externo (404)")
+                            # Eliminamos id_user si es null para que no afecte la lógica de creación
+                            if 'id_user' in data and data['id_user'] is None:
+                                del data['id_user']
+                            return data
                     except requests.exceptions.RequestException as e:
                         logger.warning(f"Error al verificar documento en servicio externo: {str(e)}")
                         # Si hay error en la conexión, continuamos con el flujo normal
-                        pass
+                        # Eliminamos id_user si es null para que no afecte la lógica de creación
+                        if 'id_user' in data and data['id_user'] is None:
+                            del data['id_user']
+                        return data
                 
             except Exception as e:
                 logger.error(f"Error inesperado al validar documento: {str(e)}")
                 # Si hay error inesperado, continuamos con el flujo normal
-                pass
+                if 'id_user' in data and data['id_user'] is None:
+                    del data['id_user']
+                return data
         
         # 3. Si llegamos aquí, devolvemos los datos originales
+        # Aseguramos que si id_user es null, lo eliminemos
+        if 'id_user' in data and data['id_user'] is None:
+            del data['id_user']
         return data
 
     def create(self, validated_data):
