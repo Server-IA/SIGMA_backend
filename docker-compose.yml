@@ -2,13 +2,7 @@ services:
   web:
     build: .
     container_name: machpay_backend
-    command: bash -lc "
-      /app/wait_for_db.sh && \
-      mkdir -p /app/logs && \
-      printf '*/2 * * * * root cd /app && /usr/local/bin/python manage.py runcrons >> /app/logs/cron.log 2>&1\n' > /etc/cron.d/django_cron && \
-      chmod 0644 /etc/cron.d/django_cron && \
-      /usr/sbin/cron && \
-      exec gunicorn machpaymanager.wsgi:application --bind 0.0.0.0:8000
+    command: gunicorn machpaymanager.wsgi:application --bind 0.0.0.0:8000
     ports:
       - "8000:8000"
     env_file:
@@ -38,6 +32,17 @@ services:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - shared_net
+
+  cron:
+    build: .
+    container_name: django_cron
+    command: bash -c "python manage.py crontab remove || true; python manage.py crontab add; cron -f"
+    # SOLUCIÓN: Agregar las mismas variables de entorno que el contenedor web
+    depends_on:
+      - db
+    networks:
+      - shared_net
+
 
 volumes:
   machpay_postgres_data:

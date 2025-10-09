@@ -159,7 +159,9 @@ REST_FRAMEWORK = {
 
 # django-crontab configuration
 CRONJOBS = [
-    ('*/2 * * * *', 'maintenance.cron.update_machinery_status_job')
+    ('*/2 * * * *', 'maintenance.cron.update_machinery_status_job', '>> /proc/1/fd/1 2>&1'),
+    # ('*/1 * * * *', 'maintenance.cron.test_job', '>> /proc/1/fd/1 2>&1'),
+
 ]
 
 LOGGING = {
@@ -172,7 +174,7 @@ LOGGING = {
         },
     },
     'loggers': {
-        'maintenance.cron': {
+        'maintenance': {
             'handlers': ['cron_file'],
             'level': 'INFO',
             'propagate': True,

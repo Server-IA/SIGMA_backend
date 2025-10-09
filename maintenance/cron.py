@@ -52,3 +52,7 @@ def update_machinery_status_job():
         schedulings.count(),
         count,
     )
+
+def test_job():
+    """Job de prueba: imprime hora y un mensaje."""
+    print(f"[TEST JOB] ejecutado a {timezone.now().isoformat()}")
