@@ -3,8 +3,10 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from service_requests.models.customer import Customer
 from service_requests.serializers.customer_serializers.customer_create_serializer import CustomerCreateSerializer
+from service_requests.utils.audit_helpers import get_actor_info, customer_snapshot
 from rest_framework.permissions import IsAuthenticated
 import logging
+from audit_sdk import AuditClient
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,24 @@ class CustomerViewSet(viewsets.ViewSet):
             
             if serializer.is_valid():
                 customer = serializer.save()
+                
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                    
+                    AuditClient(request).create(
+                        object_id=str(customer.id_customer),
+                        after=customer_snapshot(customer),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="requests",
+                        submodule="customers",
+                    )
+                except Exception as e:
+                    logger.warning("El servicio de auditoría ha fallado en create_customer: %s", str(e))
+                
                 return Response({
                     'success': True,
                     'message': 'Cliente creado exitosamente',
