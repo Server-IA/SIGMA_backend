@@ -16,3 +16,5 @@ PyPDF2==3.0.1
 requests==2.31.0
 reportlab==4.2.5
 audit-sdk @ file:///app/vendor/audit_sdk-0.2.1-py3-none-any.whl
+django-crontab==0.7.1
+pytz==2025.1

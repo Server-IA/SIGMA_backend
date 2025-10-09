@@ -3,7 +3,6 @@ import logging
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from service_requests.models.customer import Customer
-from parameterization.models import Types, TypesCategory
 from django.utils import timezone
 import requests
 from users.models.user import User
@@ -20,23 +19,31 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
             'id_user',
             'document_number',
             'type_document_id',
+            'check_digit',
             'person_type',
+            'legal_entity_name',
             'name',
             'first_last_name',
             'second_last_name',
             'email',
             'phone',
-            'address'
+            'address',
+            'id_municipality',
+            'tax_regime'
         ]
         extra_kwargs = {
             'type_document_id': {'required': False},
+            'check_digit': {'required': False},
             'person_type': {'required': True},
+            'legal_entity_name': {'required': False},
             'name': {'required': False},
             'first_last_name': {'required': False},
             'second_last_name': {'required': False},
             'email': {'required': False},
             'phone': {'required': False},
             'address': {'required': False},
+            'id_municipality': {'required': True},
+            'tax_regime': {'required': True}
         }
 
     def validate_id_user(self, value):
@@ -68,21 +75,6 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
         
         return value
 
-    def validate_person_type(self, value):
-        """
-        Validar que el tipo de persona pertenezca a la categoría con id_types_categories = 14.
-        """
-        try:
-            category = TypesCategory.objects.get(id_types_categories=14)
-            category_name = category.name
-        except TypesCategory.DoesNotExist:
-            raise serializers.ValidationError("La categoría de tipos de persona no está configurada correctamente.")
-        
-        if value.id_types_categories_id != 14:
-            raise serializers.ValidationError(
-                f"El tipo de persona debe pertenecer a la categoría '{category_name}'."
-            )
-        return value
 
     def validate(self, data):
         """
@@ -141,9 +133,14 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
                                     user_instance = User.objects.get(id_user=user_data['id'])
                                     # Si encontramos el usuario en el servicio externo
                                     # Mantenemos solo id_user y person_type
+                                    # Mantener solo id_user, person_type y los campos requeridos
                                     return {
                                         'id_user': user_instance,
-                                        'person_type': data.get('person_type')  # Mantener el person_type del request
+                                        'check_digit': data.get('check_digit'),
+                                        'person_type': data.get('person_type'),
+                                        'legal_entity_name': data.get('legal_entity_name'),
+                                        'id_municipality': data.get('id_municipality'),
+                                        'tax_regime': data.get('tax_regime')
                                     }
                                 except User.DoesNotExist:
                                     logger.warning(f"Usuario con id {user_data['id']} no encontrado en la base de datos local")
@@ -211,6 +208,10 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
             customer_data = {
                 'id_user': validated_data['id_user'],
                 'person_type': validated_data.get('person_type'),
+                'check_digit': validated_data.get('check_digit'),
+                'legal_entity_name': validated_data.get('legal_entity_name'),
+                'id_municipality': validated_data.get('id_municipality'),
+                'tax_regime': validated_data.get('tax_regime'),
                 'customer_statues_id': 1,  # Estado activo por defecto
                 'id_responsible_user': db_user  # Usuario responsable
             }
