@@ -36,7 +36,8 @@ INSTALLED_APPS = [
     'payroll',
     'service_requests',
     'users',
-    'rest_framework'
+    'rest_framework',
+    'django_crontab'
 ]
 
 MIDDLEWARE = [
@@ -154,4 +155,27 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+}
+
+# django-crontab configuration
+CRONJOBS = [
+    ('*/2 * * * *', 'maintenance.cron.update_machinery_status_job')
+]
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'cron_file': {
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs/cron.log'),
+        },
+    },
+    'loggers': {
+        'maintenance.cron': {
+            'handlers': ['cron_file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
 }
