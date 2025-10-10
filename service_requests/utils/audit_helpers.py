@@ -1,5 +1,30 @@
 from typing import Any, Dict, Optional, Tuple, Union
 
+def service_snapshot(service_obj) -> Dict[str, Any]:
+    """
+    Snapshot ligero y JSON-serializable para el modelo Service.
+    Devuelve solo primitivos: ids, strings, números, booleans o None.
+    """
+    if not service_obj:
+        return {}
+        
+    return {
+        'id_service': getattr(service_obj, 'id_service', None),
+        'service_name': getattr(service_obj, 'service_name', None),
+        'description': getattr(service_obj, 'description', None),
+        'service_type_id': getattr(service_obj.service_type, 'id_types', None) if hasattr(service_obj, 'service_type') and service_obj.service_type else None,
+        'base_price': float(getattr(service_obj, 'base_price', 0)),
+        'price_unit_id': getattr(service_obj.price_unit, 'id_units', None) if hasattr(service_obj, 'price_unit') and service_obj.price_unit else None,
+        'applicable_tax': getattr(service_obj, 'applicable_tax', None),
+        'tax_rate': float(getattr(service_obj, 'tax_rate', 0)) if getattr(service_obj, 'tax_rate', None) is not None else None,
+        'is_vat_exempt': bool(getattr(service_obj, 'is_vat_exempt', False)),
+        'service_status_id': getattr(service_obj.service_status, 'id_statues', None) if hasattr(service_obj, 'service_status') and service_obj.service_status else None,
+        'creation_date': getattr(service_obj, 'creation_date', None).isoformat() if getattr(service_obj, 'creation_date', None) else None,
+        'modification_date': getattr(service_obj, 'modification_date', None).isoformat() if getattr(service_obj, 'modification_date', None) else None,
+        'id_responsible_user_id': getattr(service_obj.id_responsible_user, 'id_user', None) if hasattr(service_obj, 'id_responsible_user') and service_obj.id_responsible_user else None,
+    }
+
+
 def _get_user_id(obj) -> Optional[int]:
     """
     Obtiene el ID de usuario de diferentes maneras posibles.
