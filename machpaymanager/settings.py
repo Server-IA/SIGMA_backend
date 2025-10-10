@@ -160,6 +160,8 @@ REST_FRAMEWORK = {
 # django-crontab configuration
 CRONJOBS = [
     ('0 */12 * * *', 'maintenance.cron.update_machinery_status_job', '>> /proc/1/fd/1 2>&1'),
+    # Diario: marcar maquinarias inoperativas por contrato vencido
+    ('10 0 * * *', 'maintenance.cron.set_inoperative_on_expired_contract_job', '>> /proc/1/fd/1 2>&1'),
     # ('*/1 * * * *', 'maintenance.cron.test_job', '>> /proc/1/fd/1 2>&1'),
 ]
 
