@@ -4,3 +4,4 @@ from .maintenance_scheduling import MaintenanceScheduling
 from .maintenance_report import MaintenanceReport
 from .maintenance_report_spare_parts import MaintenanceReportSpareParts
 from .maintenance_maintenance_reports import MaintenanceMaintenanceReports
+from .maintenance_report_user import MaintenanceReportUser

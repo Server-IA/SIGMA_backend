@@ -12,18 +12,19 @@ if not FIREBASE_CREDENTIALS or not FIREBASE_STORAGE_BUCKET:
     raise ValueError("FIREBASE_CREDENTIALS y FIREBASE_STORAGE_BUCKET deben estar configurados en las variables de entorno")
 
 # Procesar credenciales
-raw = FIREBASE_CREDENTIALS.strip()
-if (raw.startswith("'") and raw.endswith("'")) or (raw.startswith('"') and raw.endswith('"')):
-    raw = raw[1:-1]
-
-# Decodificar caracteres escapados
 try:
-    unescaped = raw.encode('utf-8').decode('unicode_escape')
-    firebase_credentials = json.loads(unescaped)
+    # Remover comillas externas si existen
+    raw = FIREBASE_CREDENTIALS.strip()
+    if (raw.startswith("'") and raw.endswith("'")) or (raw.startswith('"') and raw.endswith('"')):
+        raw = raw[1:-1]
+    
+    # Parsear el JSON directamente (sin decode unicode_escape que causa el problema)
+    firebase_credentials = json.loads(raw)
     
     # Asegurar que la clave privada tenga saltos de línea correctos
+    # Reemplazar las secuencias literales \\n por saltos de línea reales
     if 'private_key' in firebase_credentials:
-        firebase_credentials["private_key"] = firebase_credentials["private_key"].replace("\\n", "\n").strip()
+        firebase_credentials["private_key"] = firebase_credentials["private_key"].replace("\\n", "\n")
     
     # Inicializar Firebase solo una vez
     if not firebase_admin._apps:
