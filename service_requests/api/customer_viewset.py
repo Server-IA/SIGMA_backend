@@ -270,7 +270,7 @@ class CustomerViewSet(viewsets.ViewSet):
                 try:
                     actor_id, actor_name, actor_role_name = get_actor_info(request.user)
                     AuditClient(request).update(
-                        object_id=str(after.get("id_customer") or customer.id_customer),
+                        object_id=str(before.get("id_customer") or customer.id_customer),
                         before=before,
                         actor_id=actor_id,
                         actor_name=actor_name,
