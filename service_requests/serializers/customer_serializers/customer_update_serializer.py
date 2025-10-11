@@ -43,7 +43,7 @@ class CustomerUpdateSerializer(serializers.ModelSerializer):
             'phone': {'required': False},
             'address': {'required': False},
             'id_municipality': {'required': False},
-            'tax_regime': {'required': False}
+            'tax_regime': {'required': False, 'allow_null': False}
         }
 
     def validate_id_user(self, value):
@@ -203,6 +203,18 @@ class CustomerUpdateSerializer(serializers.ModelSerializer):
         """
         Actualiza un cliente con los datos validados.
         """
+        # Si se está actualizando el tax_regime, asegurarse de que existe
+        if 'tax_regime' in validated_data and validated_data['tax_regime'] is not None:
+            from service_requests.models.tax_regime import TaxRegime
+            try:
+                # Asegurarse de que el tax_regime existe
+                tax_regime = TaxRegime.objects.get(id_tax_regime=validated_data['tax_regime'].id_tax_regime)
+                validated_data['tax_regime'] = tax_regime
+            except TaxRegime.DoesNotExist:
+                raise serializers.ValidationError({
+                    'tax_regime': 'El régimen fiscal especificado no existe.'
+                })
+        
         # Actualizar los campos proporcionados
         for attr, value in validated_data.items():
             setattr(instance, attr, value)

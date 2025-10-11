@@ -150,7 +150,7 @@ class CustomerViewSet(viewsets.ViewSet):
         """
         Listar únicamente los clientes activos.
         """
-        permission_id = 135  # Mismo permiso que para listar todos los clientes
+        permission_id = 136
         if not hasattr(self, 'check_permission') or not self.check_permission(request, permission_id):
             return Response(
                 {"success": False, "message": "No tiene permisos para listar clientes."},
