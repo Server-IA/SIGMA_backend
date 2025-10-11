@@ -36,7 +36,8 @@ INSTALLED_APPS = [
     'payroll',
     'service_requests',
     'users',
-    'rest_framework'
+    'rest_framework',
+    'django_crontab'
 ]
 
 MIDDLEWARE = [
@@ -154,4 +155,31 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+}
+
+# django-crontab configuration
+CRONJOBS = [
+    ('0 */12 * * *', 'maintenance.cron.update_machinery_status_job', '>> /proc/1/fd/1 2>&1'),
+    # Diario: marcar maquinarias inoperativas por contrato vencido
+    ('10 0 * * *', 'maintenance.cron.set_inoperative_on_expired_contract_job', '>> /proc/1/fd/1 2>&1'),
+    # Diario: generar solicitudes automáticas de mantenimiento por horas de uso
+    ('10 0 * * *', 'maintenance.cron.generate_automatic_maintenance_requests_job', '>> /proc/1/fd/1 2>&1'),
+    # ('*/1 * * * *', 'maintenance.cron.test_job', '>> /proc/1/fd/1 2>&1'),
+]
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'maintenance': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
 }
