@@ -111,6 +111,75 @@ class CustomerViewSet(viewsets.ViewSet):
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    def list(self, request):
+        """
+        Listar todos los clientes con sus detalles.
+        """
+        permission_id = 135
+        if not hasattr(self, 'check_permission') or not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para listar clientes."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Obtener todos los clientes de la BD con select_related para FK
+            customers = Customer.objects.select_related(
+                'type_document_id', 'person_type', 'customer_statues'
+            ).all()
+            
+            # Serializar los clientes
+            serializer = CustomerDetailSerializer(customers, many=True, context={'request': request})
+            
+            return Response({
+                "success": True,
+                "data": serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error al listar clientes: {str(e)}")
+            return Response({
+                'success': False,
+                'message': 'Error al procesar la solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        """
+        Listar únicamente los clientes activos.
+        """
+        permission_id = 135  # Mismo permiso que para listar todos los clientes
+        if not hasattr(self, 'check_permission') or not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para listar clientes."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Filtrar solo clientes activos (customer_statues=1)
+            active_customers = Customer.objects.filter(
+                customer_statues_id=1
+            ).select_related(
+                'type_document_id', 'person_type', 'customer_statues'
+            )
+            
+            # Serializar los clientes activos
+            serializer = CustomerDetailSerializer(active_customers, many=True, context={'request': request})
+            
+            return Response({
+                "success": True,
+                "data": serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error al listar clientes activos: {str(e)}")
+            return Response({
+                'success': False,
+                'message': 'Error al procesar la solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=True, methods=['get'], url_path='detail')
     def retrieve_with_details(self, request, pk=None):
         """
