@@ -15,7 +15,7 @@ class Customer(models.Model):
     phone = models.CharField(max_length=100, null=True, blank=True,)
     address = models.CharField(max_length=100, null=True, blank=True,)
     id_municipality = models.IntegerField(null=False, blank=False)
-    tax_regime = models.IntegerField(null=False, blank=False)
+    tax_regime = models.ForeignKey('service_requests.TaxRegime', on_delete=models.PROTECT, null=False, blank=False, related_name='tax_regime')
     customer_statues = models.ForeignKey('parameterization.Statues', on_delete=models.PROTECT, related_name='customer_statues')
     creation_date = models.DateTimeField(auto_now=True)
     modification_date = models.DateTimeField(auto_now=True)

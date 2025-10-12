@@ -24,6 +24,10 @@ class CustomerDetailSerializer(serializers.ModelSerializer):
     # Nombres de FKs propios del cliente (no vienen del usuario externo)
     person_type_name = serializers.CharField(source='person_type.name', read_only=True)
     customer_statues_name = serializers.CharField(source='customer_statues.name', read_only=True)
+    
+    # Tax regime fields
+    tax_regime_code = serializers.CharField(source='tax_regime.code', read_only=True)
+    tax_regime_name = serializers.CharField(source='tax_regime.name', read_only=True)
 
     _logger = logging.getLogger(__name__)
 
@@ -31,21 +35,27 @@ class CustomerDetailSerializer(serializers.ModelSerializer):
         """Obtiene la info básica del usuario desde el servicio externo.
         Retorna {} si no hay info o en caso de error.
         """
-        # Cache por instancia de serializer para evitar múltiples llamadas
-        cache_key = '_ext_user_cache'
+        user_id = getattr(obj, 'id_user_id', None)
+        if not user_id:
+            return {}
+
+        # Usar un diccionario de caché por user_id para manejar múltiples usuarios
+        cache_key = f'_ext_user_cache_{user_id}'
         cached = getattr(self, cache_key, None)
         if cached is not None:
             return cached
 
-        user_id = getattr(obj, 'id_user_id', None)
-        if not user_id:
-            setattr(self, cache_key, {})
-            return {}
+        # Inicializar el caché si no existe
+        if not hasattr(self, '_ext_users_cache'):
+            self._ext_users_cache = {}
+
+        # Verificar si ya tenemos este usuario en caché
+        if user_id in self._ext_users_cache:
+            return self._ext_users_cache[user_id]
 
         base_url = os.getenv('AUTH_SERVICE_URL', '').rstrip('/')
         if not base_url:
             self._logger.warning('AUTH_SERVICE_URL no configurado')
-            setattr(self, cache_key, {})
             return {}
 
         url = f"{base_url}/users/users/basic-user-list/by-ids"
@@ -62,26 +72,28 @@ class CustomerDetailSerializer(serializers.ModelSerializer):
             resp = requests.post(url, json={'ids': [user_id]}, headers=headers, timeout=10)
             if resp.status_code != 200:
                 self._logger.warning('External user service returned %s', resp.status_code)
-                setattr(self, cache_key, {})
                 return {}
+                
             payload = resp.json() if resp.content else {}
             data = (payload or {}).get('data') or []
             if not isinstance(data, list):
-                setattr(self, cache_key, {})
                 return {}
+                
             # Buscar el usuario con el id solicitado
             for u in data:
                 try:
-                    if str(u.get('id')) == str(user_id):
-                        setattr(self, cache_key, u)
+                    if u and str(u.get('id')) == str(user_id):
+                        # Guardar en caché para este user_id
+                        self._ext_users_cache[user_id] = u
                         return u
-                except Exception:
+                except Exception as e:
+                    self._logger.error(f'Error procesando usuario {user_id}: {str(e)}')
                     continue
-            setattr(self, cache_key, {})
+                    
             return {}
+            
         except Exception as e:
             self._logger.error('Error consultando servicio externo de usuarios: %s', str(e))
-            setattr(self, cache_key, {})
             return {}
 
     def _ext(self, obj: Customer, key: str) -> Optional[Any]:
@@ -138,6 +150,8 @@ class CustomerDetailSerializer(serializers.ModelSerializer):
             'address',
             'id_municipality',
             'tax_regime',
+            'tax_regime_code',
+            'tax_regime_name',
             'customer_statues_id',
             'customer_statues_name',
         ]
