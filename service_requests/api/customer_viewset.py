@@ -291,8 +291,7 @@ class CustomerViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Verificar permisos (ajustar según la matriz de permisos)
-        permission_id = 136  # Ajustar según la matriz de permisos
+        permission_id = 137
         if not self.check_permission(request, permission_id):
             return Response(
                 {"success": False, "message": "No tiene permisos para actualizar clientes"},

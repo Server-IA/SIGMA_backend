@@ -215,11 +215,14 @@ class CustomerUpdateSerializer(serializers.ModelSerializer):
                     'tax_regime': 'El régimen fiscal especificado no existe.'
                 })
         
-        # Actualizar los campos proporcionados
+        # Actualizar solo el campo modification_date
+        instance.modification_date = timezone.now()
+        
+        # Actualizar los demás campos proporcionados
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         
         # Guardar los cambios
-        instance.save()
+        instance.save(update_fields=[*validated_data.keys(), 'modification_date'])
         
         return instance
