@@ -5,6 +5,7 @@ from rest_framework.decorators import action
 from service_requests.models.customer import Customer
 from service_requests.serializers.customer_serializers.customer_create_serializer import CustomerCreateSerializer
 from service_requests.serializers.customer_serializers.customer_detail_serializer import CustomerDetailSerializer
+from service_requests.serializers.customer_serializers.customer_update_serializer import CustomerUpdateSerializer
 from service_requests.utils.audit_helpers import get_actor_info, customer_snapshot
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
@@ -111,6 +112,75 @@ class CustomerViewSet(viewsets.ViewSet):
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    def list(self, request):
+        """
+        Listar todos los clientes con sus detalles.
+        """
+        permission_id = 135
+        if not hasattr(self, 'check_permission') or not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para listar clientes."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Obtener todos los clientes de la BD con select_related para FK
+            customers = Customer.objects.select_related(
+                'type_document_id', 'person_type', 'customer_statues'
+            ).all()
+            
+            # Serializar los clientes
+            serializer = CustomerDetailSerializer(customers, many=True, context={'request': request})
+            
+            return Response({
+                "success": True,
+                "data": serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error al listar clientes: {str(e)}")
+            return Response({
+                'success': False,
+                'message': 'Error al procesar la solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        """
+        Listar únicamente los clientes activos.
+        """
+        permission_id = 136
+        if not hasattr(self, 'check_permission') or not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para listar clientes."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Filtrar solo clientes activos (customer_statues=1)
+            active_customers = Customer.objects.filter(
+                customer_statues_id=1
+            ).select_related(
+                'type_document_id', 'person_type', 'customer_statues'
+            )
+            
+            # Serializar los clientes activos
+            serializer = CustomerDetailSerializer(active_customers, many=True, context={'request': request})
+            
+            return Response({
+                "success": True,
+                "data": serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error al listar clientes activos: {str(e)}")
+            return Response({
+                'success': False,
+                'message': 'Error al procesar la solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=True, methods=['get'], url_path='detail')
     def retrieve_with_details(self, request, pk=None):
         """
@@ -207,6 +277,177 @@ class CustomerViewSet(viewsets.ViewSet):
             return Response({"success": False, "message": "Cliente no encontrado."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"success": False, "message": "Error al cambiar el estado.", "error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @transaction.atomic
+    @action(detail=True, methods=['patch'])
+    def update_customer(self, request, pk=None):
+        """
+        Actualiza un cliente existente.
+        """
+        # Verificar que el usuario esté autenticado
+        if not request.user.is_authenticated:
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 137
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para actualizar clientes"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Obtener la instancia del cliente
+            customer = self._get_customer(pk)
+            
+            # Tomar snapshot para auditoría
+            before = customer_snapshot(customer)
+            
+            # Validar y actualizar
+            serializer = CustomerUpdateSerializer(
+                instance=customer,
+                data=request.data,
+                context={'request': request}
+            )
+            
+            if serializer.is_valid():
+                # Guardar los cambios
+                updated_customer = serializer.save()
+                
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                    
+                    AuditClient(request).update(
+                        object_id=str(updated_customer.id_customer),
+                        before=before,
+                        after=customer_snapshot(updated_customer),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="requests",
+                        submodule="customers",
+                    )
+                except Exception as e:
+                    logger.warning("El servicio de auditoría ha fallado en update_customer: %s", str(e))
+                
+                # Obtener los datos actualizados para la respuesta
+                customer_data = CustomerDetailSerializer(updated_customer, context={'request': request}).data
+                
+                return Response({
+                    'success': True,
+                    'message': 'Cliente actualizado exitosamente',
+                    'data': customer_data
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                'success': False,
+                'message': 'Error de validación',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Http404:
+            return Response({
+                'success': False,
+                'message': 'Cliente no encontrado'
+            }, status=status.HTTP_404_NOT_FOUND)
+            
+        except Exception as e:
+            logger.error(f"Error al actualizar cliente: {str(e)}")
+            return Response({
+                'success': False,
+                'message': 'Error al procesar la solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @transaction.atomic
+    @action(detail=True, methods=['patch'])
+    def update_customer(self, request, pk=None):
+        """
+        Actualiza un cliente existente.
+        """
+        # Verificar que el usuario esté autenticado
+        if not request.user.is_authenticated:
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permisos (ajustar según la matriz de permisos)
+        permission_id = 136  # Ajustar según la matriz de permisos
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para actualizar clientes"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Obtener la instancia del cliente
+            customer = self._get_customer(pk)
+            
+            # Tomar snapshot para auditoría
+            before = customer_snapshot(customer)
+            
+            # Validar y actualizar
+            serializer = CustomerUpdateSerializer(
+                instance=customer,
+                data=request.data,
+                context={'request': request}
+            )
+            
+            if serializer.is_valid():
+                # Guardar los cambios
+                updated_customer = serializer.save()
+                
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                    
+                    AuditClient(request).update(
+                        object_id=str(updated_customer.id_customer),
+                        before=before,
+                        after=customer_snapshot(updated_customer),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="requests",
+                        submodule="customers",
+                    )
+                except Exception as e:
+                    logger.warning("El servicio de auditoría ha fallado en update_customer: %s", str(e))
+                
+                # Obtener los datos actualizados para la respuesta
+                customer_data = CustomerDetailSerializer(updated_customer, context={'request': request}).data
+                
+                return Response({
+                    'success': True,
+                    'message': 'Cliente actualizado exitosamente',
+                    'data': customer_data
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                'success': False,
+                'message': 'Error de validación',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Http404:
+            return Response({
+                'success': False,
+                'message': 'Cliente no encontrado'
+            }, status=status.HTTP_404_NOT_FOUND)
+            
+        except Exception as e:
+            logger.error(f"Error al actualizar cliente: {str(e)}")
+            return Response({
+                'success': False,
+                'message': 'Error al procesar la solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @transaction.atomic
     def destroy(self, request, pk=None):

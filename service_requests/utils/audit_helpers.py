@@ -152,7 +152,7 @@ def customer_snapshot(customer_obj) -> Dict[str, Any]:
         "phone": _safe_get(customer_obj, "phone"),
         "address": _safe_get(customer_obj, "address"),
         "id_municipality": _safe_get(customer_obj, "id_municipality"),
-        "tax_regime": _safe_get(customer_obj, "tax_regime"),
+        "tax_regime": serialize_attr("tax_regime"),
         "customer_statues": serialize_attr("customer_statues"),
         "id_responsible_user": serialize_attr("id_responsible_user"),
         # id_user puede venir de diferentes maneras

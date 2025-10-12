@@ -43,7 +43,7 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
             'phone': {'required': False},
             'address': {'required': False},
             'id_municipality': {'required': True},
-            'tax_regime': {'required': True}
+            'tax_regime': {'required': True, 'allow_null': False}
         }
 
     def validate_id_user(self, value):
@@ -97,7 +97,15 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
                 'document_number': 'Se requiere el número de documento cuando no se proporciona un id_user.'
             })
         
-        # 2. Si no hay id_user, validar el documento en servicio externo
+        # 2. Validar que el email no esté en uso por otro cliente
+        email = data.get('email')
+        if email:
+            if Customer.objects.filter(email=email).exists():
+                raise serializers.ValidationError({
+                    'email': 'Este correo electrónico ya está en uso por otro cliente.'
+                })
+
+        # 3. Si no hay id_user, validar el documento en servicio externo
         if document_number:
             try:
                 # Obtener el token del usuario autenticado
@@ -140,7 +148,7 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
                                         'person_type': data.get('person_type'),
                                         'legal_entity_name': data.get('legal_entity_name'),
                                         'id_municipality': data.get('id_municipality'),
-                                        'tax_regime': data.get('tax_regime')
+                                        'tax_regime': data.get('tax_regime')  # Use the tax_regime instance directly
                                     }
                                 except User.DoesNotExist:
                                     logger.warning(f"Usuario con id {user_data['id']} no encontrado en la base de datos local")
