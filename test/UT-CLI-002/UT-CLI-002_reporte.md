@@ -1,4 +1,4 @@
-# Documentación de Pruebas UT-CLI-002
+﻿# Documentación de Pruebas UT-CLI-002
 
 **Historia de Usuario:** HU-CLI-002 - Listar Clientes con Filtros y Paginación  
 **Endpoints Probados:**
@@ -8,7 +8,7 @@
 **Ejecutado por:** Nicolas Urrutia  
 **Fecha de Ejecución:** 11 de Octubre, 2025  
 **Entorno:** Docker (Django + PostgreSQL + pytest)  
-**Resultado Global:** ✅ **11/11 pruebas ejecutadas APROBADAS (100%)**  
+**Resultado Global:**  **11/11 pruebas ejecutadas APROBADAS (100%)**  
 **Funcionalidades No Implementadas:** 15 casos marcados como SKIPPED
 
 ---
@@ -25,7 +25,7 @@
 | **Pasos (AAA)** | Arrange: Cargar datos de clientes y autenticar usuario con permiso customer.list. Act: Enviar GET /customers/ con token válido. Assert: Status 200; body con success=true y data como arreglo; cada item contiene id_customer, document_number, type_document_id/name, person_type_id/name, legal_entity_name o combinación de nombre y apellidos, email, phone, customer_statues_id/name. |
 | **Resultado Esperado** | Respuesta 200 con estructura JSON válida y campos presentes para renderizar columnas solicitadas. |
 | **Resultado Obtenido** | Status 200, success=true, data con 3 clientes incluyendo todos los campos requeridos. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -43,7 +43,7 @@
 | **Pasos (AAA)** | Arrange: No configurar token. Act: Enviar GET /customers/ sin Authorization. Assert: Status 401; mensaje de autenticación requerida; sin datos sensibles. |
 | **Resultado Esperado** | 401 Unauthorized cuando faltan credenciales válidas. |
 | **Resultado Obtenido** | Status 401, mensaje "Authentication credentials were not provided."; sin exposición de datos. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -61,7 +61,7 @@
 | **Pasos (AAA)** | Arrange: Autenticar cuenta sin permiso requerido. Act: GET /customers/. Assert: Status 403; mensaje indicando falta de permisos. |
 | **Resultado Esperado** | 403 Forbidden para usuario autenticado sin permisos de consulta. |
 | **Resultado Obtenido** | Status 403, mensaje "No tiene permisos para listar clientes."; sin acceso a datos. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -79,7 +79,7 @@
 | **Pasos (AAA)** | Arrange: Preparar dataset con nulos y valores completos. Act: GET /customers/. Assert: Validar tipos JSON según contrato y que null sea usado donde aplique. |
 | **Resultado Esperado** | JSON válido con tipados coherentes y sin violar gramática JSON. |
 | **Resultado Obtenido** | success es boolean, data es array; id_customer es int, type_document_name es string/null, customer_statues_name es string; tipos coherentes. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -97,7 +97,7 @@
 | **Pasos (AAA)** | Arrange: Insertar 50 clientes. Act: GET con page=2&pageSize=20. Assert: 200; data.length=20; metadatos presentes y coherentes. |
 | **Resultado Esperado** | Paginación estándar con metadatos y navegabilidad clara. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Funcionalidad de paginación no disponible en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -115,7 +115,7 @@
 | **Pasos (AAA)** | Arrange: Población de datos suficiente. Act: GET con limit/offset. Assert: 200; conteos correctos; offsets consistentes. |
 | **Resultado Esperado** | Soporte consistente de limit/offset si está implementado. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Paginación limit/offset no disponible en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -133,7 +133,7 @@
 | **Pasos (AAA)** | Arrange: Preparar petición inválida. Act: GET con parámetros inválidos. Assert: 400 con detalle de validación o fallback a defaults documentados. |
 | **Resultado Esperado** | Validación robusta de parámetros de paginación. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Validación de parámetros de paginación no disponible. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -151,7 +151,7 @@
 | **Pasos (AAA)** | Arrange: Cargar clientes con nombres coincidentes y no coincidentes. Act: GET con name=Juan. Assert: 200; solo clientes coincidentes incluidos; no falsos positivos. |
 | **Resultado Esperado** | Filtro efectivo y determinista por nombre/razón social. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Filtro por nombre no disponible en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -169,7 +169,7 @@
 | **Pasos (AAA)** | Arrange: Población con varios tipos. Act: GET con type_document_id=1. Assert: 200; solo registros con type_document_id=1. |
 | **Resultado Esperado** | Resultados filtrados correctamente por tipo de documento. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Filtro por tipo de documento no disponible en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -187,7 +187,7 @@
 | **Pasos (AAA)** | Arrange: Insertar registros con números similares. Act: GET con document_number exacto. Assert: 200; coincidencias exactas retornadas; no incluir otros. |
 | **Resultado Esperado** | Coincidencia precisa por documento según parámetro. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Filtro por document_number no disponible en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -205,7 +205,7 @@
 | **Pasos (AAA)** | Arrange: Preparar estados Activo e Inactivo. Act: GET con status=Activo. Assert: 200; solo Activo; ninguno Inactivo. |
 | **Resultado Esperado** | Filtrado correcto por estado del cliente. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Filtro por status no disponible en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -223,7 +223,7 @@
 | **Pasos (AAA)** | Arrange: Cargar registros con emails/phones variados. Act: GET con email=... Assert: 200; resultados coincidentes; case-insensitive cuando aplique. |
 | **Resultado Esperado** | Filtrado funcional por email/teléfono. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Filtro por email/phone no disponible en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -241,7 +241,7 @@
 | **Pasos (AAA)** | Arrange: Sembrar datos para casos positivos y negativos. Act: GET con filtros AND. Assert: 200; solo registros que cumplen todos los filtros. |
 | **Resultado Esperado** | Composición AND de filtros coherente y documentada. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Filtros combinados no disponibles en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -259,7 +259,7 @@
 | **Pasos (AAA)** | Arrange: Incluir registros que contengan el token de búsqueda. Act: GET con q=... Assert: 200; incluye coincidencias por documento o nombre según alcance. |
 | **Resultado Esperado** | Búsqueda rápida funcional en campos clave. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Búsqueda rápida no disponible en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -277,7 +277,7 @@
 | **Pasos (AAA)** | Arrange: Asegurar inexistencia de coincidencias. Act: GET con filtro imposible. Assert: 200; data=[]; sin errores. |
 | **Resultado Esperado** | Lista vacía sin error para que el frontend muestre el mensaje. |
 | **Resultado Obtenido** | Status 200, success=true, data=[]; sin errores. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -295,7 +295,7 @@
 | **Pasos (AAA)** | Arrange: Insertar valores con acentos y caracteres Unicode. Act: GET /customers/. Assert: 200; sin caracteres "mojibake"; válido UTF-8 por especificación JSON. |
 | **Resultado Esperado** | Cadenas Unicode correctas sin corrupción de caracteres. |
 | **Resultado Obtenido** | Status 200, caracteres UTF-8 correctos: "José", "María", "Ñoño", "Cédula de Ciudadanía"; sin corrupción. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -313,7 +313,7 @@
 | **Pasos (AAA)** | Arrange: Configurar usuarios con is_active true/false y clientes asociados. Act: GET /customers/. Assert: 200; si existe user_active, validar true/false; si no, validar id_user null->No y id_user!=null requiere verificación adicional. |
 | **Resultado Esperado** | Información suficiente para mostrar "Usuario Activo (Sí/No)" conforme criterio funcional. |
 | **Resultado Obtenido** | Status 200, campo id_user presente en respuesta; clientes con id_user=1 y clientes con id_user=null correctamente diferenciados. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -331,7 +331,7 @@
 | **Pasos (AAA)** | Arrange: Crear cliente nuevo vía POST. Act: GET inmediatamente después. Assert: 200; data incluye el nuevo cliente sin retrasos visibles. |
 | **Resultado Esperado** | Lectura coherente post-escritura sin necesidad de recarga manual. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Requiere configuración completa del endpoint create_customer con permisos y auditoría. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -349,7 +349,7 @@
 | **Pasos (AAA)** | Arrange: Cambiar estado a Inactivo. Act: GET /customers/ y /customers/active/. Assert: 200; estado actualizado y cliente excluido de activos. |
 | **Resultado Esperado** | Coherencia entre listados general y de activos tras el cambio. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Requiere implementación de toggle-status y verificación de listados. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -367,7 +367,7 @@
 | **Pasos (AAA)** | Arrange: Asegurar mezcla de estados. Act: GET /customers/active/. Assert: 200; ningún Inactivo presente; todos Active. |
 | **Resultado Esperado** | Lista estricta de clientes activos. |
 | **Resultado Obtenido** | Status 200, solo clientes con customer_statues_name="Activo" y customer_statues_id=1; ningún cliente inactivo incluido. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -385,7 +385,7 @@
 | **Pasos (AAA)** | Arrange: Autenticar sin permiso. Act: GET /customers/active/. Assert: 403 con mensaje de autorización insuficiente. |
 | **Resultado Esperado** | 403 Forbidden por falta de permiso específico. |
 | **Resultado Obtenido** | Status 403, mensaje "No tiene permisos para listar clientes."; sin acceso a datos. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -403,7 +403,7 @@
 | **Pasos (AAA)** | Arrange: Insertar 100 registros. Act: GET paginado. Assert: 200; meta presente y valores correctos; enlaces next/prev si aplican. |
 | **Resultado Esperado** | Respuesta con contexto de paginación para UX eficiente. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Metadatos de paginación no disponibles en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -421,7 +421,7 @@
 | **Pasos (AAA)** | Arrange: Preparar variedad de datos. Act: GET /customers/. Assert: 200; null permitido; sin strings vacíos inesperados donde se espera null. |
 | **Resultado Esperado** | Tolerancia a nulls en campos opcionales. |
 | **Resultado Obtenido** | Status 200, campos phone y address pueden ser null o string; tipos coherentes; sin strings vacíos donde debería ser null. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -439,7 +439,7 @@
 | **Pasos (AAA)** | Arrange: Sembrar datos desordenados. Act: GET con sort=name&order=asc. Assert: 200; verificar orden lexicográfico. |
 | **Resultado Esperado** | Orden estable y predecible al solicitar sort. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Ordenamiento no disponible en el endpoint actual. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -457,7 +457,7 @@
 | **Pasos (AAA)** | Arrange: Preparar consulta maliciosa. Act: GET con payload de inyección. Assert: 200 o 400 seguro; sin exposición de errores SQL; resultados no amplificados. |
 | **Resultado Esperado** | Manejo seguro y saneado de parámetros de consulta. |
 | **Resultado Obtenido** | NO IMPLEMENTADO - Requiere análisis de seguridad más profundo con filtros implementados. |
-| **Estado** | NO APROBADO (SKIPPED) ⚠️ |
+| **Estado** | NO APROBADO (SKIPPED)  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -475,7 +475,7 @@
 | **Pasos (AAA)** | Arrange: Crear 50 clientes. Act: GET /customers/ midiendo tiempo. Assert: Tiempo de respuesta < 3 segundos; status 200. |
 | **Resultado Esperado** | Respuesta en menos de 3 segundos. |
 | **Resultado Obtenido** | Tiempo de respuesta: 0.002 segundos; Status 200. |
-| **Estado** | APROBADO ✅ |
+| **Estado** | APROBADO  |
 | **Fecha Ejecución** | Octubre 11, 2025 |
 | **Ejecutado por** | Nicolas Urrutia |
 
@@ -529,3 +529,4 @@
 **Documento generado automáticamente por el sistema de pruebas UT-CLI-002**  
 **Versión:** 1.0  
 **Última actualización:** Octubre 11, 2025
+

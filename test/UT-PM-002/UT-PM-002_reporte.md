@@ -1,4 +1,4 @@
-# Documentación de Pruebas Unitarias UT-PM-002
+﻿# Documentación de Pruebas Unitarias UT-PM-002
 
 Esta documentación detalla las 36 pruebas unitarias para el endpoint de lista de programaciones de mantenimiento, siguiendo el formato estandarizado.
 

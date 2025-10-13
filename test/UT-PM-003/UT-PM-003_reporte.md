@@ -1,4 +1,4 @@
-# Documentación de Casos de Prueba - UT-PM-003
+﻿# Documentación de Casos de Prueba - UT-PM-003
 
 Esta documentación detalla los casos de prueba para el módulo de actualización de programaciones de mantenimiento (UT-PM-003). Cada caso sigue el formato AAA (Arrange, Act, Assert) y utiliza mocks para simular el comportamiento del endpoint.
 
@@ -1065,3 +1065,4 @@ Esta documentación detalla los casos de prueba para el módulo de actualizació
 **Fecha Ejecución:** 2025-09-30
 
 **Ejecutado por:** Nicolas Urrutia
+

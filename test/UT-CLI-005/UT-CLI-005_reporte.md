@@ -1,4 +1,4 @@
-# Documentación de Pruebas UT-CLI-005
+﻿# Documentación de Pruebas UT-CLI-005
 
 **Historia de Usuario:** HU-CLI-005 - Eliminar Cliente y Toggle Status  
 **Endpoints Probados:**
@@ -8,7 +8,7 @@
 **Ejecutado por:** Nicolas Urrutia  
 **Fecha de Ejecución:** 10 de Octubre, 2025  
 **Entorno:** Docker (Django + PostgreSQL + pytest)  
-**Resultado Global:** ✅ **22/22 pruebas APROBADAS (100%)**
+**Resultado Global:**  **22/22 pruebas APROBADAS (100%)**
 
 ---
 
@@ -449,3 +449,4 @@
 **Documento generado automáticamente por el sistema de pruebas UT-CLI-005**  
 **Versión:** 1.0  
 **Última actualización:** Octubre 10, 2025
+
