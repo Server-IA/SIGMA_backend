@@ -158,3 +158,33 @@ def customer_snapshot(customer_obj) -> Dict[str, Any]:
         # id_user puede venir de diferentes maneras
         "id_user": _get_user_id(customer_obj),
     }
+
+
+def service_request_snapshot(service_request_obj) -> Dict[str, Any]:
+    """
+    Snapshot ligero y JSON-serializable para el modelo ServiceRequest.
+    Devuelve solo primitivos: ids, strings, números, booleans o None.
+    """
+    def _safe_get(o, attr, default=None):
+        try:
+            # dict-like first
+            if isinstance(o, dict):
+                return o.get(attr, default)
+            return getattr(o, attr, default)
+        except Exception:
+            return default
+
+    if not service_request_obj:
+        return {}
+    
+    return {
+        'id_request': _safe_get(service_request_obj, 'id_request'),
+        'customer_id': _safe_get(service_request_obj.customer, 'id_customer') if hasattr(service_request_obj, 'customer') and service_request_obj.customer else None,
+        'request_detail': _safe_get(service_request_obj, 'request_detail'),
+        'scheduled_start_date': _safe_get(service_request_obj, 'scheduled_start_date').isoformat() if _safe_get(service_request_obj, 'scheduled_start_date') else None,
+        'scheduled_end_date': _safe_get(service_request_obj, 'scheduled_end_date').isoformat() if _safe_get(service_request_obj, 'scheduled_end_date') else None,
+        'request_status_id': _safe_get(service_request_obj.request_status, 'id_statues') if hasattr(service_request_obj, 'request_status') and service_request_obj.request_status else None,
+        'creation_date': _safe_get(service_request_obj, 'creation_date', timezone.now()).isoformat(),
+        'modification_date': _safe_get(service_request_obj, 'modification_date', timezone.now()).isoformat(),
+        'id_responsible_user': _safe_get(service_request_obj.id_responsible_user, 'id') if hasattr(service_request_obj, 'id_responsible_user') and service_request_obj.id_responsible_user else None,
+    }
