@@ -1,11 +1,11 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from django.utils import timezone
 import logging
 
 # Serializers
 from service_requests.serializers.service_serializers.service_create_serializer import ServiceCreateSerializer
+from service_requests.serializers.service_serializers.service_list_serializer import ServiceListSerializer
 
 # Models
 from service_requests.models.services import Service
@@ -17,14 +17,10 @@ from service_requests.utils.audit_helpers import get_actor_info, service_snapsho
 logger = logging.getLogger(__name__)
 
 class ServiceViewSet(viewsets.ViewSet):
-    """
-    ViewSet para manejar las operaciones de servicios.
-    """
+    
 
     def check_permission(self, request, required_permission_id: int):
-        """
-        Verifica si el usuario tiene el permiso (por ID).
-        """
+        
         # Obtener el payload del JWT desde request.auth
         payload = getattr(request, "auth", None) or {}
 
@@ -42,26 +38,40 @@ class ServiceViewSet(viewsets.ViewSet):
 
         return required_permission_id in permisos_usuario
 
+    def list(self, request):
+        
+        permission_id = 142
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para listar servicios."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            qs = Service.objects.select_related('service_type', 'price_unit', 'service_status').all()
+            qs = qs.order_by('-modification_date')
+
+            serializer = ServiceListSerializer(
+                qs, many=True, context={
+                    'request': request,
+                }
+            )
+
+            return Response({
+                "success": True,
+                "data": serializer.data,
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error("Error al listar servicios: %s", str(e), exc_info=True)
+            return Response({
+                "success": False,
+                "message": "Error interno del servidor al listar los servicios",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['post'], url_path='create')
-    def create_service(self, request):
-        """
-        Crea un nuevo servicio.
-        
-        Requiere permiso: 140 (service.create)
-        
-        Campos obligatorios:
-        - service_name: Nombre del servicio (string, máximo 100 caracteres)
-        - service_type: ID del tipo de servicio (debe pertenecer a la categoría 14)
-        - base_price: Precio base (decimal mayor a 0)
-        - price_unit: ID de la unidad de medida
-        - applicable_tax: Indica si el impuesto es aplicable (entero)
-        - responsible_user: ID del usuario responsable (se obtiene del token)
-        
-        Campos opcionales:
-        - description: Descripción del servicio (string, máximo 500 caracteres)
-        - tax_rate: Tasa de impuesto (decimal mayor a 0 si applicable_tax es True)
-        - is_vat_exempt: Indica si está exento de IVA (booleano, opcional, por defecto False)
-        """
+    def create_service(self, request):        
         # Verificar que el usuario esté autenticado
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
             return Response(
@@ -133,5 +143,35 @@ class ServiceViewSet(viewsets.ViewSet):
                     "message": "Error interno del servidor al crear el servicio",
                     "error": str(e)
                 },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='active')
+    def active(self, request):
+        permission_id = 143
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para listar servicios."},
+                status=status.HTTP_403_FORBIDDEN
             )
+
+        try:
+            qs = Service.objects.select_related('service_type', 'price_unit', 'service_status').filter(service_status_id=1)
+            qs = qs.order_by('-modification_date')
+
+            serializer = ServiceListSerializer(
+                qs, many=True, context={
+                    'request': request,
+                }
+            )
+
+            return Response({
+                "success": True,
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error("Error al listar servicios activos (permiso 143): %s", str(e), exc_info=True)
+            return Response({
+                "success": False,
+                "message": "Error interno del servidor al listar los servicios activos",
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
