@@ -6,6 +6,9 @@ from django.shortcuts import get_object_or_404
 import logging
 from audit_sdk import AuditClient
 from django.db import transaction
+from django.utils import timezone
+import os
+import requests
 
 from service_requests.models import ServiceRequest
 from service_requests.serializers.service_request_serializers.pre_request_create_serializer import PreRequestCreateSerializer
@@ -85,6 +88,33 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                         )
                     except Exception as e:
                         logger.warning("El servicio de auditoría ha fallado en create_pre_request: %s", str(e))
+                    
+                    # Enviar notificación a usuarios con permiso 148
+                    try:
+                        notif_title = "Nueva pre solicitud creada"
+                        notif_message = f"Se creó una pre solicitud con ID {service_request.id_request}."
+                        notif_type = "pre_request_creation"
+                        notif_body = {
+                            "title": notif_title,
+                            "message": notif_message,
+                            "type": notif_type,
+                            "user_id": request.user.id
+                        }
+                        base_url = os.getenv('AUTH_SERVICE_URL', '').rstrip('/')
+                        if base_url:
+                            url = f"{base_url}/users/users/notifications/send-to-permission/?permission_id=148"
+                            headers = {}
+                            auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or (request.headers.get('Authorization') if hasattr(request, 'headers') else None)
+                            if auth_header:
+                                headers['Authorization'] = auth_header
+                            try:
+                                resp = requests.post(url, json=notif_body, headers=headers, timeout=10)
+                                if resp.status_code != 200:
+                                    logger.warning(f"No se pudo enviar la notificación: {resp.text}")
+                            except Exception as notif_exc:
+                                logger.warning(f"Error enviando notificación de pre-solicitud: {notif_exc}")
+                    except Exception as notif_outer_exc:
+                        logger.warning(f"Error general en notificación de pre-solicitud: {notif_outer_exc}")
 
                 return Response({
                     'success': True,

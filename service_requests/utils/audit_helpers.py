@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional, Tuple, Union
+from django.utils import timezone
 
 def service_snapshot(service_obj) -> Dict[str, Any]:
     """
@@ -186,5 +187,7 @@ def service_request_snapshot(service_request_obj) -> Dict[str, Any]:
         'request_status_id': _safe_get(service_request_obj.request_status, 'id_statues') if hasattr(service_request_obj, 'request_status') and service_request_obj.request_status else None,
         'creation_date': _safe_get(service_request_obj, 'creation_date', timezone.now()).isoformat(),
         'modification_date': _safe_get(service_request_obj, 'modification_date', timezone.now()).isoformat(),
-        'id_responsible_user': _safe_get(service_request_obj.id_responsible_user, 'id') if hasattr(service_request_obj, 'id_responsible_user') and service_request_obj.id_responsible_user else None,
+        'id_responsible_user': _safe_get(service_request_obj, 'id_responsible_user_id') if hasattr(service_request_obj, 'id_responsible_user_id') else (
+            _safe_get(service_request_obj.id_responsible_user, 'id_user') if hasattr(service_request_obj, 'id_responsible_user') and service_request_obj.id_responsible_user else None
+        ),
     }

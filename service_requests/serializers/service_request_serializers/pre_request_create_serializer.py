@@ -5,6 +5,7 @@ from django.db.models import Max, Q
 from django.core.exceptions import ObjectDoesNotExist
 from service_requests.models import ServiceRequest, RequestLocation
 from parameterization.models import Statues, Types, TypesCategory, Units, UnitsCategory
+from users.models import User
 
 class RequestLocationCreateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -180,6 +181,36 @@ class PreRequestCreateSerializer(serializers.ModelSerializer):
                 # If date parsing fails, let the field validation handle it
                 pass
         return value
+        
+    def validate(self, data):
+        """
+        Valida que no existan solicitudes para el mismo cliente en el mismo rango de fechas.
+        """
+        customer = data.get('customer')
+        scheduled_start_date = data.get('scheduled_start_date')
+        scheduled_end_date = data.get('scheduled_end_date')
+        
+        if customer and scheduled_start_date and scheduled_end_date:
+            # Buscar solicitudes existentes que se superpongan con el rango de fechas
+            overlapping_requests = ServiceRequest.objects.filter(
+                customer=customer,
+                scheduled_start_date__lte=scheduled_end_date,
+                scheduled_end_date__gte=scheduled_start_date
+            )
+            
+            # Si estamos actualizando una solicitud existente, la excluimos de la búsqueda
+            if self.instance:
+                overlapping_requests = overlapping_requests.exclude(id_request=self.instance.id_request)
+            
+            if overlapping_requests.exists():
+                conflict = overlapping_requests.first()
+                raise serializers.ValidationError({
+                    'non_field_errors': [
+                        f'Conflicto con solicitud {conflict.id_request} (fechas: {conflict.scheduled_start_date.strftime("%d/%m/%Y")} - {conflict.scheduled_end_date.strftime("%d/%m/%Y")})'
+                    ]
+                })
+        
+        return data
 
     def generate_request_id(self):
         current_year = timezone.now().year
@@ -208,7 +239,14 @@ class PreRequestCreateSerializer(serializers.ModelSerializer):
             
             # Set responsible user from request
             if request and hasattr(request, 'user') and request.user.is_authenticated:
-                validated_data['id_responsible_user'] = request.user
+                try:
+                    # Get the User model instance using the ID from the JWT user
+                    user = User.objects.get(id_user=request.user.id)
+                    validated_data['id_responsible_user'] = user
+                except User.DoesNotExist:
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"User with id {request.user.id} not found in User model")
+                    raise serializers.ValidationError("Usuario responsable no encontrado")
             
             # Generate request ID
             validated_data['id_request'] = self.generate_request_id()
