@@ -33,6 +33,17 @@ services:
     networks:
       - shared_net
 
+  cron:
+    build: .
+    container_name: django_cron
+    command: bash -c "python manage.py crontab remove || true; python manage.py crontab add; cron -f"
+    # SOLUCIÓN: Agregar las mismas variables de entorno que el contenedor web
+    depends_on:
+      - db
+    networks:
+      - shared_net
+
+
 volumes:
   machpay_postgres_data:
 

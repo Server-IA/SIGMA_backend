@@ -1,0 +1,239 @@
+import os
+import logging
+from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
+from service_requests.models.customer import Customer
+from django.utils import timezone
+import requests
+from users.models.user import User
+
+logger = logging.getLogger(__name__)
+
+class CustomerCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer para la creación de clientes.
+    """
+    class Meta:
+        model = Customer
+        fields = [
+            'id_user',
+            'document_number',
+            'type_document_id',
+            'check_digit',
+            'person_type',
+            'legal_entity_name',
+            'name',
+            'first_last_name',
+            'second_last_name',
+            'email',
+            'phone',
+            'address',
+            'id_municipality',
+            'tax_regime'
+        ]
+        extra_kwargs = {
+            'type_document_id': {'required': False},
+            'check_digit': {'required': False},
+            'person_type': {'required': True},
+            'legal_entity_name': {'required': False},
+            'name': {'required': False},
+            'first_last_name': {'required': False},
+            'second_last_name': {'required': False},
+            'email': {'required': False},
+            'phone': {'required': False},
+            'address': {'required': False},
+            'id_municipality': {'required': True},
+            'tax_regime': {'required': True, 'allow_null': False}
+        }
+
+    def validate_id_user(self, value):
+        """
+        Validar que el id_user sea único.
+        """
+        if value and Customer.objects.filter(id_user=value).exists():
+            raise serializers.ValidationError("Ya existe un cliente con este usuario.")
+        return value
+
+    def validate_document_number(self, value):
+        """
+        Validar que el document_number sea único, solo contenga números positivos
+        y no exceda los 10 dígitos.
+        """
+        if value is not None:
+            str_value = str(value)
+            if not str_value.isdigit():
+                raise serializers.ValidationError("El número de documento solo puede contener dígitos.")
+            
+            if int(value) < 0:
+                raise serializers.ValidationError("El número de documento no puede ser negativo.")
+            
+            if len(str_value) > 10:
+                raise serializers.ValidationError("El número de documento no puede tener más de 10 dígitos.")
+            
+            if Customer.objects.filter(document_number=value).exists():
+                raise serializers.ValidationError("Ya existe un cliente con este número de documento.")
+        
+        return value
+
+
+    def validate(self, data):
+        """
+        Validaciones personalizadas.
+        """
+        request = self.context.get('request')
+        id_user = data.get('id_user')
+        document_number = data.get('document_number')
+        
+        # Si se proporciona id_user (y no es null), no validar ni usar document_number
+        if id_user is not None and id_user != 'null':
+            # Eliminar document_number si está presente para que no se guarde
+            if 'document_number' in data:
+                del data['document_number']
+            return data
+            
+        # Si no se proporciona id_user, validar que se haya proporcionado el document_number
+        if not document_number:
+            raise serializers.ValidationError({
+                'document_number': 'Se requiere el número de documento cuando no se proporciona un id_user.'
+            })
+        
+        # 2. Validar que el email no esté en uso por otro cliente
+        email = data.get('email')
+        if email:
+            if Customer.objects.filter(email=email).exists():
+                raise serializers.ValidationError({
+                    'email': 'Este correo electrónico ya está en uso por otro cliente.'
+                })
+
+        # 3. Si no hay id_user, validar el documento en servicio externo
+        if document_number:
+            try:
+                # Obtener el token del usuario autenticado
+                request = self.context.get('request')
+                if request and hasattr(request, 'user'):
+                    auth_header = request.META.get('HTTP_AUTHORIZATION')
+                    if not auth_header and hasattr(request, 'headers'):
+                        auth_header = request.headers.get('Authorization')
+                    
+                    headers = {}
+                    if auth_header:
+                        headers['Authorization'] = auth_header
+                    
+                    try:
+                        # Obtener la URL del servicio externo de las variables de entorno
+                        base_url = os.getenv('AUTH_SERVICE_URL')
+                        if not base_url:
+                            logger.warning("AUTH_SERVICE_URL no está configurado. No se puede verificar el documento.")
+                            return data
+                            
+                        # Construir la URL completa
+                        url = f"{base_url}users/users/by-document/{document_number}"
+                        response = requests.get(url, headers=headers, timeout=5)
+                        
+                        if response.status_code == 200:
+                            response_data = response.json()
+                            # Verificar si la respuesta tiene el formato esperado
+                            if response_data.get('success') and 'data' in response_data and response_data['data']:
+                                user_data = response_data['data']
+                                # Obtener la instancia de User usando el ID del servicio externo
+                                from users.models.user import User
+                                try:
+                                    user_instance = User.objects.get(id_user=user_data['id'])
+                                    # Si encontramos el usuario en el servicio externo
+                                    # Mantenemos solo id_user y person_type
+                                    # Mantener solo id_user, person_type y los campos requeridos
+                                    return {
+                                        'id_user': user_instance,
+                                        'check_digit': data.get('check_digit'),
+                                        'person_type': data.get('person_type'),
+                                        'legal_entity_name': data.get('legal_entity_name'),
+                                        'id_municipality': data.get('id_municipality'),
+                                        'tax_regime': data.get('tax_regime')  # Use the tax_regime instance directly
+                                    }
+                                except User.DoesNotExist:
+                                    logger.warning(f"Usuario con id {user_data['id']} no encontrado en la base de datos local")
+                                    # Si el usuario no existe localmente, continuamos con el flujo normal
+                                    return data
+                            else:
+                                # Si el documento no fue encontrado en el servicio externo, devolvemos todos los datos
+                                logger.info(f"Documento {document_number} no encontrado en el servicio externo")
+                                # Eliminamos id_user si es null para que no afecte la lógica de creación
+                                if 'id_user' in data and data['id_user'] is None:
+                                    del data['id_user']
+                                return data
+                        elif response.status_code == 404:
+                            # Si el servicio externo devuelve 404, el documento no existe
+                            logger.info(f"Documento {document_number} no encontrado en el servicio externo (404)")
+                            # Eliminamos id_user si es null para que no afecte la lógica de creación
+                            if 'id_user' in data and data['id_user'] is None:
+                                del data['id_user']
+                            return data
+                    except requests.exceptions.RequestException as e:
+                        logger.warning(f"Error al verificar documento en servicio externo: {str(e)}")
+                        # Si hay error en la conexión, continuamos con el flujo normal
+                        # Eliminamos id_user si es null para que no afecte la lógica de creación
+                        if 'id_user' in data and data['id_user'] is None:
+                            del data['id_user']
+                        return data
+                
+            except Exception as e:
+                logger.error(f"Error inesperado al validar documento: {str(e)}")
+                # Si hay error inesperado, continuamos con el flujo normal
+                if 'id_user' in data and data['id_user'] is None:
+                    del data['id_user']
+                return data
+        
+        # 3. Si llegamos aquí, devolvemos los datos originales
+        # Aseguramos que si id_user es null, lo eliminemos
+        if 'id_user' in data and data['id_user'] is None:
+            del data['id_user']
+        return data
+
+    def create(self, validated_data):
+        """
+        Crea un nuevo cliente con los datos validados.
+        """
+        from users.models.user import User  # Importar aquí para evitar importaciones circulares
+        
+        # Obtener el usuario autenticado
+        request = self.context['request']
+        user = request.user
+        
+        # Obtener la instancia real de User de la base de datos
+        try:
+            if hasattr(user, 'id_user'):
+                db_user = User.objects.get(id_user=user.id_user)
+            else:
+                db_user = User.objects.get(pk=user.id)
+        except User.DoesNotExist:
+            raise serializers.ValidationError({
+                'user': 'El usuario autenticado no existe en la base de datos.'
+            })
+        
+        # Determinar qué campos vamos a guardar basado en los datos validados
+        if 'id_user' in validated_data:
+            # Caso 1: Se proporcionó id_user, solo guardamos id_user y person_type
+            customer_data = {
+                'id_user': validated_data['id_user'],
+                'person_type': validated_data.get('person_type'),
+                'check_digit': validated_data.get('check_digit'),
+                'legal_entity_name': validated_data.get('legal_entity_name'),
+                'id_municipality': validated_data.get('id_municipality'),
+                'tax_regime': validated_data.get('tax_regime'),
+                'customer_statues_id': 1,  # Estado activo por defecto
+                'id_responsible_user': db_user  # Usuario responsable
+            }
+            
+            # Si se proporcionó document_number, también lo guardamos
+            if 'document_number' in validated_data:
+                customer_data['document_number'] = validated_data['document_number']
+        else:
+            # Si no se proporcionó id_user, usamos todos los datos validados
+            customer_data = validated_data.copy()
+            customer_data.update({
+                'customer_statues_id': 1,  # Estado activo por defecto
+                'id_responsible_user': db_user  # Usuario responsable
+            })
+        
+        # Crear el cliente
+        return Customer.objects.create(**customer_data)

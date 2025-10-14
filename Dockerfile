@@ -8,10 +8,14 @@ ENV PYTHONUNBUFFERED=1
 # Directorio de trabajo en el contenedor
 WORKDIR /app
 
-# Instalar dependencias del sistema necesarias para psycopg2 y compilación
+# Instalar dependencias del sistema necesarias
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
+    cron \
+    bash \
+    procps \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar requerimientos primero para aprovechar cache
@@ -24,8 +28,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar todo el proyecto
 COPY . /app/
 
+# Copiar el script de espera y darle permisos
+COPY wait_for_db.sh /app/wait_for_db.sh
+RUN chmod +x /app/wait_for_db.sh
+
 # Exponer el puerto 8000
 EXPOSE 8000
 
-# Comando por defecto (usamos gunicorn en vez de runserver para prod)
+# Comando por defecto: gunicorn (el compose puede sobreescribirlo si es necesario)
 CMD ["gunicorn", "machpaymanager.wsgi:application", "--bind", "0.0.0.0:8000"]
+
