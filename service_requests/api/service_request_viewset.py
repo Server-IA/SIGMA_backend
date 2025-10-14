@@ -12,7 +12,11 @@ import requests
 
 from service_requests.models import ServiceRequest
 from service_requests.serializers.service_request_serializers.pre_request_create_serializer import PreRequestCreateSerializer
-from service_requests.utils.audit_helpers import get_actor_info, service_request_snapshot
+from service_requests.utils.audit_helpers import get_actor_info, service_request_snapshot, service_request_cancel_snapshot
+from service_requests.serializers.service_request_serializers.service_request_cancel_serializer import ServiceRequestCancelSerializer
+from service_requests.models import RequestMachineryUser
+from parameterization.models.statues import Statues
+from machinery.models.machinery import Machinery
 
 logger = logging.getLogger(__name__)
 
@@ -133,5 +137,96 @@ class ServiceRequestViewSet(viewsets.ViewSet):
             return Response({
                 'success': False,
                 'message': 'Ocurrió un error inesperado al procesar la solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel(self, request, pk=None):
+        """
+        Cancela una solicitud de servicio.
+        Reglas:
+        - Requiere permiso ID 153.
+        - Solo se puede cancelar si la solicitud está en estado PENDIENTE (id=20).
+        - No se puede cancelar si ya está ACEPTADA (id=22) o CANCELADA (id=23).
+        - Al cancelar, cambia el estado de la solicitud a CANCELADO (id=23) y
+          la maquinaria asociada a DISPONIBLE (id=4).
+        - Registra observaciones, fecha y usuario de cancelación.
+        """
+        # Autenticación
+        if not request.user.is_authenticated:
+            return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        permission_id = 153
+        if not self.check_permission(request, permission_id):
+            return Response({"message": "No tiene permisos para cancelar solicitudes"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Buscar la solicitud por su PK (id_request)
+        service_request = get_object_or_404(ServiceRequest, pk=pk)
+
+        serializer = ServiceRequestCancelSerializer(
+            instance=service_request,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Error en la validación de datos',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+
+                # Aplicar datos de cancelación (observaciones, fecha, usuario)
+                serializer.save()
+
+                # Cambiar estado de la solicitud a CANCELADO (23)
+                cancel_status = get_object_or_404(Statues, pk=23)
+                service_request.request_status = cancel_status
+                service_request.save(update_fields=['request_status'])
+
+                # Cambiar estado de la maquinaria asociada a DISPONIBLE (4)
+                available_status = get_object_or_404(Statues, pk=4)
+                # Obtener maquinarias vinculadas a la solicitud
+                rms = RequestMachineryUser.objects.filter(request=service_request).select_related('machinery')
+                machinery_ids = [rm.machinery_id for rm in rms]
+                if machinery_ids:
+                    # Usar el campo _id para actualizar el FK en bulk
+                    Machinery.objects.filter(pk__in=machinery_ids).update(machinery_operational_status_id=available_status.pk)
+
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                    machinery_statuses = [
+                        {"id_machinery": mid, "machinery_operational_status_id": 4}
+                        for mid in machinery_ids
+                    ] if machinery_ids else []
+                    AuditClient(request).create(
+                        object_id=str(service_request.id_request),
+                        after=service_request_cancel_snapshot(service_request, machinery_statuses=machinery_statuses),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="requests",
+                        submodule="requests",
+                    )
+                except Exception as audit_exc:
+                    logger.warning("El servicio de auditoría ha fallado en cancel: %s", str(audit_exc))
+
+            # Respuesta de éxito
+            return Response({
+                'success': True,
+                'message': f"Solicitud cancelada exitosamente. Código: {service_request.id_request}.",
+                'id_request': service_request.id_request
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error inesperado al cancelar la solicitud: {str(e)}", exc_info=True)
+            return Response({
+                'success': False,
+                'message': 'Ocurrió un error inesperado al procesar la cancelación',
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
