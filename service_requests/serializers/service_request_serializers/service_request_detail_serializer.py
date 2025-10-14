@@ -179,23 +179,28 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
     completion_cancellation_user_name = serializers.SerializerMethodField()
     
     # Related fields
+    request_status_id = serializers.PrimaryKeyRelatedField(
+            source='request_status',
+            read_only=True
+        )
     request_status_name = serializers.CharField(source='request_status.name', read_only=True)
+    payment_status_id = serializers.PrimaryKeyRelatedField(
+            source='payment_status',
+            read_only=True
+        )
     payment_status_name = serializers.CharField(source='payment_status.name', read_only=True)
     currency_unit_amount_paid_name = serializers.CharField(source='currency_unit_amount_paid.name', read_only=True, allow_null=True)
     currency_unit_amount_paid_symbol = serializers.CharField(source='currency_unit_amount_paid.symbol', read_only=True, allow_null=True)
     currency_unit_amount_to_pay_name = serializers.CharField(source='currency_unit_amount_to_pay.name', read_only=True, allow_null=True)
     currency_unit_amount_to_pay_symbol = serializers.CharField(source='currency_unit_amount_to_pay.symbol', read_only=True, allow_null=True)
-    
-    # Currency fields
     currency_unit_amount_paid_id = serializers.PrimaryKeyRelatedField(
-        source='currency_unit_amount_paid',
-        read_only=True
-    )
+            source='currency_unit_amount_paid',
+            read_only=True
+        )
     currency_unit_amount_to_pay_id = serializers.PrimaryKeyRelatedField(
-        source='currency_unit_amount_to_pay',
-        read_only=True
-    )
-    
+            source='currency_unit_amount_to_pay',
+            read_only=True
+        )  
     # Nested serializers
     request_machinery_user = RequestMachineryUserSerializer(many=True, read_only=True, source='machinery_users')
     request_location = RequestLocationSerializer(read_only=True)
@@ -218,7 +223,7 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
             'completion_cancellation_user', 'completion_cancellation_user_name',
             
             # Status
-            'request_status', 'request_status_name',
+            'request_status', 'request_status_id', 'request_status_name',
             
             # Machinery and location
             'request_machinery_user', 'request_location',
@@ -230,7 +235,7 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
             'amount_to_pay', 
             'currency_unit_amount_to_pay', 'currency_unit_amount_to_pay_id',
             'currency_unit_amount_to_pay_name', 'currency_unit_amount_to_pay_symbol',
-            'payment_status', 'payment_status_name', 'payment_method'
+            'payment_status', 'payment_status_id', 'payment_status_name', 'payment_method'
         ]
         extra_kwargs = {
             'customer': {'write_only': True},
@@ -405,7 +410,7 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
     def get_confirmation_user_name(self, obj):
         if not obj.confirmation_user:
             return None
-        user_info = self._get_user_info(obj.confirmation_user.id)
+        user_info = self._get_external_user(obj.confirmation_user.id_user)
         if user_info:
             return f"{user_info.get('name', '')} {user_info.get('first_last_name', '')} {user_info.get('second_last_name', '')}".strip()
         return None
@@ -413,7 +418,7 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
     def get_completion_cancellation_user_name(self, obj):
         if not obj.completion_cancellation_user:
             return None
-        user_info = self._get_user_info(obj.completion_cancellation_user.id)
+        user_info = self._get_external_user(obj.completion_cancellation_user.id_user)
         if user_info:
             return f"{user_info.get('name', '')} {user_info.get('first_last_name', '')} {user_info.get('second_last_name', '')}".strip()
         return None
