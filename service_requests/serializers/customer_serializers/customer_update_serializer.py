@@ -1,212 +1,228 @@
-"""
-Serializer para la actualización de clientes.
-"""
-import logging
 import os
-from typing import Any, Dict, Optional
-
-import requests
+import logging
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
 from service_requests.models.customer import Customer
-from service_requests.models.document_type import DocumentType
-from service_requests.models.person_type import PersonType
-from parameterization.models import Statues
-
+from django.utils import timezone
+import requests
+from users.models.user import User
 
 logger = logging.getLogger(__name__)
 
-
 class CustomerUpdateSerializer(serializers.ModelSerializer):
     """
-    Serializer para actualizar clientes con validaciones específicas del negocio.
+    Serializer para la actualización de clientes.
     """
-
     class Meta:
         model = Customer
         fields = [
-            'name',
-            'first_last_name',
-            'second_last_name',
+            'id_user',
             'document_number',
             'type_document_id',
             'check_digit',
             'person_type',
             'legal_entity_name',
+            'name',
+            'first_last_name',
+            'second_last_name',
             'email',
             'phone',
             'address',
             'id_municipality',
-            'tax_regime',
-            'id_user'
+            'tax_regime'
         ]
-
-    def validate_document_number(self, value):
-        """Valida que el número de documento sea único y cumpla las reglas de negocio."""
-        if not value:
-            raise serializers.ValidationError("El número de documento es requerido.")
-        
-        # Validar que sea numérico y no negativo
-        try:
-            doc_num = int(str(value))
-            if doc_num < 0:
-                raise serializers.ValidationError("El número de documento no puede ser negativo.")
-        except ValueError:
-            raise serializers.ValidationError("El número de documento debe ser numérico.")
-        
-        # Validar longitud máxima (10 dígitos)
-        if len(str(value)) > 10:
-            raise serializers.ValidationError("El número de documento no puede superar los 10 dígitos.")
-        
-        # Obtener la instancia actual (si se está actualizando)
-        instance = getattr(self, 'instance', None)
-        
-        # Verificar si ya existe un cliente con el mismo documento
-        queryset = Customer.objects.filter(document_number=value)
-        
-        # Si estamos actualizando, excluir la instancia actual
-        if instance:
-            queryset = queryset.exclude(id_customer=instance.id_customer)
-            
-        if queryset.exists():
-            raise serializers.ValidationError(
-                "Ya existe un cliente con este número de documento."
-            )
-        
-        return value
-
-    def validate_type_document_id(self, value):
-        """Valida que el tipo de documento exista."""
-        if value is None:
-            return value
-            
-        # Si es una instancia de DocumentType, obtener su ID
-        if hasattr(value, 'id_document_type'):
-            value_id = value.id_document_type
-        else:
-            value_id = value
-            
-        try:
-            DocumentType.objects.get(id_document_type=value_id)
-        except DocumentType.DoesNotExist:
-            raise serializers.ValidationError("El tipo de documento no existe.")
-        return value
-
-    def validate_person_type(self, value):
-        """Valida que el tipo de persona exista."""
-        if value is None:
-            return value
-            
-        # Si es una instancia de PersonType, obtener su ID
-        if hasattr(value, 'id_person_type'):
-            value_id = value.id_person_type
-        else:
-            value_id = value
-            
-        try:
-            PersonType.objects.get(id_person_type=value_id)
-        except PersonType.DoesNotExist:
-            raise serializers.ValidationError("El tipo de persona no existe.")
-        return value
-
-    def validate_email(self, value):
-        """Valida el formato del email y unicidad."""
-        if not value:
-            raise serializers.ValidationError("El email es requerido.")
-        
-        # Obtener la instancia actual (si se está actualizando)
-        instance = getattr(self, 'instance', None)
-        
-        # Verificar unicidad del email
-        queryset = Customer.objects.filter(email=value)
-        
-        # Si estamos actualizando, excluir la instancia actual
-        if instance:
-            queryset = queryset.exclude(id_customer=instance.id_customer)
-            
-        if queryset.exists():
-            raise serializers.ValidationError("Ya existe un cliente con este email.")
-        
-        return value
+        extra_kwargs = {
+            'type_document_id': {'required': False},
+            'check_digit': {'required': False},
+            'person_type': {'required': False},
+            'legal_entity_name': {'required': False},
+            'name': {'required': False},
+            'first_last_name': {'required': False},
+            'second_last_name': {'required': False},
+            'email': {'required': False},
+            'phone': {'required': False},
+            'address': {'required': False},
+            'id_municipality': {'required': False},
+            'tax_regime': {'required': False, 'allow_null': False}
+        }
 
     def validate_id_user(self, value):
-        """Valida el usuario asociado si se proporciona."""
-        if value:
-            # Verificar que no esté ya asociado a otro cliente
-            instance = getattr(self, 'instance', None)
+        """
+        Validar que el id_user sea único.
+        """
+        if value and Customer.objects.filter(id_user=value).exclude(id_customer=self.instance.id_customer).exists():
+            raise serializers.ValidationError("Ya existe otro cliente con este usuario.")
+        return value
+
+    def validate_document_number(self, value):
+        """
+        Validar que el document_number sea único, solo contenga números positivos
+        y no exceda los 10 dígitos.
+        """
+        if value is not None:
+            str_value = str(value)
+            if not str_value.isdigit():
+                raise serializers.ValidationError("El número de documento solo puede contener dígitos.")
             
-            queryset = Customer.objects.filter(id_user=value)
+            if int(value) < 0:
+                raise serializers.ValidationError("El número de documento no puede ser negativo.")
             
-            # Si estamos actualizando, excluir la instancia actual
-            if instance:
-                queryset = queryset.exclude(id_customer=instance.id_customer)
-                
-            if queryset.exists():
-                raise serializers.ValidationError(
-                    "El usuario ya está asociado a otro cliente."
-                )
+            if len(str_value) > 10:
+                raise serializers.ValidationError("El número de documento no puede tener más de 10 dígitos.")
+            
+            if Customer.objects.filter(document_number=value).exclude(id_customer=self.instance.id_customer).exists():
+                raise serializers.ValidationError("Ya existe otro cliente con este número de documento.")
         
         return value
 
-    def validate_name(self, value):
-        """Valida la longitud máxima del nombre."""
-        if value and len(value) > 100:
-            raise serializers.ValidationError("El nombre no puede exceder los 100 caracteres.")
-        return value
-
-    def validate_first_last_name(self, value):
-        """Valida la longitud máxima del primer apellido."""
-        if value and len(value) > 100:
-            raise serializers.ValidationError("El primer apellido no puede exceder los 100 caracteres.")
-        return value
-
-    def validate_second_last_name(self, value):
-        """Valida la longitud máxima del segundo apellido."""
-        if value and len(value) > 100:
-            raise serializers.ValidationError("El segundo apellido no puede exceder los 100 caracteres.")
-        return value
-
-    def validate_phone(self, value):
-        """Valida la longitud máxima del teléfono."""
-        if value and len(value) > 100:
-            raise serializers.ValidationError("El teléfono no puede exceder los 100 caracteres.")
-        return value
-
-    def validate_address(self, value):
-        """Valida la longitud máxima de la dirección."""
-        if value and len(value) > 100:
-            raise serializers.ValidationError("La dirección no puede exceder los 100 caracteres.")
-        return value
-
-    def validate(self, attrs):
-        """Validaciones a nivel de objeto."""
-        # Validar combinación documento-tipo única
-        document_number = attrs.get('document_number')
-        document_type = attrs.get('id_document_type')
+    def validate(self, data):
+        """
+        Validaciones personalizadas para la actualización.
+        """
+        request = self.context.get('request')
+        id_user = data.get('id_user')
+        document_number = data.get('document_number')
+        instance = self.instance
         
-        if document_number and document_type:
-            instance = getattr(self, 'instance', None)
-            
-            queryset = Customer.objects.filter(
-                document_number=document_number,
-                id_document_type=document_type
-            )
-            
-            # Si estamos actualizando, excluir la instancia actual
-            if instance:
-                queryset = queryset.exclude(id_customer=instance.id_customer)
+        # Si se proporciona id_user (y no es null), validar que no esté asociado a otro cliente
+        if id_user is not None and id_user != 'null':
+            from users.models.user import User
+            try:
+                # Obtener la instancia de User
+                if isinstance(id_user, User):
+                    user_instance = id_user
+                else:
+                    user_instance = User.objects.get(id_user=id_user)
                 
-            if queryset.exists():
+                # Limpiar campos de identificación
+                data['document_number'] = None
+                data['type_document_id'] = None
+                data['name'] = None
+                data['first_last_name'] = None
+                data['second_last_name'] = None
+                data['email'] = None
+                data['phone'] = None
+                data['address'] = None
+                
+                # Asignar la instancia de User
+                data['id_user'] = user_instance
+                
+                return data
+                
+            except (User.DoesNotExist, AttributeError):
                 raise serializers.ValidationError({
-                    'document_number': 'Ya existe un cliente con este número y tipo de documento.'
+                    'id_user': 'El usuario especificado no existe.'
                 })
-
-        return attrs
+        
+        # Si no se proporciona id_user (o es null) y se proporciona document_number
+        elif document_number is not None and (id_user is None or id_user == 'null'):
+            # Si el documento es diferente al actual, validar en el servicio externo
+            if str(document_number) != str(instance.document_number or ''):
+                try:
+                    # Obtener el token del usuario autenticado
+                    if request and hasattr(request, 'user'):
+                        auth_header = request.META.get('HTTP_AUTHORIZATION')
+                        if not auth_header and hasattr(request, 'headers'):
+                            auth_header = request.headers.get('Authorization')
+                        
+                        headers = {}
+                        if auth_header:
+                            headers['Authorization'] = auth_header
+                        
+                        # Obtener la URL del servicio externo de las variables de entorno
+                        base_url = os.getenv('AUTH_SERVICE_URL')
+                        if not base_url:
+                            logger.warning("AUTH_SERVICE_URL no está configurado. No se puede verificar el documento.")
+                            return data
+                            
+                        # Construir la URL completa
+                        url = f"{base_url}users/users/by-document/{document_number}"
+                        response = requests.get(url, headers=headers, timeout=5)
+                        
+                        if response.status_code == 200:
+                            response_data = response.json()
+                            # Verificar si la respuesta tiene el formato esperado
+                            if response_data.get('success') and 'data' in response_data and response_data['data']:
+                                user_data = response_data['data']
+                                # Verificar si el usuario ya está asociado a otro cliente
+                                if Customer.objects.filter(id_user=user_data['id']).exclude(id_customer=instance.id_customer).exists():
+                                    raise serializers.ValidationError({
+                                        'document_number': 'El usuario asociado a este documento ya está registrado en otro cliente.'
+                                    })
+                                
+                                # Obtener la instancia de User
+                                from users.models.user import User
+                                try:
+                                    user_instance = User.objects.get(id_user=user_data['id'])
+                                    # Asignar la instancia de User
+                                    data['id_user'] = user_instance
+                                    # Limpiar campos de identificación
+                                    data['document_number'] = None
+                                    data['type_document_id'] = None
+                                    data['name'] = None
+                                    data['first_last_name'] = None
+                                    data['second_last_name'] = None
+                                    data['email'] = None
+                                    data['phone'] = None
+                                    data['address'] = None
+                                    return data
+                                except User.DoesNotExist:
+                                    logger.warning(f"Usuario con id {user_data['id']} no encontrado en la base de datos local")
+                                    # Si el usuario no existe localmente, continuar con la validación normal
+                            
+                            # Si no se encontró el documento en el servicio externo, continuar con la actualización normal
+                            logger.info(f"Documento {document_number} no encontrado en el servicio externo")
+                            
+                        elif response.status_code == 404:
+                            # Si el servicio externo devuelve 404, el documento no existe
+                            logger.info(f"Documento {document_number} no encontrado en el servicio externo (404)")
+                            # Continuar con la actualización normal
+                            
+                except requests.exceptions.RequestException as e:
+                    logger.warning(f"Error al verificar documento en servicio externo: {str(e)}")
+                    # Si hay error en la conexión, continuar con la validación normal
+                
+                # Si llegamos aquí, el documento no se encontró en el servicio externo o hubo un error
+                # Verificar que el documento no esté en uso por otro cliente
+                if Customer.objects.filter(document_number=document_number).exclude(id_customer=instance.id_customer).exists():
+                    raise serializers.ValidationError({
+                        'document_number': 'Este número de documento ya está en uso por otro cliente.'
+                    })
+        
+        # Verificar que el email no esté en uso por otro cliente
+        email = data.get('email')
+        if email and email != instance.email:
+            if Customer.objects.filter(email=email).exclude(id_customer=instance.id_customer).exists():
+                raise serializers.ValidationError({
+                    'email': 'Este correo electrónico ya está en uso por otro cliente.'
+                })
+        
+        return data
 
     def update(self, instance, validated_data):
-        """Actualiza la instancia del cliente."""
-        # Actualizar todos los campos proporcionados
+        """
+        Actualiza un cliente con los datos validados.
+        """
+        # Si se está actualizando el tax_regime, asegurarse de que existe
+        if 'tax_regime' in validated_data and validated_data['tax_regime'] is not None:
+            from service_requests.models.tax_regime import TaxRegime
+            try:
+                # Asegurarse de que el tax_regime existe
+                tax_regime = TaxRegime.objects.get(id_tax_regime=validated_data['tax_regime'].id_tax_regime)
+                validated_data['tax_regime'] = tax_regime
+            except TaxRegime.DoesNotExist:
+                raise serializers.ValidationError({
+                    'tax_regime': 'El régimen fiscal especificado no existe.'
+                })
+        
+        # Actualizar solo el campo modification_date
+        instance.modification_date = timezone.now()
+        
+        # Actualizar los demás campos proporcionados
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         
-        instance.save()
+        # Guardar los cambios
+        instance.save(update_fields=[*validated_data.keys(), 'modification_date'])
+        
         return instance
