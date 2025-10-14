@@ -4,6 +4,11 @@ from rest_framework.decorators import action
 from django.utils import timezone
 import logging
 from django.db import transaction, IntegrityError
+from django.http import Http404
+from rest_framework import status
+from service_requests.models.services import Service
+from parameterization.models import Statues
+from audit_sdk import AuditClient
 
 # Serializers
 from service_requests.serializers.service_serializers.service_create_serializer import ServiceCreateSerializer
@@ -12,7 +17,7 @@ from service_requests.serializers.service_serializers.service_create_serializer 
 from service_requests.models.services import Service
 
 # Auditoría
-from audit_sdk import AuditClient
+
 from service_requests.utils.audit_helpers import get_actor_info, service_snapshot
 
 logger = logging.getLogger(__name__)
@@ -21,6 +26,15 @@ class ServiceViewSet(viewsets.ViewSet):
     """
     ViewSet para manejar las operaciones de servicios.
     """
+
+    def _get_service(self, pk):
+        """
+        Retorna una instancia del servicio o lanza Http404 si no existe.
+        """
+        try:
+            return Service.objects.get(id_service=pk)
+        except Service.DoesNotExist:
+            raise Http404
 
     def check_permission(self, request, required_permission_id: int):
         """
@@ -185,7 +199,7 @@ class ServiceViewSet(viewsets.ViewSet):
                         actor_role=actor_role_name,
                         permission_id=permission_id,
                         module="requests",
-                        submodule="services",
+                        submodule="service",
                     )
                 except Exception as e:
                     logger.warning("El servicio de auditoría ha fallado en toggle_status_service: %s", str(e))
@@ -213,101 +227,103 @@ class ServiceViewSet(viewsets.ViewSet):
     @transaction.atomic
     def destroy(self, request, pk=None):
         """
-        Elimina un servicio si no tiene referencias. Si hay integridad referencial, 
-        realiza soft delete (inactivar) y registra auditoría.
+        Elimina un servicio si no tiene referencias. Si hay integridad referencial,
+        realiza un soft delete (inactivación) y registra la auditoría.
         """
+        # --- 1. Validar autenticación ---
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
-            return Response(
-                {"success": False, "message": "Usuario no autenticado"}, 
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+            return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 144  # Ajustar según matriz de permisos: services.delete
-        if not self.check_permission(request, permission_id):
+        # --- 2. Verificar permiso ---
+        permission_id_delete = 144  # Ajustar según matriz de permisos: services.delete
+        if not self.check_permission(request, permission_id_delete):
             return Response(
-                {"success": False, "message": "No tiene permisos para eliminar servicios."}, 
+                {"success": False, "message": "No tiene permisos para eliminar servicios."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
+        # --- 3. Obtener el servicio ---
         try:
-            service = Service.objects.get(id_service=pk)
-            
-            # Snapshot antes de eliminar
-            before = service_snapshot(service)
+            service = self._get_service(pk)
+        except Http404:
+            return Response({"success": False, "message": "Servicio no encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
+        # --- 4. Guardar snapshot antes de eliminar ---
+        before = service_snapshot(service)
+
+        # --- 5. Intentar eliminación dura ---
+        try:
+            service.delete()
+
+            # --- 6. Registrar auditoría de eliminación definitiva ---
             try:
-                # Intento de eliminación dura
-                service.delete()
+                actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                AuditClient(request).delete(
+                    object_id=str(before.get("id_service") or service.id_service),
+                    before=before,
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id_delete,
+                    module="requests",
+                    submodule="service",
+                )
+            except Exception as e:
+                logger.warning("El servicio de auditoría ha fallado en delete_service: %s", e)
 
-                # Auditoría - eliminación definitiva
+            return Response({
+                "success": True,
+                "code": 200,
+                "message": "Servicio eliminado correctamente.",
+                "data": None
+            }, status=status.HTTP_200_OK)
+
+        # --- 7. Manejar integridad referencial (soft delete) ---
+        except IntegrityError:
+            try:
+                service.service_status = Statues.objects.get(pk=2)  # Estado inactivo
+                service.save(update_fields=['service_status'])
+
+                # Auditoría de inactivación lógica
                 try:
                     actor_id, actor_name, actor_role_name = get_actor_info(request.user)
-                    AuditClient(request).delete(
-                        object_id=str(service.id_service),
+                    AuditClient(request).update(
+                        object_id=str(before.get("id_service") or service.id_service),
                         before=before,
+                        after=service_snapshot(service),
                         actor_id=actor_id,
                         actor_name=actor_name,
                         actor_role=actor_role_name,
-                        permission_id=permission_id,
+                        permission_id=permission_id_delete,
                         module="requests",
                         submodule="services",
                     )
                 except Exception as e:
-                    logger.warning("El servicio de auditoría ha fallado en delete_service: %s", str(e))
+                    logger.warning("El servicio de auditoría ha fallado en soft_delete_service: %s", e)
 
                 return Response({
-                    "success": True,
-                    "code": 200,
-                    "message": "Servicio eliminado correctamente.",
-                    "data": None
-                }, status=status.HTTP_200_OK)
+                    "success": False,
+                    "code": 409,
+                    "message": "El servicio tiene referencias asociadas. Se ha inactivado lógicamente.",
+                    "errors": {"detail": ["No se permite eliminación definitiva por integridad de datos."]}
+                }, status=status.HTTP_409_CONFLICT)
 
-            except IntegrityError:
-                # Soft delete: inactivar por referencias existentes
-                try:
-                    from parameterization.models import Statues
-                    service.service_status = Statues.objects.get(pk=2)  # Estado inactivo
-                    service.save(update_fields=['service_status'])
+            except Statues.DoesNotExist:
+                return Response(
+                    {"success": False, "message": "Estado inactivo no configurado."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            except Exception as e:
+                logger.error(f"Error al inactivar el servicio: {str(e)}")
+                return Response(
+                    {"success": False, "message": "Error al inactivar el servicio.", "error": str(e)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
-                    # Auditoría - inactivación lógica
-                    try:
-                        actor_id, actor_name, actor_role_name = get_actor_info(request.user)
-                        AuditClient(request).update(
-                            object_id=str(service.id_service),
-                            before=before,
-                            after=service_snapshot(service),
-                            actor_id=actor_id,
-                            actor_name=actor_name,
-                            actor_role=actor_role_name,
-                            permission_id=permission_id,
-                            module="requests",
-                            submodule="services",
-                        )
-                    except Exception as e:
-                        logger.warning("El servicio de auditoría ha fallado en soft_delete_service: %s", str(e))
-
-                    return Response({
-                        "success": False,
-                        "code": 409,
-                        "message": "El servicio tiene referencias asociadas. Se ha inactivado lógicamente.",
-                        "errors": {"detail": ["No se permite eliminación definitiva por integridad de datos."]}
-                    }, status=status.HTTP_409_CONFLICT)
-
-                except Exception as e:
-                    logger.error(f"Error al inactivar el servicio: {str(e)}")
-                    return Response(
-                        {"success": False, "message": "Error al inactivar el servicio.", "error": str(e)}, 
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                    )
-
-        except Service.DoesNotExist:
-            return Response(
-                {"success": False, "message": "Servicio no encontrado."}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # --- 8. Otros errores ---
         except Exception as e:
-            logger.error(f"Error al eliminar el servicio: {str(e)}")
+            logger.error(f"Error al eliminar el servicio: {str(e)}", exc_info=True)
             return Response(
-                {"success": False, "message": "Error al eliminar el servicio.", "error": str(e)}, 
+                {"success": False, "message": "Error al eliminar el servicio.", "error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
