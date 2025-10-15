@@ -8,6 +8,7 @@ class Customer(models.Model):
     check_digit = models.IntegerField(null=True, blank=True)
     person_type = models.ForeignKey('service_requests.PersonType', on_delete=models.PROTECT, null=False, blank=False, related_name='person_type')
     legal_entity_name = models.CharField(max_length=100, null=False, blank=False)
+    bussiness_name = models.CharField(max_length=100, null=True, blank=True)
     name = models.CharField(max_length=100, null=True, blank=True,)
     first_last_name = models.CharField(max_length=100, null=True, blank=True,)
     second_last_name = models.CharField(max_length=100, null=True, blank=True,)
