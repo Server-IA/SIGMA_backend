@@ -142,6 +142,7 @@ class CustomerDetailSerializer(serializers.ModelSerializer):
             'person_type_id',
             'person_type_name',
             'legal_entity_name',
+            'bussiness_name',
             'name',
             'first_last_name',
             'second_last_name',
