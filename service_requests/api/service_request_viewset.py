@@ -49,7 +49,17 @@ class ServiceRequestViewSet(viewsets.ViewSet):
     def list_requests(self, request):
         
         try:
-            can_view_all = self.check_permission(request, 149)
+            # Manejo explícito de usuario no autenticado (consistente con otros endpoints)
+            if not request.user.is_authenticated:
+                return Response({
+                    "message": "Usuario no autenticado"
+                }, status=status.HTTP_401_UNAUTHORIZED)
+
+            # Verificación de permiso para listar todas las solicitudes
+            if not self.check_permission(request, 149):
+                return Response({
+                    "message": "No tiene permisos para listar solicitudes"
+                }, status=status.HTTP_403_FORBIDDEN)
 
             qs = (
                 ServiceRequest.objects
@@ -65,61 +75,6 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 )
             )
 
-            if not can_view_all:
-                qs = qs.filter(id_responsible_user=request.user)
-
-            # Filtros
-            # Estados por nombre o id
-            status_names = request.query_params.get("status")
-            if status_names:
-                names = [s.strip() for s in status_names.split(",") if s.strip()]
-                if names:
-                    qs = qs.filter(request_status__name__in=names)
-
-            status_ids = request.query_params.get("request_status_id")
-            if status_ids:
-                try:
-                    ids = [int(s) for s in status_ids.split(",") if s.strip()]
-                    if ids:
-                        qs = qs.filter(request_status__id_statues__in=ids)
-                except ValueError:
-                    pass
-
-            payment_names = request.query_params.get("payment_status")
-            if payment_names:
-                names = [s.strip() for s in payment_names.split(",") if s.strip()]
-                if names:
-                    qs = qs.filter(payment_status__name__in=names)
-
-            payment_ids = request.query_params.get("payment_status_id")
-            if payment_ids:
-                try:
-                    ids = [int(s) for s in payment_ids.split(",") if s.strip()]
-                    if ids:
-                        qs = qs.filter(payment_status__id_statues__in=ids)
-                except ValueError:
-                    pass
-
-            date_from = request.query_params.get("date_from")
-            if date_from:
-                qs = qs.filter(scheduled_start_date__gte=date_from)
-
-            date_to = request.query_params.get("date_to")
-            if date_to:
-                qs = qs.filter(scheduled_start_date__lte=date_to)
-
-            search = request.query_params.get("search")
-            if search:
-                term = search.strip()
-                if term:
-                    qs = qs.filter(
-                        Q(id_request__icontains=term)
-                        | Q(customer__legal_entity_name__icontains=term)
-                        | Q(customer__name__icontains=term)
-                        | Q(customer__first_last_name__icontains=term)
-                        | Q(customer__second_last_name__icontains=term)
-                    )
-
             # Ordenamiento
             ordering = request.query_params.get("ordering", "-creation_date").strip()
             allowed = {
@@ -132,32 +87,11 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 ordering = "-creation_date"
             qs = qs.order_by(ordering)
 
-            # Paginación
-            try:
-                page = int(request.query_params.get("page", 1))
-            except ValueError:
-                page = 1
-            try:
-                limit = int(request.query_params.get("limit", 10))
-            except ValueError:
-                limit = 10
-            page = max(page, 1)
-            limit = max(min(limit, 100), 1)  # limitar a 100 por página
-
-            total = qs.count()
-            start = (page - 1) * limit
-            end = start + limit
-            page_qs = qs[start:end]
-
-            serializer = ServiceRequestListSerializer(page_qs, many=True, context={"request": request})
+            serializer = ServiceRequestListSerializer(qs, many=True, context={"request": request})
             results = serializer.data
 
             response = {
                 "success": True,
-                "count": len(results),
-                "total": total,
-                "page": page,
-                "limit": limit,
                 "results": results,
             }
             if len(results) == 0:
@@ -204,7 +138,6 @@ class ServiceRequestViewSet(viewsets.ViewSet):
 
             response = {
                 "success": True,
-                "count": len(results),
                 "results": results,
             }
             if len(results) == 0:
