@@ -62,15 +62,22 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                     status=status.HTTP_403_FORBIDDEN
                 )
             
-            # Obtener la solicitud o devolver 404 si no existe
-            service_request = get_object_or_404(ServiceRequest, id_request=pk)
-            
-            # Serializar los datos de la solicitud
-            serializer = ServiceRequestDetailSerializer(service_request, context={'request': request})
-            
-            # Devolver los datos serializados
-            return Response(serializer.data)
-            
+            try:
+                # Obtener la solicitud
+                service_request = ServiceRequest.objects.get(id_request=pk)
+                
+                # Serializar los datos de la solicitud
+                serializer = ServiceRequestDetailSerializer(service_request, context={'request': request})
+                
+                # Devolver los datos serializados
+                return Response(serializer.data)
+                
+            except ServiceRequest.DoesNotExist:
+                return Response(
+                    {"error": "No se encontró la solicitud de servicio solicitada"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
         except Exception as e:
             logger.error(f"Error al obtener los detalles de la solicitud: {str(e)}")
             return Response(
