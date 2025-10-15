@@ -102,15 +102,10 @@ class ServiceRequestListSerializer(serializers.ModelSerializer):
 
     def get_completion_date(self, obj):
         try:
-            # Si el estado del request es 23, no mostrar fecha de finalización
-            try:
-                if obj.request_status and getattr(obj.request_status, 'id_statues', None) == 23:
-                    return None
-            except Exception:
-                pass
-
-            if obj.completion_cancellation_datetime:
-                return obj.completion_cancellation_datetime.date()
+            # Mostrar completion_date solo si el estado es 22
+            if obj.request_status and getattr(obj.request_status, 'id_statues', None) == 22:
+                if obj.completion_cancellation_datetime:
+                    return obj.completion_cancellation_datetime.date()
             return None
         except Exception:
             return None
