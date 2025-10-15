@@ -18,7 +18,9 @@ from service_requests.models import RequestMachineryUser
 from parameterization.models.statues import Statues
 from machinery.models.machinery import Machinery
 from service_requests.serializers.service_request_serializers.service_request_detail_serializer import ServiceRequestDetailSerializer
+from service_requests.serializers.service_request_serializers.list_service_request_serializer import ServiceRequestListSerializer
 from service_requests.utils.audit_helpers import get_actor_info, service_request_snapshot
+from django.db.models import Q
 
 logger = logging.getLogger(__name__)
 
@@ -85,11 +87,116 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=["get"], url_path="list")
+    def list_requests(self, request):
+        
+        try:
+            # Manejo explícito de usuario no autenticado (consistente con otros endpoints)
+            if not request.user.is_authenticated:
+                return Response({
+                    "message": "Usuario no autenticado"
+                }, status=status.HTTP_401_UNAUTHORIZED)
+
+            # Verificación de permiso para listar todas las solicitudes
+            if not self.check_permission(request, 149):
+                return Response({
+                    "message": "No tiene permisos para listar solicitudes"
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            qs = (
+                ServiceRequest.objects
+                .select_related(
+                    "customer",
+                    "payment_status",
+                    "currency_unit_amount_paid",
+                    "currency_unit_amount_to_pay",
+                    "confirmation_user",
+                    "completion_cancellation_user",
+                    "request_status",
+                    "id_responsible_user",
+                )
+            )
+
+            # Ordenamiento
+            ordering = request.query_params.get("ordering", "-creation_date").strip()
+            allowed = {
+                "creation_date",
+                "-creation_date",
+                "scheduled_start_date",
+                "-scheduled_start_date",
+            }
+            if ordering not in allowed:
+                ordering = "-creation_date"
+            qs = qs.order_by(ordering)
+
+            serializer = ServiceRequestListSerializer(qs, many=True, context={"request": request})
+            results = serializer.data
+
+            response = {
+                "success": True,
+                "results": results,
+            }
+            if len(results) == 0:
+                response["message"] = "No se encontraron solicitudes con los criterios seleccionados."
+
+            return Response(response, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error listando solicitudes: {e}", exc_info=True)
+            return Response({
+                "success": False,
+                "message": "Ocurrió un error al listar las solicitudes",
+                "error": str(e),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=["get"], url_path="list-by-customer")
+    def list_by_customer(self, request):
+        
+        try:
+            customer_id = request.query_params.get("customer_id")
+            if not customer_id:
+                return Response({
+                    "success": False,
+                    "message": "El parámetro 'customer_id' es obligatorio."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            qs = (
+                ServiceRequest.objects
+                .filter(customer_id=customer_id)
+                .select_related(
+                    "customer",
+                    "payment_status",
+                    "currency_unit_amount_paid",
+                    "currency_unit_amount_to_pay",
+                    "confirmation_user",
+                    "completion_cancellation_user",
+                    "request_status",
+                    "id_responsible_user",
+                )
+                .order_by("-creation_date")
+            )
+
+            serializer = ServiceRequestListSerializer(qs, many=True, context={"request": request})
+            results = serializer.data
+
+            response = {
+                "success": True,
+                "results": results,
+            }
+            if len(results) == 0:
+                response["message"] = "No se encontraron solicitudes con los criterios seleccionados."
+
+            return Response(response, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error listando solicitudes por cliente: {e}", exc_info=True)
+            return Response({
+                "success": False,
+                "message": "Ocurrió un error al listar las solicitudes por cliente",
+                "error": str(e),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['post'])
     def create_pre_request(self, request):
-        """
-        Crea una nueva pre-solicitud de servicio.
-        """
+        
         # Verificar que el usuario esté autenticado
         if not request.user.is_authenticated:
             return Response(
