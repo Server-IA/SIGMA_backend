@@ -17,6 +17,8 @@ from service_requests.serializers.service_request_serializers.service_request_ca
 from service_requests.models import RequestMachineryUser
 from parameterization.models.statues import Statues
 from machinery.models.machinery import Machinery
+from service_requests.serializers.service_request_serializers.service_request_detail_serializer import ServiceRequestDetailSerializer
+from service_requests.utils.audit_helpers import get_actor_info, service_request_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,35 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                     permisos_usuario.append(perm.get("id"))
 
         return required_permission_id in permisos_usuario
+        
+    @action(detail=True, methods=['get'])
+    def details(self, request, pk=None):
+        """
+        Obtiene los detalles completos de una solicitud de servicio por su ID.
+        """
+        try:
+            # Verificar si el usuario tiene permiso para ver los detalles
+            if not self.check_permission(request, 154):  # Reemplazar con el ID de permiso adecuado
+                return Response(
+                    {"error": "No tiene permiso para ver los detalles de la solicitud"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Obtener la solicitud o devolver 404 si no existe
+            service_request = get_object_or_404(ServiceRequest, id_request=pk)
+            
+            # Serializar los datos de la solicitud
+            serializer = ServiceRequestDetailSerializer(service_request, context={'request': request})
+            
+            # Devolver los datos serializados
+            return Response(serializer.data)
+            
+        except Exception as e:
+            logger.error(f"Error al obtener los detalles de la solicitud: {str(e)}")
+            return Response(
+                {"error": "Ocurrió un error al procesar la solicitud"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=False, methods=['post'])
     def create_pre_request(self, request):
