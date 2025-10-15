@@ -6,14 +6,18 @@ from service_requests.models.customer import Customer
 from service_requests.serializers.customer_serializers.customer_create_serializer import CustomerCreateSerializer
 from service_requests.serializers.customer_serializers.customer_detail_serializer import CustomerDetailSerializer
 from service_requests.serializers.customer_serializers.customer_update_serializer import CustomerUpdateSerializer
+from service_requests.serializers.customer_serializers.customer_search_serializer import CustomerSearchSerializer
 from service_requests.utils.audit_helpers import get_actor_info, customer_snapshot
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 import logging
+import requests
+import os
 from audit_sdk import AuditClient
 from django.db import transaction, IntegrityError
 from django.http import Http404
 from parameterization.models import Statues
+
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +225,89 @@ class CustomerViewSet(viewsets.ViewSet):
             "message": "Detalle del cliente obtenido exitosamente",
             "data": customer_data
         }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'])
+    def search_by_document(self, request):
+        """
+        Search for a customer by document number.
+        First checks the local customer table, then queries the external users service if needed.
+        """
+        if not request.user.is_authenticated:
+            return Response(
+                {"detail": "Authentication credentials were not provided."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+            
+        serializer = CustomerSearchSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        
+        document_number = serializer.validated_data['document_number']
+        
+        # 1. First, try to find a customer with the exact document number in local DB
+        customer = Customer.objects.filter(document_number=document_number).first()
+        
+        if not customer:
+            # 2. If not found locally, try to find a user with this document number in the external service
+            try:
+
+                
+                # Call the external users service
+                auth_service_url = os.getenv('AUTH_SERVICE_URL')
+                if not auth_service_url:
+                    raise ValueError("AUTH_SERVICE_URL environment variable not set")
+                
+                headers = {
+                    'Authorization': request.META.get('HTTP_AUTHORIZATION', ''),
+                    'Content-Type': 'application/json'
+                }
+                
+                base_url = auth_service_url.rstrip('/')
+                response = requests.get(
+                    f"{base_url}/users/users/by-document/{document_number}",
+                    headers=headers
+                )
+                
+                if response.status_code == 200 and response.json().get('success'):
+                    user_data = response.json()['data']
+                    user_id = user_data['id']
+                    
+                    # 3. Try to find a customer with this user_id
+                    customer = Customer.objects.filter(id_user_id=user_id).first()
+                    
+                    if not customer:
+                        return Response(
+                            {"detail": "User found but no associated customer exists"},
+                            status=status.HTTP_404_NOT_FOUND
+                        )
+                elif response.status_code != 404:
+                    # If the error is not 404, return the error from the users service
+                    return Response(
+                        {"detail": f"Error searching user: {response.text}"},
+                        status=response.status_code
+                    )
+                
+            except requests.RequestException as e:
+                logger.error(f"Error calling users service: {str(e)}")
+                return Response(
+                    {"detail": "Error connecting to users service"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+            except Exception as e:
+                logger.error(f"Unexpected error: {str(e)}")
+                return Response(
+                    {"detail": "An unexpected error occurred"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        if not customer:
+            return Response(
+                {"detail": "No customer or user found with the provided document number"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        # Return the customer data using the detail serializer
+        serializer = CustomerDetailSerializer(customer, context={'request': request})
+        return Response(serializer.data)
 
     @action(detail=True, methods=['patch'], url_path='toggle-status')
     def toggle_status(self, request, pk=None):
