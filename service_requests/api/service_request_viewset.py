@@ -216,17 +216,152 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 except Exception as audit_exc:
                     logger.warning("El servicio de auditoría ha fallado en cancel: %s", str(audit_exc))
 
-            # Respuesta de éxito
-            return Response({
-                'success': True,
-                'message': f"Solicitud cancelada exitosamente. Código: {service_request.id_request}.",
-                'id_request': service_request.id_request
-            }, status=status.HTTP_200_OK)
-
         except Exception as e:
-            logger.error(f"Error inesperado al cancelar la solicitud: {str(e)}", exc_info=True)
+            logger.error(f"Error inesperado al cancelar solicitud: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'message': 'Ocurrió un error inesperado al procesar la cancelación',
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Enviar notificación de cancelación por correo
+        self._send_cancellation_notification(service_request, serializer.validated_data.get('observations', ''), request)
+
+        # Respuesta de éxito
+        return Response({
+            'success': True,
+            'message': f"Solicitud cancelada exitosamente. Código: {service_request.id_request}.",
+            'id_request': service_request.id_request
+        }, status=status.HTTP_200_OK)
+
+    def _get_user_info(self, user_id, request=None):
+        """
+        Obtiene la información básica del usuario desde el servicio de autenticación.
+        Retorna un diccionario con 'email' y 'name' si es exitoso, None en caso de error.
+        """
+        try:
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                logger.warning("AUTH_SERVICE_URL no está configurado")
+                return None
+
+            url = f"{auth_service_url.rstrip('/')}/users/users/basic-user-list/by-ids"
+            headers = {
+                'Content-Type': 'application/json'
+            }
+
+            # Use same authentication logic as CustomerDetailSerializer
+            if request is not None:
+                auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or (
+                    request.headers.get('Authorization') if hasattr(request, 'headers') else None
+                )
+                if auth_header:
+                    headers['Authorization'] = auth_header
+
+            response = requests.post(
+                url,
+                json={"ids": [user_id]},
+                headers=headers,
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                response_data = response.json()
+                if response_data.get('success') and response_data.get('data'):
+                    users = response_data['data']
+                    if users and isinstance(users, list) and len(users) > 0:
+                        user_data = users[0]  # Tomar el primer usuario de la respuesta
+                        # Concatenate name fields for client_name
+                        full_name = f"{user_data.get('name', '')} {user_data.get('first_last_name', '')} {user_data.get('second_last_name', '')}".strip()
+                        return {
+                            'email': user_data.get('email'),
+                            'name': full_name
+                        }
+
+        except Exception as e:
+            logger.error(f"Error al obtener información del usuario {user_id}: {str(e)}", exc_info=True)
+
+        return None
+
+    def _send_cancellation_notification(self, service_request, reason, request=None):
+        """
+        Envía una notificación de cancelación por correo electrónico.
+        """
+        try:
+            customer = service_request.customer
+            if not customer:
+                logger.warning("No se pudo enviar notificación: la solicitud no tiene cliente asociado")
+                return
+
+            # Obtener información del usuario
+            if hasattr(customer, 'id_user') and customer.id_user:
+                user_info = self._get_user_info(customer.id_user.pk, request)
+            else:
+                user_info = None
+
+            # Preparar datos para la notificación
+            email = None
+            client_name = "Cliente"
+
+            if user_info and user_info.get('email'):
+                # Case 1: Customer has id_user - use data from API
+                email = user_info['email']
+                client_name = user_info.get('name', 'Cliente')
+            else:
+                # Case 2: Customer has id_user = null - use data from customer model
+                if hasattr(customer, 'email') and customer.email:
+                    email = customer.email
+                    # Concatenate name fields from customer model
+                    name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                    client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+                else:
+                    # Try to get any available data from customer model as fallback
+                    if any([customer.name, customer.first_last_name, customer.second_last_name]):
+                        name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                        client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+
+            if not email:
+                logger.warning("No se pudo enviar notificación: no hay dirección de correo disponible")
+                return
+
+            # Enviar notificación
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                logger.warning("No se pudo enviar notificación: AUTH_SERVICE_URL no está configurado")
+                return
+
+            url = f"{auth_service_url.rstrip('/')}/users/users/notifications/send-cancellation/"
+            headers = {
+                'Content-Type': 'application/json'
+            }
+
+            # Use same authentication logic as user data API call
+            if request is not None:
+                auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or (
+                    request.headers.get('Authorization') if hasattr(request, 'headers') else None
+                )
+                if auth_header:
+                    headers['Authorization'] = auth_header
+
+            # Use completion_cancellation_observations from service_request as reason
+            reason_text = service_request.completion_cancellation_observations or reason or "No se especificó una razón"
+
+            payload = {
+                "email": email,
+                "client_name": client_name,
+                "reason": reason_text,
+                "request_code": service_request.id_request
+            }
+
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=15
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Error al enviar notificación de cancelación: {response.status_code} - {response.text}")
+
+        except Exception as e:
+            logger.error(f"Error inesperado al enviar notificación de cancelación: {str(e)}", exc_info=True)
