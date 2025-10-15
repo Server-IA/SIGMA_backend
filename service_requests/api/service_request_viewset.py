@@ -12,7 +12,9 @@ import requests
 
 from service_requests.models import ServiceRequest
 from service_requests.serializers.service_request_serializers.pre_request_create_serializer import PreRequestCreateSerializer
+from service_requests.serializers.service_request_serializers.list_service_request_serializer import ServiceRequestListSerializer
 from service_requests.utils.audit_helpers import get_actor_info, service_request_snapshot
+from django.db.models import Q
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +45,183 @@ class ServiceRequestViewSet(viewsets.ViewSet):
 
         return required_permission_id in permisos_usuario
 
+    @action(detail=False, methods=["get"], url_path="list")
+    def list_requests(self, request):
+        
+        try:
+            can_view_all = self.check_permission(request, 149)
+
+            qs = (
+                ServiceRequest.objects
+                .select_related(
+                    "customer",
+                    "payment_status",
+                    "currency_unit_amount_paid",
+                    "currency_unit_amount_to_pay",
+                    "confirmation_user",
+                    "completion_cancellation_user",
+                    "request_status",
+                    "id_responsible_user",
+                )
+            )
+
+            if not can_view_all:
+                qs = qs.filter(id_responsible_user=request.user)
+
+            # Filtros
+            # Estados por nombre o id
+            status_names = request.query_params.get("status")
+            if status_names:
+                names = [s.strip() for s in status_names.split(",") if s.strip()]
+                if names:
+                    qs = qs.filter(request_status__name__in=names)
+
+            status_ids = request.query_params.get("request_status_id")
+            if status_ids:
+                try:
+                    ids = [int(s) for s in status_ids.split(",") if s.strip()]
+                    if ids:
+                        qs = qs.filter(request_status__id_statues__in=ids)
+                except ValueError:
+                    pass
+
+            payment_names = request.query_params.get("payment_status")
+            if payment_names:
+                names = [s.strip() for s in payment_names.split(",") if s.strip()]
+                if names:
+                    qs = qs.filter(payment_status__name__in=names)
+
+            payment_ids = request.query_params.get("payment_status_id")
+            if payment_ids:
+                try:
+                    ids = [int(s) for s in payment_ids.split(",") if s.strip()]
+                    if ids:
+                        qs = qs.filter(payment_status__id_statues__in=ids)
+                except ValueError:
+                    pass
+
+            date_from = request.query_params.get("date_from")
+            if date_from:
+                qs = qs.filter(scheduled_start_date__gte=date_from)
+
+            date_to = request.query_params.get("date_to")
+            if date_to:
+                qs = qs.filter(scheduled_start_date__lte=date_to)
+
+            search = request.query_params.get("search")
+            if search:
+                term = search.strip()
+                if term:
+                    qs = qs.filter(
+                        Q(id_request__icontains=term)
+                        | Q(customer__legal_entity_name__icontains=term)
+                        | Q(customer__name__icontains=term)
+                        | Q(customer__first_last_name__icontains=term)
+                        | Q(customer__second_last_name__icontains=term)
+                    )
+
+            # Ordenamiento
+            ordering = request.query_params.get("ordering", "-creation_date").strip()
+            allowed = {
+                "creation_date",
+                "-creation_date",
+                "scheduled_start_date",
+                "-scheduled_start_date",
+            }
+            if ordering not in allowed:
+                ordering = "-creation_date"
+            qs = qs.order_by(ordering)
+
+            # Paginación
+            try:
+                page = int(request.query_params.get("page", 1))
+            except ValueError:
+                page = 1
+            try:
+                limit = int(request.query_params.get("limit", 10))
+            except ValueError:
+                limit = 10
+            page = max(page, 1)
+            limit = max(min(limit, 100), 1)  # limitar a 100 por página
+
+            total = qs.count()
+            start = (page - 1) * limit
+            end = start + limit
+            page_qs = qs[start:end]
+
+            serializer = ServiceRequestListSerializer(page_qs, many=True, context={"request": request})
+            results = serializer.data
+
+            response = {
+                "success": True,
+                "count": len(results),
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "results": results,
+            }
+            if len(results) == 0:
+                response["message"] = "No se encontraron solicitudes con los criterios seleccionados."
+
+            return Response(response, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error listando solicitudes: {e}", exc_info=True)
+            return Response({
+                "success": False,
+                "message": "Ocurrió un error al listar las solicitudes",
+                "error": str(e),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=["get"], url_path="list-by-customer")
+    def list_by_customer(self, request):
+        
+        try:
+            customer_id = request.query_params.get("customer_id")
+            if not customer_id:
+                return Response({
+                    "success": False,
+                    "message": "El parámetro 'customer_id' es obligatorio."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            qs = (
+                ServiceRequest.objects
+                .filter(customer_id=customer_id)
+                .select_related(
+                    "customer",
+                    "payment_status",
+                    "currency_unit_amount_paid",
+                    "currency_unit_amount_to_pay",
+                    "confirmation_user",
+                    "completion_cancellation_user",
+                    "request_status",
+                    "id_responsible_user",
+                )
+                .order_by("-creation_date")
+            )
+
+            serializer = ServiceRequestListSerializer(qs, many=True, context={"request": request})
+            results = serializer.data
+
+            response = {
+                "success": True,
+                "count": len(results),
+                "results": results,
+            }
+            if len(results) == 0:
+                response["message"] = "No se encontraron solicitudes con los criterios seleccionados."
+
+            return Response(response, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error listando solicitudes por cliente: {e}", exc_info=True)
+            return Response({
+                "success": False,
+                "message": "Ocurrió un error al listar las solicitudes por cliente",
+                "error": str(e),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['post'])
     def create_pre_request(self, request):
-        """
-        Crea una nueva pre-solicitud de servicio.
-        """
+        
         # Verificar que el usuario esté autenticado
         if not request.user.is_authenticated:
             return Response(
