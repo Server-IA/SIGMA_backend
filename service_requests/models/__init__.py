@@ -3,11 +3,19 @@ from .document_type import DocumentType
 from .person_type import PersonType
 from .services import Service
 from .tax_regime import TaxRegime
+from .service_request import ServiceRequest
+from .request_location import RequestLocation
+from .request_machinery_user import RequestMachineryUser
+from .payment_method import PaymentMethod
 
 __all__ = [
     'Customer',
     'DocumentType',
     'PersonType',
     'Service',
-    'TaxRegime'
+    'TaxRegime',
+    'ServiceRequest',
+    'RequestLocation',
+    'RequestMachineryUser',
+    'PaymentMethod'
 ]

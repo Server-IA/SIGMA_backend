@@ -6,14 +6,18 @@ from service_requests.models.customer import Customer
 from service_requests.serializers.customer_serializers.customer_create_serializer import CustomerCreateSerializer
 from service_requests.serializers.customer_serializers.customer_detail_serializer import CustomerDetailSerializer
 from service_requests.serializers.customer_serializers.customer_update_serializer import CustomerUpdateSerializer
+from service_requests.serializers.customer_serializers.customer_search_serializer import CustomerSearchSerializer
 from service_requests.utils.audit_helpers import get_actor_info, customer_snapshot
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 import logging
+import requests
+import os
 from audit_sdk import AuditClient
 from django.db import transaction, IntegrityError
 from django.http import Http404
 from parameterization.models import Statues
+
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +226,89 @@ class CustomerViewSet(viewsets.ViewSet):
             "data": customer_data
         }, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['get'])
+    def search_by_document(self, request):
+        """
+        Search for a customer by document number.
+        First checks the local customer table, then queries the external users service if needed.
+        """
+        if not request.user.is_authenticated:
+            return Response(
+                {"detail": "Authentication credentials were not provided."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+            
+        serializer = CustomerSearchSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        
+        document_number = serializer.validated_data['document_number']
+        
+        # 1. First, try to find a customer with the exact document number in local DB
+        customer = Customer.objects.filter(document_number=document_number).first()
+        
+        if not customer:
+            # 2. If not found locally, try to find a user with this document number in the external service
+            try:
+
+                
+                # Call the external users service
+                auth_service_url = os.getenv('AUTH_SERVICE_URL')
+                if not auth_service_url:
+                    raise ValueError("AUTH_SERVICE_URL environment variable not set")
+                
+                headers = {
+                    'Authorization': request.META.get('HTTP_AUTHORIZATION', ''),
+                    'Content-Type': 'application/json'
+                }
+                
+                base_url = auth_service_url.rstrip('/')
+                response = requests.get(
+                    f"{base_url}/users/users/by-document/{document_number}",
+                    headers=headers
+                )
+                
+                if response.status_code == 200 and response.json().get('success'):
+                    user_data = response.json()['data']
+                    user_id = user_data['id']
+                    
+                    # 3. Try to find a customer with this user_id
+                    customer = Customer.objects.filter(id_user_id=user_id).first()
+                    
+                    if not customer:
+                        return Response(
+                            {"detail": "User found but no associated customer exists"},
+                            status=status.HTTP_404_NOT_FOUND
+                        )
+                elif response.status_code != 404:
+                    # If the error is not 404, return the error from the users service
+                    return Response(
+                        {"detail": f"Error searching user: {response.text}"},
+                        status=response.status_code
+                    )
+                
+            except requests.RequestException as e:
+                logger.error(f"Error calling users service: {str(e)}")
+                return Response(
+                    {"detail": "Error connecting to users service"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+            except Exception as e:
+                logger.error(f"Unexpected error: {str(e)}")
+                return Response(
+                    {"detail": "An unexpected error occurred"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        if not customer:
+            return Response(
+                {"detail": "No customer or user found with the provided document number"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        # Return the customer data using the detail serializer
+        serializer = CustomerDetailSerializer(customer, context={'request': request})
+        return Response(serializer.data)
+
     @action(detail=True, methods=['patch'], url_path='toggle-status')
     def toggle_status(self, request, pk=None):
         """
@@ -292,92 +379,6 @@ class CustomerViewSet(viewsets.ViewSet):
             )
 
         permission_id = 137
-        if not self.check_permission(request, permission_id):
-            return Response(
-                {"success": False, "message": "No tiene permisos para actualizar clientes"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        try:
-            # Obtener la instancia del cliente
-            customer = self._get_customer(pk)
-            
-            # Tomar snapshot para auditoría
-            before = customer_snapshot(customer)
-            
-            # Validar y actualizar
-            serializer = CustomerUpdateSerializer(
-                instance=customer,
-                data=request.data,
-                context={'request': request}
-            )
-            
-            if serializer.is_valid():
-                # Guardar los cambios
-                updated_customer = serializer.save()
-                
-                # Auditoría
-                try:
-                    actor_id, actor_name, actor_role_name = get_actor_info(request.user)
-                    
-                    AuditClient(request).update(
-                        object_id=str(updated_customer.id_customer),
-                        before=before,
-                        after=customer_snapshot(updated_customer),
-                        actor_id=actor_id,
-                        actor_name=actor_name,
-                        actor_role=actor_role_name,
-                        permission_id=permission_id,
-                        module="requests",
-                        submodule="customers",
-                    )
-                except Exception as e:
-                    logger.warning("El servicio de auditoría ha fallado en update_customer: %s", str(e))
-                
-                # Obtener los datos actualizados para la respuesta
-                customer_data = CustomerDetailSerializer(updated_customer, context={'request': request}).data
-                
-                return Response({
-                    'success': True,
-                    'message': 'Cliente actualizado exitosamente',
-                    'data': customer_data
-                }, status=status.HTTP_200_OK)
-            
-            return Response({
-                'success': False,
-                'message': 'Error de validación',
-                'errors': serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except Http404:
-            return Response({
-                'success': False,
-                'message': 'Cliente no encontrado'
-            }, status=status.HTTP_404_NOT_FOUND)
-            
-        except Exception as e:
-            logger.error(f"Error al actualizar cliente: {str(e)}")
-            return Response({
-                'success': False,
-                'message': 'Error al procesar la solicitud',
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @transaction.atomic
-    @action(detail=True, methods=['patch'])
-    def update_customer(self, request, pk=None):
-        """
-        Actualiza un cliente existente.
-        """
-        # Verificar que el usuario esté autenticado
-        if not request.user.is_authenticated:
-            return Response(
-                {"success": False, "message": "Usuario no autenticado"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        # Verificar permisos (ajustar según la matriz de permisos)
-        permission_id = 136  # Ajustar según la matriz de permisos
         if not self.check_permission(request, permission_id):
             return Response(
                 {"success": False, "message": "No tiene permisos para actualizar clientes"},

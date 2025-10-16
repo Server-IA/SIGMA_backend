@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional, Tuple, Union
+from django.utils import timezone
 
 def service_snapshot(service_obj) -> Dict[str, Any]:
     """
@@ -157,4 +158,73 @@ def customer_snapshot(customer_obj) -> Dict[str, Any]:
         "id_responsible_user": serialize_attr("id_responsible_user"),
         # id_user puede venir de diferentes maneras
         "id_user": _get_user_id(customer_obj),
+    }
+
+
+def service_request_snapshot(service_request_obj) -> Dict[str, Any]:
+    """
+    Snapshot ligero y JSON-serializable para el modelo ServiceRequest.
+    Devuelve solo primitivos: ids, strings, números, booleans o None.
+    """
+    def _safe_get(o, attr, default=None):
+        try:
+            # dict-like first
+            if isinstance(o, dict):
+                return o.get(attr, default)
+            return getattr(o, attr, default)
+        except Exception:
+            return default
+
+    if not service_request_obj:
+        return {}
+    
+    return {
+        'id_request': _safe_get(service_request_obj, 'id_request'),
+        'customer_id': _safe_get(service_request_obj.customer, 'id_customer') if hasattr(service_request_obj, 'customer') and service_request_obj.customer else None,
+        'request_detail': _safe_get(service_request_obj, 'request_detail'),
+        'scheduled_start_date': _safe_get(service_request_obj, 'scheduled_start_date').isoformat() if _safe_get(service_request_obj, 'scheduled_start_date') else None,
+        'scheduled_end_date': _safe_get(service_request_obj, 'scheduled_end_date').isoformat() if _safe_get(service_request_obj, 'scheduled_end_date') else None,
+        'request_status_id': _safe_get(service_request_obj.request_status, 'id_statues') if hasattr(service_request_obj, 'request_status') and service_request_obj.request_status else None,
+        'creation_date': _safe_get(service_request_obj, 'creation_date', timezone.now()).isoformat(),
+        'modification_date': _safe_get(service_request_obj, 'modification_date', timezone.now()).isoformat(),
+        'id_responsible_user': _safe_get(service_request_obj, 'id_responsible_user_id') if hasattr(service_request_obj, 'id_responsible_user_id') else (
+            _safe_get(service_request_obj.id_responsible_user, 'id_user') if hasattr(service_request_obj, 'id_responsible_user') and service_request_obj.id_responsible_user else None
+        ),
+    }
+
+
+def service_request_cancel_snapshot(service_request_obj, machinery_statuses: Optional[list] = None) -> Dict[str, Any]:
+    """
+    Snapshot específico para cancelación de solicitudes.
+    Incluye datos de cancelación y el estado de las maquinarias luego de cancelar.
+
+    Parameters:
+    - service_request_obj: instancia de ServiceRequest ya actualizada a estado cancelado (23)
+    - machinery_statuses: lista de dicts con info de maquinaria, ejemplo:
+        [{
+            'id_machinery': 1,
+            'machinery_operational_status_id': 4
+        }, ...]
+      Si no se provee, se deja en [].
+    """
+    if not service_request_obj:
+        return {}
+
+    def _safe_get(o, attr, default=None):
+        try:
+            if isinstance(o, dict):
+                return o.get(attr, default)
+            return getattr(o, attr, default)
+        except Exception:
+            return default
+
+    machinery_statuses = machinery_statuses or []
+
+    return {
+        'id_request': _safe_get(service_request_obj, 'id_request'),
+        'request_status_id': _safe_get(service_request_obj.request_status, 'id_statues') if hasattr(service_request_obj, 'request_status') and service_request_obj.request_status else None,
+        'completion_cancellation_observations': _safe_get(service_request_obj, 'completion_cancellation_observations'),
+        'completion_cancellation_datetime': _safe_get(service_request_obj, 'completion_cancellation_datetime').isoformat() if _safe_get(service_request_obj, 'completion_cancellation_datetime') else None,
+        'completion_cancellation_user_id': _safe_get(service_request_obj.completion_cancellation_user, 'id_user') if hasattr(service_request_obj, 'completion_cancellation_user') and service_request_obj.completion_cancellation_user else None,
+        'machinery_statuses': machinery_statuses,
     }
