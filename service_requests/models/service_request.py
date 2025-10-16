@@ -7,7 +7,7 @@ class ServiceRequest(models.Model):
     request_detail = models.TextField(max_length=600, null=False, blank=False)
     scheduled_start_date = models.DateField(null=False, blank=False)
     scheduled_end_date = models.DateField(null=False, blank=False)
-    payment_method = models.IntegerField(null=True, blank=True)
+    payment_method = models.ForeignKey('service_requests.PaymentMethod', on_delete=models.PROTECT, null=True, blank=True, related_name='payment_method_requests')
     payment_status = models.ForeignKey('parameterization.Statues', on_delete=models.PROTECT, null=True, blank=True, related_name='payment_status_requests')
     amount_paid = models.FloatField(null=True, blank=True)
     currency_unit_amount_paid = models.ForeignKey('parameterization.Units', on_delete=models.PROTECT, null=True, blank=True, related_name='currency_paid_requests')

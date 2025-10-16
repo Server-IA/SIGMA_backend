@@ -6,6 +6,8 @@ from .tax_regime import TaxRegime
 from .service_request import ServiceRequest
 from .request_location import RequestLocation
 from .request_machinery_user import RequestMachineryUser
+from .payment_method import PaymentMethod
+
 __all__ = [
     'Customer',
     'DocumentType',
@@ -14,5 +16,6 @@ __all__ = [
     'TaxRegime',
     'ServiceRequest',
     'RequestLocation',
-    'RequestMachineryUser'
+    'RequestMachineryUser',
+    'PaymentMethod'
 ]
