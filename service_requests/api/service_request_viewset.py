@@ -17,8 +17,10 @@ from service_requests.serializers.service_request_serializers.service_request_ca
 from service_requests.models import RequestMachineryUser
 from parameterization.models.statues import Statues
 from machinery.models.machinery import Machinery
+from users.models import User
 from service_requests.serializers.service_request_serializers.service_request_detail_serializer import ServiceRequestDetailSerializer
 from service_requests.serializers.service_request_serializers.list_service_request_serializer import ServiceRequestListSerializer
+from service_requests.serializers.service_request_serializers.pre_request_update_serializer import PreRequestUpdateSerializer
 from service_requests.utils.audit_helpers import get_actor_info, service_request_snapshot
 from django.db.models import Q
 
@@ -427,6 +429,114 @@ class ServiceRequestViewSet(viewsets.ViewSet):
             logger.error(f"Error al obtener información del usuario {user_id}: {str(e)}", exc_info=True)
 
         return None
+
+    @action(detail=True, methods=['patch'], url_path='confirm')
+    def confirm(self, request, pk=None):
+        """
+        Confirma una solicitud de servicio.
+        Requiere permiso con ID 150.
+        """
+        permission_id = 150
+        try:
+            # Verificar autenticación
+            if not request.user.is_authenticated:
+                return Response(
+                    {"message": "Usuario no autenticado"},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            # Verificar permiso
+            if not self.check_permission(request, permission_id):
+                return Response(
+                    {"message": "No tiene permiso para confirmar solicitudes de servicio"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # Obtener la instancia de la solicitud
+            try:
+                service_request = ServiceRequest.objects.get(id_request=pk)
+                
+                # Validar que el estado actual sea 19 (Pendiente de confirmación)
+                if service_request.request_status_id != 19:
+                    try:
+                        status_19 = Statues.objects.get(id_statues=19)
+                        status_name = status_19.name
+                    except Statues.DoesNotExist:
+                        status_name = "Pendiente de confirmación"
+                    
+                    return Response(
+                        {"message": f"La solicitud no está en estado '{status_name}' o ya fue confirmada"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                    
+            except ServiceRequest.DoesNotExist:
+                return Response(
+                    {"message": "La solicitud especificada no existe"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Validar y procesar la confirmación
+            serializer = PreRequestUpdateSerializer(
+                instance=service_request,
+                data=request.data,
+                context={'request': request}
+            )
+            
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Crear snapshot para auditoría
+            before = service_request_snapshot(service_request)
+            
+            # Confirmar la solicitud
+            with transaction.atomic():
+                # Actualizar la solicitud con los datos validados
+                updated_request = serializer.save()
+                
+                # Aplicar lógica de confirmación
+                updated_request.request_status_id = 20  # Estado "En revisión"
+                updated_request.confirmation_datetime = timezone.now()
+                
+                # Asignar el usuario de confirmación
+                try:
+                    user_instance = User.objects.get(id_user=request.user.id)
+                    updated_request.confirmation_user = user_instance
+                except (User.DoesNotExist, AttributeError) as e:
+                    logger.warning(f"User not found in database: {str(e)}")
+                    updated_request.confirmation_user = None
+                
+                # Guardar los cambios
+                updated_request.save()
+                
+                # Registrar evento de auditoría
+                try:
+                    actor_id, actor_name, actor_role = get_actor_info(request.user)
+                    
+                    AuditClient(request).update(
+                        object_id=str(updated_request.id_request),
+                        before=before,
+                        after=service_request_snapshot(updated_request),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role,
+                        permission_id=permission_id,
+                        module="requests",
+                        submodule="requests",
+                    )
+                except Exception as audit_error:
+                    logger.error(f"Error en auditoría al confirmar solicitud: {str(audit_error)}")
+                
+                return Response(
+                    {"message": "Solicitud confirmada exitosamente"},
+                    status=status.HTTP_200_OK
+                )
+            
+        except Exception as e:
+            logger.error(f"Error al confirmar la solicitud: {str(e)}", exc_info=True)
+            return Response(
+                {"error": "Ocurrió un error al confirmar la solicitud"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def _send_cancellation_notification(self, service_request, reason, request=None):
         """
