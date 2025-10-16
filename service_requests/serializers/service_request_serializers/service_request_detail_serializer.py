@@ -201,6 +201,10 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
             source='currency_unit_amount_to_pay',
             read_only=True
         )  
+    # Payment method fields
+    payment_method_name = serializers.CharField(source='payment_method.name', read_only=True, allow_null=True)
+    payment_method_code = serializers.CharField(source='payment_method.code', read_only=True, allow_null=True)  # Keeping for backward compatibility
+    
     # Nested serializers
     request_machinery_user = RequestMachineryUserSerializer(many=True, read_only=True, source='machinery_users')
     request_location = RequestLocationSerializer(read_only=True)
@@ -235,7 +239,8 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
             'amount_to_pay', 
             'currency_unit_amount_to_pay', 'currency_unit_amount_to_pay_id',
             'currency_unit_amount_to_pay_name', 'currency_unit_amount_to_pay_symbol',
-            'payment_status', 'payment_status_id', 'payment_status_name', 'payment_method'
+            'payment_status', 'payment_status_id', 'payment_status_name', 
+            'payment_method_code', 'payment_method_name'
         ]
         extra_kwargs = {
             'customer': {'write_only': True},
@@ -244,7 +249,8 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
             'request_status': {'write_only': True},
             'payment_status': {'write_only': True},
             'currency_unit_amount_paid': {'write_only': True},
-            'currency_unit_amount_to_pay': {'write_only': True}
+            'currency_unit_amount_to_pay': {'write_only': True},
+            'payment_method': {'write_only': True}
         }
 
     def _get_external_user(self, user_id: int) -> Dict[str, Any]:
