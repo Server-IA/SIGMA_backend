@@ -783,7 +783,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 "email": email,
                 "client_name": client_name,
                 "message": (
-                    "Su pre-solicitud ha sido recibida correctamente y está siendo procesada. "
+                    "Su pre-solicitud ha sido confirmada correctamente. "
                     f"Fecha de inicio: {start_date}, Fecha de finalización: {end_date}."
                 ),
                 "request_code": service_request.id_request
