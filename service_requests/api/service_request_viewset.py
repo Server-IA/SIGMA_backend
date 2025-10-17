@@ -530,6 +530,9 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                     'confirmation_user'
                 ])
                 
+                # Enviar notificación de confirmación
+                self._send_confirmation_notification(updated_request, request)
+                
                 # Obtener los datos actualizados después de guardar
                 updated_request.refresh_from_db()
                 
@@ -711,6 +714,93 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 {"error": "Ocurrió un error al confirmar la solicitud"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    def _send_confirmation_notification(self, service_request, request=None):
+        """
+        Envía una notificación de confirmación de pre-solicitud por correo electrónico.
+        """
+        try:
+            customer = service_request.customer
+            if not customer:
+                logger.warning("No se pudo enviar notificación: la solicitud no tiene cliente asociado")
+                return
+
+            # Obtener información del usuario
+            if hasattr(customer, 'id_user') and customer.id_user:
+                user_info = self._get_user_info(customer.id_user.pk, request)
+            else:
+                user_info = None
+
+            # Preparar datos para la notificación
+            email = None
+            client_name = "Cliente"
+
+            if user_info and user_info.get('email'):
+                # Case 1: Customer has id_user - use data from API
+                email = user_info['email']
+                client_name = user_info.get('name', 'Cliente')
+            else:
+                # Case 2: Customer has id_user = null - use data from customer model
+                if hasattr(customer, 'email') and customer.email:
+                    email = customer.email
+                    # Concatenate name fields from customer model
+                    name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                    client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+                else:
+                    # Try to get any available data from customer model as fallback
+                    if any([customer.name, customer.first_last_name, customer.second_last_name]):
+                        name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                        client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+
+            if not email:
+                logger.warning("No se pudo enviar notificación: no hay dirección de correo disponible")
+                return
+
+            # Enviar notificación
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                logger.warning("No se pudo enviar notificación: AUTH_SERVICE_URL no está configurado")
+                return
+
+            url = f"{auth_service_url.rstrip('/')}/users/users/notifications/send-presolicitud-confirmation/"
+            headers = {
+                'Content-Type': 'application/json'
+            }
+
+            # Use same authentication logic as user data API call
+            if request is not None:
+                auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or (
+                    request.headers.get('Authorization') if hasattr(request, 'headers') else None
+                )
+                if auth_header:
+                    headers['Authorization'] = auth_header
+
+            # Formatear fechas
+            start_date = service_request.scheduled_start_date.strftime('%d/%m/%Y') if service_request.scheduled_start_date else "fecha no especificada"
+            end_date = service_request.scheduled_end_date.strftime('%d/%m/%Y') if service_request.scheduled_end_date else "fecha no especificada"
+            
+            payload = {
+                "email": email,
+                "client_name": client_name,
+                "message": (
+                    "Su pre-solicitud ha sido recibida correctamente y está siendo procesada. "
+                    f"Fecha de inicio: {start_date}, Fecha de finalización: {end_date}."
+                ),
+                "request_code": service_request.id_request
+            }
+
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=15
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Error al enviar notificación de confirmación: {response.status_code} - {response.text}")
+
+        except Exception as e:
+            logger.error(f"Error inesperado al enviar notificación de confirmación: {str(e)}", exc_info=True)
 
     def _send_cancellation_notification(self, service_request, reason, request=None):
         """
