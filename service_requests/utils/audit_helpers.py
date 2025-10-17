@@ -193,6 +193,51 @@ def service_request_snapshot(service_request_obj) -> Dict[str, Any]:
     }
 
 
+def service_request_related_models_snapshot(service_request_obj) -> Dict[str, Any]:
+    """
+    Crea un snapshot de los modelos relacionados con una solicitud de servicio.
+    Incluye location y machinery_users.
+    """
+    if not service_request_obj:
+        return {}
+    
+    snapshot = {
+        'location': None,
+        'machinery_users': []
+    }
+    
+    # Snapshot de la ubicación si existe
+    if hasattr(service_request_obj, 'request_location') and service_request_obj.request_location:
+        loc = service_request_obj.request_location
+        location_data = {
+            'id_request_location': loc.id_request_location,
+            'latitude': float(loc.latitude) if loc.latitude is not None else None,
+            'longitude': float(loc.longitude) if loc.longitude is not None else None,
+            'place_name': loc.place_name,
+            'country': loc.country,
+            'department': loc.department,
+            'city_id': loc.city_id,
+            'area': float(loc.area) if loc.area is not None else None,
+            'area_unit_id': loc.area_unit_id,
+            'soil_type_id': loc.soil_type_id,
+            'altitude': float(loc.altitude) if loc.altitude is not None else None,
+            'altitude_unit_id': loc.altitude_unit_id,
+            'humidity_level': float(loc.humidity_level) if loc.humidity_level is not None else None
+        }
+        snapshot['location'] = {k: v for k, v in location_data.items() if v is not None}
+    
+    # Snapshot de las máquinas y operarios asignados
+    if hasattr(service_request_obj, 'machinery_users') and service_request_obj.machinery_users.exists():
+        for mu in service_request_obj.machinery_users.all():
+            snapshot['machinery_users'].append({
+                'id_request_machinery_user': mu.id_request_machinery_user,
+                'machinery_id': mu.machinery_id,
+                'user_id': mu.user_id
+            })
+    
+    return snapshot
+
+
 def service_request_cancel_snapshot(service_request_obj, machinery_statuses: Optional[list] = None) -> Dict[str, Any]:
     """
     Snapshot específico para cancelación de solicitudes.

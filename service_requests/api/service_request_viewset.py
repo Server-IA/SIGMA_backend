@@ -21,7 +21,11 @@ from users.models import User
 from service_requests.serializers.service_request_serializers.service_request_detail_serializer import ServiceRequestDetailSerializer
 from service_requests.serializers.service_request_serializers.list_service_request_serializer import ServiceRequestListSerializer
 from service_requests.serializers.service_request_serializers.pre_request_update_serializer import PreRequestUpdateSerializer
-from service_requests.utils.audit_helpers import get_actor_info, service_request_snapshot
+from service_requests.utils.audit_helpers import (
+    get_actor_info, 
+    service_request_snapshot, 
+    service_request_related_models_snapshot
+)
 from django.db.models import Q
 
 logger = logging.getLogger(__name__)
@@ -485,8 +489,9 @@ class ServiceRequestViewSet(viewsets.ViewSet):
             if not serializer.is_valid():
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
-            # Crear snapshot para auditoría
-            before = service_request_snapshot(service_request)
+            # Obtener snapshots antes de la actualización
+            before_request = service_request_snapshot(service_request)
+            before_related = service_request_related_models_snapshot(service_request)
             
             # Confirmar la solicitud
             with transaction.atomic():
@@ -505,26 +510,159 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                     logger.warning(f"User not found in database: {str(e)}")
                     updated_request.confirmation_user = None
                 
-                # Guardar los cambios
-                updated_request.save()
+                # Forzar la actualización de la fecha de modificación
+                updated_request.modification_date = timezone.now()
+                updated_request.save(update_fields=['modification_date', 'request_status_id', 'confirmation_datetime', 'confirmation_user'])
                 
-                # Registrar evento de auditoría
+                # Obtener los datos actualizados después de guardar
+                updated_request.refresh_from_db()
+                
+                # Registrar evento de auditoría con cambios detallados
                 try:
                     actor_id, actor_name, actor_role = get_actor_info(request.user)
+                    after_request = service_request_snapshot(updated_request)
+                    after_related = service_request_related_models_snapshot(updated_request)
                     
+                    # Calcular cambios detallados
+                    changes = {
+                        'changed': {},
+                        'created': {},
+                        'removed': {}
+                    }
+                    
+                    # Comparar cambios en la solicitud
+                    for field in before_request:
+                        if before_request[field] != after_request.get(field):
+                            changes['changed'][field] = {
+                                'from': before_request[field],
+                                'to': after_request[field]
+                            }
+                    
+                    # Comparar cambios en modelos relacionados
+                    if before_related != after_related:
+                        # Comparar ubicación
+                        if before_related.get('location') != after_related.get('location'):
+                            if before_related.get('location') and after_related.get('location'):
+                                # Actualización de ubicación
+                                location_changes = {}
+                                for field in before_related['location']:
+                                    if before_related['location'][field] != after_related['location'].get(field):
+                                        location_changes[field] = {
+                                            'from': before_related['location'][field],
+                                            'to': after_related['location'].get(field)
+                                        }
+                                if location_changes:
+                                    changes['changed']['location'] = location_changes
+                            elif after_related.get('location'):
+                                # Nueva ubicación
+                                changes['created']['location'] = after_related['location']
+                            
+                        # Comparar maquinaria y operarios
+                        before_machinery = {mu['id_request_machinery_user']: mu 
+                                         for mu in before_related.get('machinery_users', [])}
+                        after_machinery = {mu['id_request_machinery_user']: mu 
+                                        for mu in after_related.get('machinery_users', [])}
+                        
+                        # Encontrar cambios en maquinaria/operarios
+                        for mu_id, mu_data in after_machinery.items():
+                            if mu_id in before_machinery:
+                                # Actualización
+                                mu_changes = {}
+                                for field in mu_data:
+                                    if before_machinery[mu_id].get(field) != mu_data.get(field):
+                                        mu_changes[field] = {
+                                            'from': before_machinery[mu_id].get(field),
+                                            'to': mu_data.get(field)
+                                        }
+                                if mu_changes:
+                                    if 'machinery_users' not in changes['changed']:
+                                        changes['changed']['machinery_users'] = {}
+                                    changes['changed']['machinery_users'][str(mu_id)] = mu_changes
+                            else:
+                                # Nuevo registro
+                                if 'machinery_users' not in changes['created']:
+                                    changes['created']['machinery_users'] = []
+                                changes['created']['machinery_users'].append(mu_data)
+                        
+                        # Verificar eliminaciones (aunque no debería haber en este flujo)
+                        for mu_id in set(before_machinery.keys()) - set(after_machinery.keys()):
+                            if 'machinery_users' not in changes['removed']:
+                                changes['removed']['machinery_users'] = []
+                            changes['removed']['machinery_users'].append(before_machinery[mu_id])
+                    
+                    # Inicializar estructura de cambios
+                    diff_changes = {}
+
+                    # Procesar cambios en la solicitud principal
+                    if changes.get('changed'):
+                        for field, change in changes['changed'].items():
+                            if field not in ['location', 'machinery_users'] and 'to' in change:
+                                diff_changes[field] = {
+                                    'from': change.get('from'),  # Usar el valor anterior real
+                                    'to': change['to']
+                                }
+                    
+                    # Incluir todos los campos de location
+                    location = getattr(updated_request, 'request_location', None)
+                    if location:
+                        location_fields = [
+                            'id_request_location', 'country', 'department', 'city_id',
+                            'place_name', 'latitude', 'longitude', 'area', 'area_unit_id',
+                            'soil_type_id', 'humidity_level', 'altitude', 'altitude_unit_id'
+                        ]
+                        for field in location_fields:
+                            if hasattr(location, field):
+                                field_name = f'location_{field}'
+                                field_value = getattr(location, field, None)
+                                # Si es una relación, obtener solo el ID
+                                if field.endswith('_id') and field_value is None:
+                                    # Intentar obtener el ID del objeto relacionado
+                                    rel_field = field.replace('_id', '')
+                                    if hasattr(location, rel_field):
+                                        rel_obj = getattr(location, rel_field)
+                                        if rel_obj is not None:
+                                            field_value = rel_obj.id if hasattr(rel_obj, 'id') else None
+                                
+                                diff_changes[field_name] = {
+                                    'from': None,  # Siempre null para nuevos registros
+                                    'to': field_value
+                                }
+                    
+                    # Procesar maquinaria/operarios con índices únicos
+                    if changes.get('created', {}).get('machinery_users'):
+                        for idx, mu in enumerate(changes['created']['machinery_users'], 1):
+                            if not isinstance(mu, dict):
+                                continue
+                            for field, value in mu.items():
+                                if field != 'id_request_machinery_user' and value is not None:
+                                    diff_changes[f'machinery_{idx}_{field}'] = {
+                                        'from': None,  # Siempre null para nuevos registros
+                                        'to': value
+                                    }
+                    
+                    # Crear before y after basados en el diff
+                    before_data = {}
+                    after_data = {}
+                    
+                    for field, change in diff_changes.items():
+                        before_data[field] = change['from']
+                        after_data[field] = change['to']
+                    
+                    # Registrar auditoría con before y after
                     AuditClient(request).update(
                         object_id=str(updated_request.id_request),
-                        before=before,
-                        after=service_request_snapshot(updated_request),
+                        before=before_data or None,
+                        after=after_data,
                         actor_id=actor_id,
                         actor_name=actor_name,
                         actor_role=actor_role,
                         permission_id=permission_id,
-                        module="requests",
-                        submodule="requests",
+                        module='requests',
+                        submodule='requests'
                     )
+                        
                 except Exception as audit_error:
-                    logger.error(f"Error en auditoría al confirmar solicitud: {str(audit_error)}")
+                    logger.error(f"Error en auditoría al confirmar solicitud: {str(audit_error)}", exc_info=True)
                 
                 return Response(
                     {"message": "Solicitud confirmada exitosamente"},
