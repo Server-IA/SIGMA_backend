@@ -498,21 +498,33 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 # Actualizar la solicitud con los datos validados
                 updated_request = serializer.save()
                 
+                # Tomar instantánea antes de los cambios
+                before_request = service_request_snapshot(updated_request)
+                before_related = service_request_related_models_snapshot(updated_request)
+                
                 # Aplicar lógica de confirmación
                 updated_request.request_status_id = 20  # Estado "En revisión"
-                updated_request.confirmation_datetime = timezone.now()
+                confirmation_time = timezone.now()
+                updated_request.confirmation_datetime = confirmation_time
                 
                 # Asignar el usuario de confirmación
                 try:
                     user_instance = User.objects.get(id_user=request.user.id)
                     updated_request.confirmation_user = user_instance
+                    confirmation_user_id = user_instance.id_user
                 except (User.DoesNotExist, AttributeError) as e:
                     logger.warning(f"User not found in database: {str(e)}")
                     updated_request.confirmation_user = None
+                    confirmation_user_id = None
                 
                 # Forzar la actualización de la fecha de modificación
-                updated_request.modification_date = timezone.now()
-                updated_request.save(update_fields=['modification_date', 'request_status_id', 'confirmation_datetime', 'confirmation_user'])
+                updated_request.modification_date = confirmation_time
+                updated_request.save(update_fields=[
+                    'modification_date', 
+                    'request_status_id', 
+                    'confirmation_datetime', 
+                    'confirmation_user'
+                ])
                 
                 # Obtener los datos actualizados después de guardar
                 updated_request.refresh_from_db()
@@ -522,6 +534,14 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                     actor_id, actor_name, actor_role = get_actor_info(request.user)
                     after_request = service_request_snapshot(updated_request)
                     after_related = service_request_related_models_snapshot(updated_request)
+                    
+                    # Asegurarse de que los campos de confirmación se incluyan en el before_request
+                    before_request['confirmation_datetime'] = None
+                    before_request['confirmation_user_id'] = None
+                    
+                    # Actualizar after_request con los valores reales
+                    after_request['confirmation_datetime'] = str(confirmation_time) if confirmation_time else None
+                    after_request['confirmation_user_id'] = confirmation_user_id
                     
                     # Calcular cambios detallados
                     changes = {
@@ -628,16 +648,16 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                                     'to': field_value
                                 }
                     
-                    # Procesar maquinaria/operarios con índices únicos
-                    if changes.get('created', {}).get('machinery_users'):
-                        for idx, mu in enumerate(changes['created']['machinery_users'], 1):
+                    # Procesar maquinaria/operarios
+                    if 'machinery_users' in after_related:
+                        for idx, mu in enumerate(after_related['machinery_users'], 1):
                             if not isinstance(mu, dict):
                                 continue
-                            for field, value in mu.items():
-                                if field != 'id_request_machinery_user' and value is not None:
+                            for field in ['machinery_id', 'user_id']:
+                                if field in mu:
                                     diff_changes[f'machinery_{idx}_{field}'] = {
                                         'from': None,  # Siempre null para nuevos registros
-                                        'to': value
+                                        'to': mu[field]
                                     }
                     
                     # Crear before y after basados en el diff
