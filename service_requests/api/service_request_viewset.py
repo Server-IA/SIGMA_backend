@@ -495,12 +495,16 @@ class ServiceRequestViewSet(viewsets.ViewSet):
             
             # Confirmar la solicitud
             with transaction.atomic():
+                # Tomar instantánea ANTES de los cambios
+                before_request = service_request_snapshot(service_request)
+                before_related = service_request_related_models_snapshot(service_request)
+                
                 # Actualizar la solicitud con los datos validados
                 updated_request = serializer.save()
                 
-                # Tomar instantánea antes de los cambios
-                before_request = service_request_snapshot(updated_request)
-                before_related = service_request_related_models_snapshot(updated_request)
+                # Tomar instantánea DESPUÉS de los cambios
+                after_request = service_request_snapshot(updated_request)
+                after_related = service_request_related_models_snapshot(updated_request)
                 
                 # Aplicar lógica de confirmación
                 updated_request.request_status_id = 20  # Estado "En revisión"
