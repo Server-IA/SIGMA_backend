@@ -626,6 +626,18 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                                     'to': change['to']
                                 }
                     
+                    # Incluir campos de pago
+                    payment_fields = [
+                        'payment_method', 'payment_status', 'amount_paid',
+                        'currency_unit_amount_paid', 'amount_to_pay', 'currency_unit_amount_to_pay'
+                    ]
+                    for field in payment_fields:
+                        if field in after_request and after_request[field] is not None:
+                            diff_changes[field] = {
+                                'from': before_request.get(field),
+                                'to': after_request[field]
+                            }
+                    
                     # Incluir todos los campos de location
                     location = getattr(updated_request, 'request_location', None)
                     if location:

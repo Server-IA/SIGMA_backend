@@ -190,6 +190,24 @@ def service_request_snapshot(service_request_obj) -> Dict[str, Any]:
         'id_responsible_user': _safe_get(service_request_obj, 'id_responsible_user_id') if hasattr(service_request_obj, 'id_responsible_user_id') else (
             _safe_get(service_request_obj.id_responsible_user, 'id_user') if hasattr(service_request_obj, 'id_responsible_user') and service_request_obj.id_responsible_user else None
         ),
+        'payment_method': _safe_get(service_request_obj, 'payment_method_id') if hasattr(service_request_obj, 'payment_method_id') else (
+            _safe_get(service_request_obj.payment_method, 'id_payment_method') if hasattr(service_request_obj, 'payment_method') and service_request_obj.payment_method else None
+        ),
+        'payment_status_id': _safe_get(service_request_obj, 'payment_status_id') if hasattr(service_request_obj, 'payment_status_id') else (
+            _safe_get(service_request_obj.payment_status, 'id_statues') if hasattr(service_request_obj, 'payment_status') and service_request_obj.payment_status else None
+        ),
+        'amount_paid': float(_safe_get(service_request_obj, 'amount_paid')) if _safe_get(service_request_obj, 'amount_paid') is not None else None,
+        'currency_unit_amount_paid': _safe_get(service_request_obj, 'currency_unit_amount_paid_id') if hasattr(service_request_obj, 'currency_unit_amount_paid_id') else (
+            _safe_get(service_request_obj.currency_unit_amount_paid, 'id_units') if hasattr(service_request_obj, 'currency_unit_amount_paid') and service_request_obj.currency_unit_amount_paid else None
+        ),
+        'amount_to_pay': float(_safe_get(service_request_obj, 'amount_to_pay')) if _safe_get(service_request_obj, 'amount_to_pay') is not None else None,
+        'currency_unit_amount_to_pay': _safe_get(service_request_obj, 'currency_unit_amount_to_pay_id') if hasattr(service_request_obj, 'currency_unit_amount_to_pay_id') else (
+            _safe_get(service_request_obj.currency_unit_amount_to_pay, 'id_units') if hasattr(service_request_obj, 'currency_unit_amount_to_pay') and service_request_obj.currency_unit_amount_to_pay else None
+        ),
+        'confirmation_datetime': _safe_get(service_request_obj, 'confirmation_datetime').isoformat() if _safe_get(service_request_obj, 'confirmation_datetime') else None,
+        'confirmation_user_id': _safe_get(service_request_obj, 'confirmation_user_id') if hasattr(service_request_obj, 'confirmation_user_id') else (
+            _safe_get(service_request_obj.confirmation_user, 'id_user') if hasattr(service_request_obj, 'confirmation_user') and service_request_obj.confirmation_user else None
+        ),
     }
 
 
