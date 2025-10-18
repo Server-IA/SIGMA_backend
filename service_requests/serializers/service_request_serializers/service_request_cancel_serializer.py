@@ -6,6 +6,8 @@ from users.models.user import User
 
 
 class ServiceRequestCancelSerializer(serializers.ModelSerializer):
+    completion_cancellation_observations = serializers.CharField(required=True, allow_blank=False)
+    
     class Meta:
         model = ServiceRequest
         fields = [

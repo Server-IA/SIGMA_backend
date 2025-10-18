@@ -13,14 +13,12 @@ class RequestLocationCreateSerializer(serializers.ModelSerializer):
         fields = [
             'country', 'department', 'city_id', 'place_name', 
             'latitude', 'longitude', 'area', 'area_unit', 
-            'soil_type', 'humidity_level', 'altitude', 'altitude_unit'
+            'altitude', 'altitude_unit'
         ]
         extra_kwargs = {
             'area': {'required': True},
-            'humidity_level': {'required': True},
             'altitude': {'required': True},
             'area_unit': {'required': True},
-            'soil_type': {'required': True},
             'altitude_unit': {'required': True}
         }
     
@@ -77,74 +75,75 @@ class RequestLocationCreateSerializer(serializers.ModelSerializer):
     def validate_area_unit(self, value):
         """
         Valida que la unidad de área pertenezca a la categoría con id 11.
+        Solo se aplica si el valor no es None.
         """
-        try:
-            if value.id_units_categories_id != 11:
-                expected_category = UnitsCategory.objects.get(id_units_categories=11)
+        if value is not None:
+            try:
+                if value.id_units_categories_id != 11:
+                    expected_category = UnitsCategory.objects.get(id_units_categories=11)
+                    raise serializers.ValidationError(
+                        f"La unidad de área debe pertenecer a la categoría '{expected_category.name}'."
+                    )
+            except UnitsCategory.DoesNotExist:
                 raise serializers.ValidationError(
-                    f"La unidad de área debe pertenecer a la categoría '{expected_category.name}'."
+                    "La categoría de unidades requerida (id=11) no existe en la parametrización."
                 )
-        except UnitsCategory.DoesNotExist:
-            raise serializers.ValidationError(
-                "La categoría de unidades requerida (id=11) no existe en la parametrización."
-            )
-        return value
-    
-    def validate_soil_type(self, value):
-        """
-        Valida que el tipo de suelo pertenezca a la categoría con id 15.
-        """
-        try:
-            if value.id_types_categories_id != 15:
-                expected_category = TypesCategory.objects.get(id_types_categories=15)
-                raise serializers.ValidationError(
-                    f"El tipo de suelo debe pertenecer a la categoría '{expected_category.name}'."
-                )
-        except TypesCategory.DoesNotExist:
-            raise serializers.ValidationError(
-                "La categoría de tipos requerida (id=15) no existe en la parametrización."
-            )
         return value
     
     def validate_altitude_unit(self, value):
         """
         Valida que la unidad de altitud pertenezca a la categoría con id 7.
+        Solo se aplica si el valor no es None.
         """
-        try:
-            if value.id_units_categories_id != 7:
-                expected_category = UnitsCategory.objects.get(id_units_categories=7)
+        if value is not None:
+            try:
+                if value.id_units_categories_id != 7:
+                    expected_category = UnitsCategory.objects.get(id_units_categories=7)
+                    raise serializers.ValidationError(
+                        f"La unidad de altitud debe pertenecer a la categoría '{expected_category.name}'."
+                    )
+            except UnitsCategory.DoesNotExist:
                 raise serializers.ValidationError(
-                    f"La unidad de altitud debe pertenecer a la categoría '{expected_category.name}'."
+                    "La categoría de unidades requerida (id=7) no existe en la parametrización."
                 )
-        except UnitsCategory.DoesNotExist:
-            raise serializers.ValidationError(
-                "La categoría de unidades requerida (id=7) no existe en la parametrización."
-            )
         return value
+        
+    def validate(self, data):
+        """
+        Validaciones cruzadas entre campos relacionados.
+        """
+        # Validar que si se proporciona área, también se proporcione su unidad
+        if data.get('area') is not None and data.get('area_unit') is None:
+            raise serializers.ValidationError({
+                'area_unit': 'La unidad de área es obligatoria cuando se proporciona un valor de área.'
+            })
+            
+        # Validar que si se proporciona altitud, también se proporcione su unidad
+        if data.get('altitude') is not None and data.get('altitude_unit') is None:
+            raise serializers.ValidationError({
+                'altitude_unit': 'La unidad de altitud es obligatoria cuando se proporciona un valor de altitud.'
+            })
+            
+        return data
         
     def validate_area(self, value):
         """
         Valida que el área no sea negativa.
+        Solo se aplica si el valor no es None.
         """
-        if value < 0:
+        if value is not None and value < 0:
             raise serializers.ValidationError("El área no puede ser un valor negativo.")
         return value
         
     def validate_altitude(self, value):
         """
         Valida que la altitud no sea negativa.
+        Solo se aplica si el valor no es None.
         """
-        if value < 0:
+        if value is not None and value < 0:
             raise serializers.ValidationError("La altitud no puede ser un valor negativo.")
         return value
         
-    def validate_humidity_level(self, value):
-        """
-        Valida que el nivel de humedad sea un porcentaje válido (entre 0 y 100).
-        """
-        if not (0 <= value <= 100):
-            raise serializers.ValidationError("El nivel de humedad debe estar entre 0 y 100%.")
-        return value
 
 class PreRequestCreateSerializer(serializers.ModelSerializer):
     location = RequestLocationCreateSerializer()
