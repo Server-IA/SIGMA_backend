@@ -190,4 +190,109 @@ def service_request_snapshot(service_request_obj) -> Dict[str, Any]:
         'id_responsible_user': _safe_get(service_request_obj, 'id_responsible_user_id') if hasattr(service_request_obj, 'id_responsible_user_id') else (
             _safe_get(service_request_obj.id_responsible_user, 'id_user') if hasattr(service_request_obj, 'id_responsible_user') and service_request_obj.id_responsible_user else None
         ),
+        'payment_method': _safe_get(service_request_obj, 'payment_method_id') if hasattr(service_request_obj, 'payment_method_id') else (
+            _safe_get(service_request_obj.payment_method, 'id_payment_method') if hasattr(service_request_obj, 'payment_method') and service_request_obj.payment_method else None
+        ),
+        'payment_status_id': _safe_get(service_request_obj, 'payment_status_id') if hasattr(service_request_obj, 'payment_status_id') else (
+            _safe_get(service_request_obj.payment_status, 'id_statues') if hasattr(service_request_obj, 'payment_status') and service_request_obj.payment_status else None
+        ),
+        'amount_paid': float(_safe_get(service_request_obj, 'amount_paid')) if _safe_get(service_request_obj, 'amount_paid') is not None else None,
+        'currency_unit_amount_paid': _safe_get(service_request_obj, 'currency_unit_amount_paid_id') if hasattr(service_request_obj, 'currency_unit_amount_paid_id') else (
+            _safe_get(service_request_obj.currency_unit_amount_paid, 'id_units') if hasattr(service_request_obj, 'currency_unit_amount_paid') and service_request_obj.currency_unit_amount_paid else None
+        ),
+        'amount_to_pay': float(_safe_get(service_request_obj, 'amount_to_pay')) if _safe_get(service_request_obj, 'amount_to_pay') is not None else None,
+        'currency_unit_amount_to_pay': _safe_get(service_request_obj, 'currency_unit_amount_to_pay_id') if hasattr(service_request_obj, 'currency_unit_amount_to_pay_id') else (
+            _safe_get(service_request_obj.currency_unit_amount_to_pay, 'id_units') if hasattr(service_request_obj, 'currency_unit_amount_to_pay') and service_request_obj.currency_unit_amount_to_pay else None
+        ),
+        'confirmation_datetime': _safe_get(service_request_obj, 'confirmation_datetime').isoformat() if _safe_get(service_request_obj, 'confirmation_datetime') else None,
+        'confirmation_user_id': _safe_get(service_request_obj, 'confirmation_user_id') if hasattr(service_request_obj, 'confirmation_user_id') else (
+            _safe_get(service_request_obj.confirmation_user, 'id_user') if hasattr(service_request_obj, 'confirmation_user') and service_request_obj.confirmation_user else None
+        ),
+    }
+
+
+def service_request_related_models_snapshot(service_request_obj) -> Dict[str, Any]:
+    """
+    Crea un snapshot de los modelos relacionados con una solicitud de servicio.
+    Incluye location y machinery_users.
+    """
+    if not service_request_obj:
+        return {}
+    
+    snapshot = {
+        'location': None,
+        'machinery_users': []
+    }
+    
+    # Snapshot de la ubicación si existe
+    if hasattr(service_request_obj, 'request_location') and service_request_obj.request_location:
+        loc = service_request_obj.request_location
+        location_data = {
+            'id_request_location': loc.id_request_location,
+            'latitude': float(loc.latitude) if loc.latitude is not None else None,
+            'longitude': float(loc.longitude) if loc.longitude is not None else None,
+            'place_name': loc.place_name,
+            'country': loc.country,
+            'department': loc.department,
+            'city_id': loc.city_id,
+            'area': float(loc.area) if loc.area is not None else None,
+            'area_unit_id': loc.area_unit_id,
+            'altitude': float(loc.altitude) if loc.altitude is not None else None,
+            'altitude_unit_id': loc.altitude_unit_id
+        }
+        snapshot['location'] = {k: v for k, v in location_data.items() if v is not None}
+    
+    # Snapshot de las máquinas y operarios asignados
+    if hasattr(service_request_obj, 'machinery_users') and service_request_obj.machinery_users.exists():
+        for mu in service_request_obj.machinery_users.all():
+            snapshot['machinery_users'].append({
+                'id_request_machinery_user': mu.id_request_machinery_user,
+                'machinery_id': mu.machinery_id,
+                'user_id': mu.user_id,
+                'soil_type': mu.soil_type_id,
+                'texture': mu.texture_id,
+                'humidity_level': float(mu.humidity_level) if mu.humidity_level is not None else None,
+                'implementation': mu.implementation_id,
+                'depth': float(mu.depth) if mu.depth is not None else None,
+                'slope': float(mu.slope) if mu.slope is not None else None,
+                'work_duration': float(mu.work_duration) if mu.work_duration is not None else None
+            })
+    
+    return snapshot
+
+
+def service_request_cancel_snapshot(service_request_obj, machinery_statuses: Optional[list] = None) -> Dict[str, Any]:
+    """
+    Snapshot específico para cancelación de solicitudes.
+    Incluye datos de cancelación y el estado de las maquinarias luego de cancelar.
+
+    Parameters:
+    - service_request_obj: instancia de ServiceRequest ya actualizada a estado cancelado (23)
+    - machinery_statuses: lista de dicts con info de maquinaria, ejemplo:
+        [{
+            'id_machinery': 1,
+            'machinery_operational_status_id': 4
+        }, ...]
+      Si no se provee, se deja en [].
+    """
+    if not service_request_obj:
+        return {}
+
+    def _safe_get(o, attr, default=None):
+        try:
+            if isinstance(o, dict):
+                return o.get(attr, default)
+            return getattr(o, attr, default)
+        except Exception:
+            return default
+
+    machinery_statuses = machinery_statuses or []
+
+    return {
+        'id_request': _safe_get(service_request_obj, 'id_request'),
+        'request_status_id': _safe_get(service_request_obj.request_status, 'id_statues') if hasattr(service_request_obj, 'request_status') and service_request_obj.request_status else None,
+        'completion_cancellation_observations': _safe_get(service_request_obj, 'completion_cancellation_observations'),
+        'completion_cancellation_datetime': _safe_get(service_request_obj, 'completion_cancellation_datetime').isoformat() if _safe_get(service_request_obj, 'completion_cancellation_datetime') else None,
+        'completion_cancellation_user_id': _safe_get(service_request_obj.completion_cancellation_user, 'id_user') if hasattr(service_request_obj, 'completion_cancellation_user') and service_request_obj.completion_cancellation_user else None,
+        'machinery_statuses': machinery_statuses,
     }
