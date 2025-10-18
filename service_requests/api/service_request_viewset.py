@@ -14,6 +14,7 @@ from service_requests.models import ServiceRequest
 from service_requests.serializers.service_request_serializers.pre_request_create_serializer import PreRequestCreateSerializer
 from service_requests.utils.audit_helpers import get_actor_info, service_request_snapshot, service_request_cancel_snapshot
 from service_requests.serializers.service_request_serializers.service_request_cancel_serializer import ServiceRequestCancelSerializer
+from service_requests.serializers.service_request_serializers.service_request_complete_serializer import ServiceRequestCompleteSerializer
 from service_requests.models import RequestMachineryUser
 from parameterization.models.statues import Statues
 from machinery.models.machinery import Machinery
@@ -804,6 +805,210 @@ class ServiceRequestViewSet(viewsets.ViewSet):
 
         except Exception as e:
             logger.error(f"Error inesperado al enviar notificación de confirmación: {str(e)}", exc_info=True)
+
+    @action(detail=True, methods=['post'], url_path='complete')
+    def complete(self, request, pk=None):
+        """
+        Finaliza una solicitud de servicio.
+        
+        Reglas:
+        - Requiere permiso ID 152.
+        - Solo se puede finalizar si la solicitud está en estado EN PROCESO (id=21).
+        - No se puede finalizar si está CANCELADA (id=23).
+        - Al finalizar, cambia el estado de la solicitud a FINALIZADA (id=22).
+        - Cambia el estado de la maquinaria asociada a DISPONIBLE (id=4).
+        - Registra fecha/hora automáticamente (timezone.now()), observaciones y usuario de finalización.
+        - Envía notificación por correo al cliente.
+        
+        Body esperado:
+        {
+            "completion_cancellation_observations": "Trabajo completado satisfactoriamente"  # Obligatorio
+        }
+        """
+        # Autenticación
+        if not request.user.is_authenticated:
+            return Response(
+                {"message": "Usuario no autenticado"}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Permiso
+        permission_id = 152
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para finalizar solicitudes"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Buscar la solicitud por su PK (id_request)
+        service_request = get_object_or_404(ServiceRequest, pk=pk)
+
+        # Serializar y validar
+        serializer = ServiceRequestCompleteSerializer(
+            instance=service_request,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Error en la validación de datos',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+                # Aplicar datos de finalización (fecha, hora, observaciones, usuario)
+                serializer.save()
+
+                # Cambiar estado de la solicitud a FINALIZADA (ID 22)
+                completed_status_id = 22
+                completed_status = get_object_or_404(Statues, pk=completed_status_id)
+                service_request.request_status = completed_status
+                service_request.save(update_fields=['request_status'])
+
+                # Cambiar estado de la maquinaria asociada a DISPONIBLE (4)
+                available_status = get_object_or_404(Statues, pk=4)
+                # Obtener maquinarias vinculadas a la solicitud
+                rms = RequestMachineryUser.objects.filter(request=service_request).select_related('machinery')
+                machinery_ids = [rm.machinery_id for rm in rms]
+                if machinery_ids:
+                    # Usar el campo _id para actualizar el FK en bulk
+                    Machinery.objects.filter(pk__in=machinery_ids).update(machinery_operational_status_id=available_status.pk)
+
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                    machinery_statuses = [
+                        {"id_machinery": mid, "machinery_operational_status_id": 4}
+                        for mid in machinery_ids
+                    ] if machinery_ids else []
+                    AuditClient(request).create(
+                        object_id=str(service_request.id_request),
+                        after=service_request_cancel_snapshot(service_request, machinery_statuses=machinery_statuses),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="requests",
+                        submodule="requests",
+                    )
+                except Exception as audit_exc:
+                    logger.warning("El servicio de auditoría ha fallado en complete: %s", str(audit_exc))
+
+        except Exception as e:
+            logger.error(
+                f"Error inesperado al finalizar solicitud: {str(e)}", 
+                exc_info=True
+            )
+            return Response({
+                'success': False,
+                'message': 'Ocurrió un error inesperado al procesar la finalización',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Enviar notificación de finalización por correo
+        self._send_completion_notification(service_request, request)
+
+        # Respuesta de éxito
+        return Response({
+            'success': True,
+            'message': f"Solicitud finalizada exitosamente. Código: {service_request.id_request}.",
+            'id_request': service_request.id_request
+        }, status=status.HTTP_200_OK)
+
+    def _send_completion_notification(self, service_request, request=None):
+        """
+        Envía una notificación de finalización por correo electrónico al cliente.
+        Similar a _send_cancellation_notification pero con endpoint diferente.
+        """
+        try:
+            customer = service_request.customer
+            if not customer:
+                logger.warning("No se pudo enviar notificación de finalización: la solicitud no tiene cliente asociado")
+                return
+
+            # Obtener información del usuario (mismo patrón que cancelación)
+            if hasattr(customer, 'id_user') and customer.id_user:
+                user_info = self._get_user_info(customer.id_user.pk, request)
+            else:
+                user_info = None
+
+            # Preparar datos para la notificación
+            email = None
+            client_name = "Cliente"
+
+            if user_info and user_info.get('email'):
+                # Case 1: Customer has id_user - use data from API
+                email = user_info['email']
+                client_name = user_info.get('name', 'Cliente')
+            else:
+                # Case 2: Customer has id_user = null - use data from customer model
+                if hasattr(customer, 'email') and customer.email:
+                    email = customer.email
+                    # Concatenate name fields from customer model
+                    name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                    client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+                else:
+                    # Try to get any available data from customer model as fallback
+                    if any([customer.name, customer.first_last_name, customer.second_last_name]):
+                        name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                        client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+
+            if not email:
+                logger.warning("No se pudo enviar notificación de finalización: no hay dirección de correo disponible")
+                return
+
+            # Enviar notificación
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                logger.warning("No se pudo enviar notificación de finalización: AUTH_SERVICE_URL no está configurado")
+                return
+
+            url = f"{auth_service_url.rstrip('/')}/users/users/notifications/send-solicitud-completed/"
+            headers = {
+                'Content-Type': 'application/json'
+            }
+
+            # Use same authentication logic as user data API call
+            if request is not None:
+                auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or (
+                    request.headers.get('Authorization') if hasattr(request, 'headers') else None
+                )
+                if auth_header:
+                    headers['Authorization'] = auth_header
+
+            # Construir mensaje con observaciones y fecha de finalización
+            observations = service_request.completion_cancellation_observations or "Sin observaciones adicionales"
+            completion_datetime = service_request.completion_cancellation_datetime
+            
+            if completion_datetime:
+                completion_date_formatted = completion_datetime.strftime('%d/%m/%Y a las %H:%M')
+                message = f"{observations}. Fecha de finalización: {completion_date_formatted}."
+            else:
+                message = observations
+
+            payload = {
+                "email": email,
+                "client_name": client_name,
+                "message": message,
+                "request_code": service_request.id_request
+            }
+
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=15
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Error al enviar notificación de finalización: {response.status_code} - {response.text}")
+
+        except Exception as e:
+            logger.error(f"Error inesperado al enviar notificación de finalización: {str(e)}", exc_info=True)
 
     def _send_cancellation_notification(self, service_request, reason, request=None):
         """
