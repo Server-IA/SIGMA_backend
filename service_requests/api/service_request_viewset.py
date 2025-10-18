@@ -647,7 +647,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                         location_fields = [
                             'id_request_location', 'country', 'department', 'city_id',
                             'place_name', 'latitude', 'longitude', 'area', 'area_unit_id',
-                            'soil_type_id', 'humidity_level', 'altitude', 'altitude_unit_id'
+                            'altitude', 'altitude_unit_id'
                         ]
                         for field in location_fields:
                             if hasattr(location, field):
@@ -672,7 +672,10 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                         for idx, mu in enumerate(after_related['machinery_users'], 1):
                             if not isinstance(mu, dict):
                                 continue
-                            for field in ['machinery_id', 'user_id']:
+                            for field in [
+                                'machinery_id', 'user_id', 'soil_type_id', 'texture_id', 
+                                'humidity_level', 'implementation_id', 'depth', 'slope', 'work_duration'
+                            ]:
                                 if field in mu:
                                     diff_changes[f'machinery_{idx}_{field}'] = {
                                         'from': None,  # Siempre null para nuevos registros

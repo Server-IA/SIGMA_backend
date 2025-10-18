@@ -6,6 +6,9 @@ from service_requests.api.service_viewset import ServiceViewSet
 from service_requests.api.tax_regime_viewset import TaxRegimeViewSet
 from service_requests.api.service_request_viewset import ServiceRequestViewSet
 from service_requests.api.payment_method_viewset import PaymentMethodViewSet
+from service_requests.api.soil_type_viewset import SoilTypeViewSet
+from service_requests.api.texture_viewset import TextureViewSet
+from service_requests.api.implementation_viewset import ImplementationViewSet
 
 router = routers.DefaultRouter()
 
@@ -15,6 +18,10 @@ router.register(r'services', ServiceViewSet, basename='service')
 router.register(r'tax_regimes', TaxRegimeViewSet, basename='tax_regime')
 router.register(r'service_requests', ServiceRequestViewSet, basename='service_request')
 router.register(r'payment_methods', PaymentMethodViewSet, basename='payment_method')
+router.register(r'soil_types', SoilTypeViewSet, basename='soil_type')
+router.register(r'textures', TextureViewSet, basename='texture')
+router.register(r'implementations', ImplementationViewSet, basename='implementation')
+
 urlpatterns = [
     path('', include(router.urls))
 ]
