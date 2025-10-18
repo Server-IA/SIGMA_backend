@@ -11,8 +11,6 @@ class RequestLocation(models.Model):
     longitude = models.FloatField(null=False, blank=False)
     area = models.FloatField(null=True, blank=True)
     area_unit = models.ForeignKey('parameterization.Units', on_delete=models.PROTECT, null=True, blank=True, related_name='area_locations')
-    soil_type = models.ForeignKey('parameterization.Types', on_delete=models.PROTECT, null=True, blank=True, related_name='soil_type_locations')
-    humidity_level = models.FloatField(null=True, blank=True)
     altitude = models.FloatField(null=True, blank=True)
     altitude_unit = models.ForeignKey('parameterization.Units', on_delete=models.PROTECT, null=True, blank=True, related_name='altitude_locations')
 

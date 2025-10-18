@@ -21,7 +21,11 @@ from users.models import User
 from service_requests.serializers.service_request_serializers.service_request_detail_serializer import ServiceRequestDetailSerializer
 from service_requests.serializers.service_request_serializers.list_service_request_serializer import ServiceRequestListSerializer
 from service_requests.serializers.service_request_serializers.pre_request_update_serializer import PreRequestUpdateSerializer
-from service_requests.utils.audit_helpers import get_actor_info, service_request_snapshot
+from service_requests.utils.audit_helpers import (
+    get_actor_info, 
+    service_request_snapshot, 
+    service_request_related_models_snapshot
+)
 from django.db.models import Q
 
 logger = logging.getLogger(__name__)
@@ -485,46 +489,222 @@ class ServiceRequestViewSet(viewsets.ViewSet):
             if not serializer.is_valid():
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
-            # Crear snapshot para auditoría
-            before = service_request_snapshot(service_request)
+            # Obtener snapshots antes de la actualización
+            before_request = service_request_snapshot(service_request)
+            before_related = service_request_related_models_snapshot(service_request)
             
             # Confirmar la solicitud
             with transaction.atomic():
+                # Tomar instantánea ANTES de los cambios
+                before_request = service_request_snapshot(service_request)
+                before_related = service_request_related_models_snapshot(service_request)
+                
                 # Actualizar la solicitud con los datos validados
                 updated_request = serializer.save()
                 
+                # Tomar instantánea DESPUÉS de los cambios
+                after_request = service_request_snapshot(updated_request)
+                after_related = service_request_related_models_snapshot(updated_request)
+                
                 # Aplicar lógica de confirmación
                 updated_request.request_status_id = 20  # Estado "En revisión"
-                updated_request.confirmation_datetime = timezone.now()
+                confirmation_time = timezone.now()
+                updated_request.confirmation_datetime = confirmation_time
                 
                 # Asignar el usuario de confirmación
                 try:
                     user_instance = User.objects.get(id_user=request.user.id)
                     updated_request.confirmation_user = user_instance
+                    confirmation_user_id = user_instance.id_user
                 except (User.DoesNotExist, AttributeError) as e:
                     logger.warning(f"User not found in database: {str(e)}")
                     updated_request.confirmation_user = None
+                    confirmation_user_id = None
                 
-                # Guardar los cambios
-                updated_request.save()
+                # Forzar la actualización de la fecha de modificación
+                updated_request.modification_date = confirmation_time
+                updated_request.save(update_fields=[
+                    'modification_date', 
+                    'request_status_id', 
+                    'confirmation_datetime', 
+                    'confirmation_user'
+                ])
                 
-                # Registrar evento de auditoría
+                # Enviar notificación de confirmación
+                self._send_confirmation_notification(updated_request, request)
+                
+                # Obtener los datos actualizados después de guardar
+                updated_request.refresh_from_db()
+                
+                # Registrar evento de auditoría con cambios detallados
                 try:
                     actor_id, actor_name, actor_role = get_actor_info(request.user)
+                    after_request = service_request_snapshot(updated_request)
+                    after_related = service_request_related_models_snapshot(updated_request)
                     
+                    # Asegurarse de que los campos de confirmación se incluyan en el before_request
+                    before_request['confirmation_datetime'] = None
+                    before_request['confirmation_user_id'] = None
+                    
+                    # Actualizar after_request con los valores reales
+                    after_request['confirmation_datetime'] = str(confirmation_time) if confirmation_time else None
+                    after_request['confirmation_user_id'] = confirmation_user_id
+                    
+                    # Calcular cambios detallados
+                    changes = {
+                        'changed': {},
+                        'created': {},
+                        'removed': {}
+                    }
+                    
+                    # Comparar cambios en la solicitud
+                    for field in before_request:
+                        if before_request[field] != after_request.get(field):
+                            changes['changed'][field] = {
+                                'from': before_request[field],
+                                'to': after_request[field]
+                            }
+                    
+                    # Comparar cambios en modelos relacionados
+                    if before_related != after_related:
+                        # Comparar ubicación
+                        if before_related.get('location') != after_related.get('location'):
+                            if before_related.get('location') and after_related.get('location'):
+                                # Actualización de ubicación
+                                location_changes = {}
+                                for field in before_related['location']:
+                                    if before_related['location'][field] != after_related['location'].get(field):
+                                        location_changes[field] = {
+                                            'from': before_related['location'][field],
+                                            'to': after_related['location'].get(field)
+                                        }
+                                if location_changes:
+                                    changes['changed']['location'] = location_changes
+                            elif after_related.get('location'):
+                                # Nueva ubicación
+                                changes['created']['location'] = after_related['location']
+                            
+                        # Comparar maquinaria y operarios
+                        before_machinery = {mu['id_request_machinery_user']: mu 
+                                         for mu in before_related.get('machinery_users', [])}
+                        after_machinery = {mu['id_request_machinery_user']: mu 
+                                        for mu in after_related.get('machinery_users', [])}
+                        
+                        # Encontrar cambios en maquinaria/operarios
+                        for mu_id, mu_data in after_machinery.items():
+                            if mu_id in before_machinery:
+                                # Actualización
+                                mu_changes = {}
+                                for field in mu_data:
+                                    if before_machinery[mu_id].get(field) != mu_data.get(field):
+                                        mu_changes[field] = {
+                                            'from': before_machinery[mu_id].get(field),
+                                            'to': mu_data.get(field)
+                                        }
+                                if mu_changes:
+                                    if 'machinery_users' not in changes['changed']:
+                                        changes['changed']['machinery_users'] = {}
+                                    changes['changed']['machinery_users'][str(mu_id)] = mu_changes
+                            else:
+                                # Nuevo registro
+                                if 'machinery_users' not in changes['created']:
+                                    changes['created']['machinery_users'] = []
+                                changes['created']['machinery_users'].append(mu_data)
+                        
+                        # Verificar eliminaciones (aunque no debería haber en este flujo)
+                        for mu_id in set(before_machinery.keys()) - set(after_machinery.keys()):
+                            if 'machinery_users' not in changes['removed']:
+                                changes['removed']['machinery_users'] = []
+                            changes['removed']['machinery_users'].append(before_machinery[mu_id])
+                    
+                    # Inicializar estructura de cambios
+                    diff_changes = {}
+
+                    # Procesar cambios en la solicitud principal
+                    if changes.get('changed'):
+                        for field, change in changes['changed'].items():
+                            if field not in ['location', 'machinery_users'] and 'to' in change:
+                                diff_changes[field] = {
+                                    'from': change.get('from'),  # Usar el valor anterior real
+                                    'to': change['to']
+                                }
+                    
+                    # Incluir campos de pago
+                    payment_fields = [
+                        'payment_method', 'payment_status', 'amount_paid',
+                        'currency_unit_amount_paid', 'amount_to_pay', 'currency_unit_amount_to_pay'
+                    ]
+                    for field in payment_fields:
+                        if field in after_request and after_request[field] is not None:
+                            diff_changes[field] = {
+                                'from': before_request.get(field),
+                                'to': after_request[field]
+                            }
+                    
+                    # Incluir todos los campos de location
+                    location = getattr(updated_request, 'request_location', None)
+                    if location:
+                        location_fields = [
+                            'id_request_location', 'country', 'department', 'city_id',
+                            'place_name', 'latitude', 'longitude', 'area', 'area_unit_id',
+                            'altitude', 'altitude_unit_id'
+                        ]
+                        for field in location_fields:
+                            if hasattr(location, field):
+                                field_name = f'location_{field}'
+                                field_value = getattr(location, field, None)
+                                # Si es una relación, obtener solo el ID
+                                if field.endswith('_id') and field_value is None:
+                                    # Intentar obtener el ID del objeto relacionado
+                                    rel_field = field.replace('_id', '')
+                                    if hasattr(location, rel_field):
+                                        rel_obj = getattr(location, rel_field)
+                                        if rel_obj is not None:
+                                            field_value = rel_obj.id if hasattr(rel_obj, 'id') else None
+                                
+                                diff_changes[field_name] = {
+                                    'from': None,  # Siempre null para nuevos registros
+                                    'to': field_value
+                                }
+                    
+                    # Procesar maquinaria/operarios
+                    if 'machinery_users' in after_related:
+                        for idx, mu in enumerate(after_related['machinery_users'], 1):
+                            if not isinstance(mu, dict):
+                                continue
+                            for field in [
+                                'machinery_id', 'user_id', 'soil_type_id', 'texture_id', 
+                                'humidity_level', 'implementation_id', 'depth', 'slope', 'work_duration'
+                            ]:
+                                if field in mu:
+                                    diff_changes[f'machinery_{idx}_{field}'] = {
+                                        'from': None,  # Siempre null para nuevos registros
+                                        'to': mu[field]
+                                    }
+                    
+                    # Crear before y after basados en el diff
+                    before_data = {}
+                    after_data = {}
+                    
+                    for field, change in diff_changes.items():
+                        before_data[field] = change['from']
+                        after_data[field] = change['to']
+                    
+                    # Registrar auditoría con before y after
                     AuditClient(request).update(
                         object_id=str(updated_request.id_request),
-                        before=before,
-                        after=service_request_snapshot(updated_request),
+                        before=before_data or None,
+                        after=after_data,
                         actor_id=actor_id,
                         actor_name=actor_name,
                         actor_role=actor_role,
                         permission_id=permission_id,
-                        module="requests",
-                        submodule="requests",
+                        module='requests',
+                        submodule='requests'
                     )
+                        
                 except Exception as audit_error:
-                    logger.error(f"Error en auditoría al confirmar solicitud: {str(audit_error)}")
+                    logger.error(f"Error en auditoría al confirmar solicitud: {str(audit_error)}", exc_info=True)
                 
                 return Response(
                     {"message": "Solicitud confirmada exitosamente"},
@@ -537,6 +717,93 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 {"error": "Ocurrió un error al confirmar la solicitud"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    def _send_confirmation_notification(self, service_request, request=None):
+        """
+        Envía una notificación de confirmación de pre-solicitud por correo electrónico.
+        """
+        try:
+            customer = service_request.customer
+            if not customer:
+                logger.warning("No se pudo enviar notificación: la solicitud no tiene cliente asociado")
+                return
+
+            # Obtener información del usuario
+            if hasattr(customer, 'id_user') and customer.id_user:
+                user_info = self._get_user_info(customer.id_user.pk, request)
+            else:
+                user_info = None
+
+            # Preparar datos para la notificación
+            email = None
+            client_name = "Cliente"
+
+            if user_info and user_info.get('email'):
+                # Case 1: Customer has id_user - use data from API
+                email = user_info['email']
+                client_name = user_info.get('name', 'Cliente')
+            else:
+                # Case 2: Customer has id_user = null - use data from customer model
+                if hasattr(customer, 'email') and customer.email:
+                    email = customer.email
+                    # Concatenate name fields from customer model
+                    name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                    client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+                else:
+                    # Try to get any available data from customer model as fallback
+                    if any([customer.name, customer.first_last_name, customer.second_last_name]):
+                        name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                        client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+
+            if not email:
+                logger.warning("No se pudo enviar notificación: no hay dirección de correo disponible")
+                return
+
+            # Enviar notificación
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                logger.warning("No se pudo enviar notificación: AUTH_SERVICE_URL no está configurado")
+                return
+
+            url = f"{auth_service_url.rstrip('/')}/users/users/notifications/send-presolicitud-confirmation/"
+            headers = {
+                'Content-Type': 'application/json'
+            }
+
+            # Use same authentication logic as user data API call
+            if request is not None:
+                auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or (
+                    request.headers.get('Authorization') if hasattr(request, 'headers') else None
+                )
+                if auth_header:
+                    headers['Authorization'] = auth_header
+
+            # Formatear fechas
+            start_date = service_request.scheduled_start_date.strftime('%d/%m/%Y') if service_request.scheduled_start_date else "fecha no especificada"
+            end_date = service_request.scheduled_end_date.strftime('%d/%m/%Y') if service_request.scheduled_end_date else "fecha no especificada"
+            
+            payload = {
+                "email": email,
+                "client_name": client_name,
+                "message": (
+                    "Su pre-solicitud ha sido confirmada correctamente. "
+                    f"Fecha de inicio: {start_date}, Fecha de finalización: {end_date}."
+                ),
+                "request_code": service_request.id_request
+            }
+
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=15
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Error al enviar notificación de confirmación: {response.status_code} - {response.text}")
+
+        except Exception as e:
+            logger.error(f"Error inesperado al enviar notificación de confirmación: {str(e)}", exc_info=True)
 
     def _send_cancellation_notification(self, service_request, reason, request=None):
         """
