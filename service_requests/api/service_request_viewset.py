@@ -210,7 +210,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        permission_id = 145
+        permission_id = 146
         if not self.check_permission(request, permission_id):
             return Response(
                 {"message": "No tiene permisos para crear pre-solicitudes de servicio"},
