@@ -3,7 +3,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
-from service_requests.models import ServiceRequest, RequestLocation, RequestMachineryUser
+from service_requests.models import ServiceRequest, RequestLocation, RequestMachineryUser, Implementation, SoilType, Texture
 from parameterization.models import Statues, StatuesCategory, Types, TypesCategory, Units, UnitsCategory
 from users.models import User
 from machinery.models import Machinery
@@ -14,14 +14,12 @@ class RequestLocationUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'country', 'department', 'city_id', 'place_name', 
             'latitude', 'longitude', 'area', 'area_unit', 
-            'soil_type', 'humidity_level', 'altitude', 'altitude_unit'
+            'altitude', 'altitude_unit'
         ]
         extra_kwargs = {
             'area': {'required': True},
-            'humidity_level': {'required': True},
             'altitude': {'required': True},
             'area_unit': {'required': True},
-            'soil_type': {'required': True},
             'altitude_unit': {'required': True}
         }
     
@@ -93,24 +91,6 @@ class RequestLocationUpdateSerializer(serializers.ModelSerializer):
                 )
         return value
     
-    def validate_soil_type(self, value):
-        """
-        Valida que el tipo de suelo pertenezca a la categoría con id 15.
-        Solo se aplica si el valor no es None.
-        """
-        if value is not None:
-            try:
-                if value.id_types_categories_id != 15:
-                    expected_category = TypesCategory.objects.get(id_types_categories=15)
-                    raise serializers.ValidationError(
-                        f"El tipo de suelo debe pertenecer a la categoría '{expected_category.name}'."
-                    )
-            except TypesCategory.DoesNotExist:
-                raise serializers.ValidationError(
-                    "La categoría de tipos requerida (id=15) no existe en la parametrización."
-                )
-        return value
-    
     def validate_altitude_unit(self, value):
         """
         Valida que la unidad de altitud pertenezca a la categoría con id 7.
@@ -164,7 +144,30 @@ class RequestLocationUpdateSerializer(serializers.ModelSerializer):
         if value is not None and value < 0:
             raise serializers.ValidationError("La altitud no puede ser un valor negativo.")
         return value
-        
+
+class MachineryUserSerializer(serializers.Serializer):
+    machinery_id = serializers.IntegerField(required=True)
+    user_id = serializers.IntegerField(required=True)
+    soil_type = serializers.PrimaryKeyRelatedField(
+        queryset=SoilType.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    texture = serializers.PrimaryKeyRelatedField(
+        queryset=Texture.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    humidity_level = serializers.FloatField(required=False, allow_null=True)
+    implementation = serializers.PrimaryKeyRelatedField(
+        queryset=Implementation.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    depth = serializers.FloatField(required=False, allow_null=True)
+    slope = serializers.FloatField(required=False, allow_null=True)
+    work_duration = serializers.FloatField(required=False, allow_null=True)
+
     def validate_humidity_level(self, value):
         """
         Valida que el nivel de humedad sea un porcentaje válido (entre 0 y 100).
@@ -174,9 +177,60 @@ class RequestLocationUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("El nivel de humedad debe estar entre 0 y 100%.")
         return value
 
-class MachineryUserSerializer(serializers.Serializer):
-    machinery_id = serializers.IntegerField(required=True)
-    user_id = serializers.IntegerField(required=True)
+    def validate_depth(self, value):
+        """
+        Valida que la profundidad no sea negativa.
+        Solo se aplica si el valor no es None.
+        """
+        if value is not None and value < 0:
+            raise serializers.ValidationError("La profundidad no puede ser un valor negativo.")
+        return value
+
+    def validate_slope(self, value):
+        """
+        Valida que la pendiente no sea negativa.
+        Solo se aplica si el valor no es None.
+        """
+        if value is not None and value < 0:
+            raise serializers.ValidationError("La pendiente no puede ser un valor negativo.")
+        return value
+
+    def validate_work_duration(self, value):
+        """
+        Valida que la duración del trabajo no sea negativa y tenga máximo 2 decimales.
+        Solo se aplica si el valor no es None.
+        """
+        if value is not None:
+            if value < 0:
+                raise serializers.ValidationError("La duración del trabajo no puede ser un valor negativo.")
+            # Verificar que no tenga más de 2 decimales
+            if not (value * 100).is_integer():
+                raise serializers.ValidationError("La duración del trabajo debe tener máximo 2 decimales.")
+        return value
+
+    def validate(self, data):
+        """
+        Valida que si alguno de los campos relacionados con el suelo está presente,
+        todos los demás campos relacionados también deben estar presentes.
+        """
+        soil_fields = [
+            'soil_type', 'texture', 'humidity_level', 
+            'implementation', 'depth', 'slope', 'work_duration'
+        ]
+        
+        # Verificar si algún campo relacionado con el suelo está presente
+        any_soil_field_present = any(field in data and data[field] is not None for field in soil_fields)
+        
+        if any_soil_field_present:
+            missing_fields = [field for field in soil_fields if field not in data or data.get(field) is None]
+            if missing_fields:
+                raise serializers.ValidationError({
+                    'detail': 'Si proporciona algún dato para el entrenamiento del modelo, todos los campos son obligatorios.',
+                    'missing_fields': missing_fields
+                })
+        
+        return data
+
 
 class PreRequestUpdateSerializer(serializers.ModelSerializer):
     location = RequestLocationUpdateSerializer(required=True)
@@ -192,10 +246,10 @@ class PreRequestUpdateSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             'payment_status': {'required': True},
-            'amount_paid': {'required': True, 'min_value': 0},
-            'currency_unit_amount_paid': {'required': True},
-            'amount_to_pay': {'required': True, 'min_value': 0},
-            'currency_unit_amount_to_pay': {'required': True},
+            'amount_paid': {'required': False, 'allow_null': True, 'min_value': 0},
+            'currency_unit_amount_paid': {'required': False, 'allow_null': True},
+            'amount_to_pay': {'required': False, 'allow_null': True, 'min_value': 0},
+            'currency_unit_amount_to_pay': {'required': False, 'allow_null': True},
         }
 
     def validate_payment_status(self, value):
@@ -222,62 +276,39 @@ class PreRequestUpdateSerializer(serializers.ModelSerializer):
     def validate_currency_unit_amount_paid(self, value):
         """
         Valida que la moneda de pago pertenezca a la categoría con ID 10.
+        Solo se valida si se proporciona un valor.
         """
-        if value is None:
-            raise serializers.ValidationError(
-                "La moneda de pago es obligatoria."
-            )
-        try:
-            if value.id_units_categories_id != 10:
-                expected_category = UnitsCategory.objects.get(id_units_categories=10)
+        if value is not None:
+            try:
+                if value.id_units_categories_id != 10:
+                    expected_category = UnitsCategory.objects.get(id_units_categories=10)
+                    raise serializers.ValidationError(
+                        f"La moneda de pago debe pertenecer a la categoría '{expected_category.name}'."
+                    )
+            except UnitsCategory.DoesNotExist:
                 raise serializers.ValidationError(
-                    f"La moneda de pago debe pertenecer a la categoría '{expected_category.name}'."
+                    "La categoría de unidades de moneda requerida (id=10) no existe en la parametrización."
                 )
-        except UnitsCategory.DoesNotExist:
-            raise serializers.ValidationError(
-                "La categoría de unidades de moneda requerida (id=10) no existe en la parametrización."
-            )
         return value
 
     def validate_currency_unit_amount_to_pay(self, value):
         """
         Valida que la moneda de pago a futuro pertenezca a la categoría con ID 10.
+        Solo se valida si se proporciona un valor.
         """
-        if value is None:
-            raise serializers.ValidationError(
-                "La moneda de pago a futuro es obligatoria."
-            )
-        try:
-            if value.id_units_categories_id != 10:
-                expected_category = UnitsCategory.objects.get(id_units_categories=10)
+        if value is not None:
+            try:
+                if value.id_units_categories_id != 10:
+                    expected_category = UnitsCategory.objects.get(id_units_categories=10)
+                    raise serializers.ValidationError(
+                        f"La moneda de pago a futuro debe pertenecer a la categoría '{expected_category.name}'."
+                    )
+            except UnitsCategory.DoesNotExist:
                 raise serializers.ValidationError(
-                    f"La moneda de pago a futuro debe pertenecer a la categoría '{expected_category.name}'."
+                    "La categoría de unidades de moneda requerida (id=10) no existe en la parametrización."
                 )
-        except UnitsCategory.DoesNotExist:
-            raise serializers.ValidationError(
-                "La categoría de unidades de moneda requerida (id=10) no existe en la parametrización."
-            )
         return value
 
-    def validate(self, data):
-        """
-        Validaciones cruzadas entre los campos de pago.
-        """
-        # Validar que las monedas sean iguales
-        if ('currency_unit_amount_paid' in data and 'currency_unit_amount_to_pay' in data and 
-            data['currency_unit_amount_paid'] != data['currency_unit_amount_to_pay']):
-            raise serializers.ValidationError({
-                'currency_unit_amount_to_pay': 'La moneda debe ser la misma que la moneda de pago.'
-            })
-
-        # Validar que el monto pagado no sea mayor al monto a pagar
-        if ('amount_paid' in data and 'amount_to_pay' in data and 
-            data['amount_paid'] > data['amount_to_pay']):
-            raise serializers.ValidationError({
-                'amount_paid': 'El monto pagado no puede ser mayor al monto a pagar.'
-            })
-
-        return data
 
     def validate_customer(self, value):
         if value.customer_statues_id == 2:  # Inactivo
@@ -314,18 +345,85 @@ class PreRequestUpdateSerializer(serializers.ModelSerializer):
         if len(machinery_ids) != len(set(machinery_ids)):
             raise serializers.ValidationError("No puede haber máquinas duplicadas en la solicitud.")
         
-        # Validar operarios duplicados
-        user_ids = [item['user_id'] for item in value]
-        if len(user_ids) != len(set(user_ids)):
-            raise serializers.ValidationError("Un operario no puede estar asignado a múltiples máquinas en la misma solicitud.")
-        
         return value
         
     def validate(self, data):
         """
-        Valida que no existan solicitudes para el mismo cliente en el mismo rango de fechas
-        y que no haya conflictos de programación de máquinas.
+        Valida que no existan solicitudes para el mismo cliente en el mismo rango de fechas,
+        que no haya conflictos de programación de máquinas y que los datos de pago sean válidos.
         """
+        # Validación de pagos
+        amount_paid = data.get('amount_paid')
+        amount_to_pay = data.get('amount_to_pay')
+        currency_paid = data.get('currency_unit_amount_paid')
+        currency_to_pay = data.get('currency_unit_amount_to_pay')
+        payment_status = data.get('payment_status')
+
+        # Validar que si hay montos, las monedas sean obligatorias y viceversa
+        has_any_amount = amount_paid is not None or amount_to_pay is not None
+        has_any_currency = currency_paid is not None or currency_to_pay is not None
+        
+        if has_any_amount or has_any_currency:
+            # Validar que ambas monedas estén presentes si alguna lo está
+            if not all([currency_paid, currency_to_pay]):
+                raise serializers.ValidationError({
+                    'currency_unit_amount_paid': 'Debe proporcionar tanto la moneda de pago como la moneda a pagar cuando se especifican montos.',
+                    'currency_unit_amount_to_pay': 'Debe proporcionar tanto la moneda de pago como la moneda a pagar cuando se especifican montos.'
+                })
+                
+            # Validar que ambos montos estén presentes si alguno lo está
+            if not all([amount_paid is not None, amount_to_pay is not None]):
+                raise serializers.ValidationError({
+                    'amount_paid': 'Debe proporcionar tanto el monto pagado como el monto a pagar cuando se especifican monedas.',
+                    'amount_to_pay': 'Debe proporcionar tanto el monto pagado como el monto a pagar cuando se especifican monedas.'
+                })
+
+        # Validar que las monedas sean iguales
+        if currency_paid and currency_to_pay and currency_paid != currency_to_pay:
+            raise serializers.ValidationError({
+                'currency_unit_amount_to_pay': 'La moneda debe ser la misma que la moneda de pago.'
+            })
+
+        # Validar que el monto pagado no sea mayor al monto a pagar
+        if amount_paid is not None and amount_to_pay is not None:
+            if amount_paid > amount_to_pay:
+                raise serializers.ValidationError({
+                    'amount_paid': 'El monto pagado no puede ser mayor al monto a pagar.'
+                })
+            
+            # Si el estado de pago es 18 (Pago Total), los montos deben ser iguales
+            if payment_status and payment_status.id_statues == 18 and amount_paid != amount_to_pay:
+                raise serializers.ValidationError({
+                    'amount_paid': 'Para el estado de pago Pagado, el monto pagado debe ser igual al monto a pagar.',
+                    'amount_to_pay': 'Para el estado de pago Pagado, el monto pagado debe ser igual al monto a pagar.'
+                })
+
+        # Validar que el estado de pago pertenezca a la categoría con ID 6
+        if payment_status:
+            try:
+                if payment_status.id_statues_categories_id != 6:
+                    expected_category = StatuesCategory.objects.get(id_statues_categories=6)
+                    raise serializers.ValidationError({
+                        'payment_status': f"El estado de pago debe pertenecer a la categoría '{expected_category.name}'."
+                    })
+            except StatuesCategory.DoesNotExist:
+                raise serializers.ValidationError({
+                    'payment_status': 'La categoría de estados de pago requerida (id=6) no existe en la parametrización.'
+                })
+
+        # Validar que la moneda de pago pertenezca a la categoría con ID 10
+        if currency_paid:
+            try:
+                if currency_paid.id_units_categories_id != 10:
+                    expected_category = UnitsCategory.objects.get(id_units_categories=10)
+                    raise serializers.ValidationError({
+                        'currency_unit_amount_paid': f"La moneda de pago debe pertenecer a la categoría '{expected_category.name}'."
+                    })
+            except UnitsCategory.DoesNotExist:
+                raise serializers.ValidationError({
+                    'currency_unit_amount_paid': 'La categoría de unidades de moneda requerida (id=10) no existe en la parametrización.'
+                })
+
         # Validación de fechas
         scheduled_start_date = data.get('scheduled_start_date')
         scheduled_end_date = data.get('scheduled_end_date')
@@ -436,7 +534,14 @@ class PreRequestUpdateSerializer(serializers.ModelSerializer):
                 RequestMachineryUser.objects.create(
                     request=instance,
                     machinery_id=item['machinery_id'],
-                    user_id=item['user_id']
+                    user_id=item['user_id'],
+                    soil_type=item.get('soil_type'),
+                    texture=item.get('texture'),
+                    humidity_level=item.get('humidity_level'),
+                    implementation=item.get('implementation'),
+                    depth=item.get('depth'),
+                    slope=item.get('slope'),
+                    work_duration=item.get('work_duration')
                 )
         
         return instance
