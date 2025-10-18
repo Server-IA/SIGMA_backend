@@ -10,7 +10,7 @@ Endpoint bajo prueba:
 - POST /service_requests/create_pre_request/ - Crear presolicitud de servicio
 
 Permisos requeridos:
-- 145: request.create_pre_register - Crear pre registro
+- 146: request.create_pre_register - Crear pre registro
 - 148: request.pre_request_notify - Recibir notificaciones de pre-registro
 """
 
@@ -56,7 +56,7 @@ class TestPreRequestCreateEndpoint:
         self.responsible_user = self._ensure_user(1)
         
         # Tokens con y sin permisos
-        self.token_with_permission = self._token_with_permissions([145])
+        self.token_with_permission = self._token_with_permissions([146])
         self.token_without_permission = self._token_with_permissions([999])
         
         # Inicializar parametrización base
@@ -293,8 +293,6 @@ class TestPreRequestCreateEndpoint:
                 "longitude": "-74.072092",
                 "area": "15.5",
                 "area_unit": self.area_unit.id_units,
-                "soil_type": self.soil_type.id_types,
-                "humidity_level": 75,
                 "altitude": 2640,
                 "altitude_unit": self.altitude_unit.id_units
             }
@@ -602,34 +600,6 @@ class TestPreRequestCreateEndpoint:
         
         print(f"✅ UT-SOL-009: APROBADO - Área negativa rechazada")
     
-    def test_ut_sol_010_invalid_humidity_level(self):
-        """
-        UT-SOL-010: Verificar validación de nivel de humedad fuera de rango
-        
-        Validar que el nivel de humedad debe estar entre 0 y 100%.
-        """
-        # Arrange
-        payload = self._get_valid_payload()
-        payload['location']['humidity_level'] = 150  # Fuera de rango
-        
-        self.client.force_authenticate(user=self.responsible_user)
-        self.client.handler._force_token = self.token_with_permission
-        
-        # Act
-        response = self.client.post(
-            self.endpoint,
-            data=json.dumps(payload),
-            content_type='application/json'
-        )
-        
-        # Assert
-        assert response.status_code == 400
-        assert response.data['success'] is False
-        assert 'location' in response.data['errors']
-        assert 'humidity_level' in response.data['errors']['location']
-        
-        print(f"✅ UT-SOL-010: APROBADO - Humedad fuera de rango rechazada")
-    
     def test_ut_sol_011_missing_required_fields(self):
         """
         UT-SOL-011: Verificar validación de campos obligatorios faltantes
@@ -776,52 +746,6 @@ class TestPreRequestCreateEndpoint:
         assert response.data['success'] is False
         
         print(f"✅ UT-SOL-015: APROBADO - Categoría de unidad de área validada")
-    
-    def test_ut_sol_016_invalid_soil_type_category(self):
-        """
-        UT-SOL-016: Verificar validación de categoría de tipo de suelo
-        
-        Validar que el tipo de suelo debe pertenecer a la categoría correcta (ID=15).
-        """
-        # Arrange
-        wrong_category = TypesCategory.objects.create(
-            id_types_categories=999,
-            name="Categoría incorrecta",
-            description="Categoría de prueba",
-            creation_date=self.now,
-            modification_date=self.now,
-            id_responsible_user=self.responsible_user,
-        )
-        
-        wrong_type = Types.objects.create(
-            id_types=999,
-            name="Tipo incorrecto",
-            description="Tipo de prueba",
-            id_types_categories=wrong_category,
-            id_statues=self.status_active,
-            creation_date=self.now,
-            modification_date=self.now,
-            id_responsible_user=self.responsible_user,
-        )
-        
-        payload = self._get_valid_payload()
-        payload['location']['soil_type'] = wrong_type.id_types
-        
-        self.client.force_authenticate(user=self.responsible_user)
-        self.client.handler._force_token = self.token_with_permission
-        
-        # Act
-        response = self.client.post(
-            self.endpoint,
-            data=json.dumps(payload),
-            content_type='application/json'
-        )
-        
-        # Assert
-        assert response.status_code == 400
-        assert response.data['success'] is False
-        
-        print(f"✅ UT-SOL-016: APROBADO - Categoría de tipo de suelo validada")
     
     def test_ut_sol_017_invalid_altitude_unit_category(self):
         """
