@@ -464,7 +464,7 @@ class MachineryViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'], url_path='active')
     def list_active_machinery(self, request):
         """
-        Lista las máquinas con estado 'Activo' (id=4) con información reducida.
+        Lista las máquinas disponibles.
         
         Retorna:
         - id_machinery: ID de la máquina
@@ -488,9 +488,9 @@ class MachineryViewSet(viewsets.ViewSet):
             )
 
         try:
-            # Filtrar máquinas con estado 'Activo' (id=4)
-            active_machinery = Machinery.objects.filter(
-                machinery_operational_status_id=4
+            # Filtrar máquinas excluyendo estados 3 (En Registro) y 5 (Inactivo)
+            active_machinery = Machinery.objects.exclude(
+                machinery_operational_status_id__in=[3, 5]
             ).order_by('machinery_name')
             
             serializer = MachineryListActiveSerializer(active_machinery, many=True)

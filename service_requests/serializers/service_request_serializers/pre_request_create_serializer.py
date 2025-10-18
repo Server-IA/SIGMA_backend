@@ -13,14 +13,12 @@ class RequestLocationCreateSerializer(serializers.ModelSerializer):
         fields = [
             'country', 'department', 'city_id', 'place_name', 
             'latitude', 'longitude', 'area', 'area_unit', 
-            'soil_type', 'humidity_level', 'altitude', 'altitude_unit'
+            'altitude', 'altitude_unit'
         ]
         extra_kwargs = {
             'area': {'required': True},
-            'humidity_level': {'required': True},
             'altitude': {'required': True},
             'area_unit': {'required': True},
-            'soil_type': {'required': True},
             'altitude_unit': {'required': True}
         }
     
@@ -92,24 +90,6 @@ class RequestLocationCreateSerializer(serializers.ModelSerializer):
                 )
         return value
     
-    def validate_soil_type(self, value):
-        """
-        Valida que el tipo de suelo pertenezca a la categoría con id 15.
-        Solo se aplica si el valor no es None.
-        """
-        if value is not None:
-            try:
-                if value.id_types_categories_id != 15:
-                    expected_category = TypesCategory.objects.get(id_types_categories=15)
-                    raise serializers.ValidationError(
-                        f"El tipo de suelo debe pertenecer a la categoría '{expected_category.name}'."
-                    )
-            except TypesCategory.DoesNotExist:
-                raise serializers.ValidationError(
-                    "La categoría de tipos requerida (id=15) no existe en la parametrización."
-                )
-        return value
-    
     def validate_altitude_unit(self, value):
         """
         Valida que la unidad de altitud pertenezca a la categoría con id 7.
@@ -164,14 +144,6 @@ class RequestLocationCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("La altitud no puede ser un valor negativo.")
         return value
         
-    def validate_humidity_level(self, value):
-        """
-        Valida que el nivel de humedad sea un porcentaje válido (entre 0 y 100).
-        Solo se aplica si el valor no es None.
-        """
-        if value is not None and not (0 <= value <= 100):
-            raise serializers.ValidationError("El nivel de humedad debe estar entre 0 y 100%.")
-        return value
 
 class PreRequestCreateSerializer(serializers.ModelSerializer):
     location = RequestLocationCreateSerializer()
