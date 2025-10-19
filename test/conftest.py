@@ -48,14 +48,20 @@ def django_env_and_db(request):
 
     for db_alias, db_config in settings.DATABASES.items():
         host = db_config.get("HOST")
+        
+        # Si está dentro de Docker (hay archivo /.dockerenv), usar 'db'; sino usar 'localhost'
+        is_docker = os.path.isfile("/.dockerenv")
+        
         if not host or host in {"db", "postgres", "postgres-db", "database"}:
-            db_config["HOST"] = os.environ.get("PYTEST_DB_HOST", "localhost")
+            default_host = "db" if is_docker else "localhost"
+            db_config["HOST"] = os.environ.get("PYTEST_DB_HOST", default_host)
 
         port_override = os.environ.get("PYTEST_DB_PORT")
         if port_override:
             db_config["PORT"] = port_override
         elif not db_config.get("PORT") or str(db_config.get("PORT")) == "5432":
-            db_config["PORT"] = "5436"
+            # En Docker el puerto es 5432, fuera es 5436
+            db_config["PORT"] = "5432" if is_docker else "5436"
 
     TestRunner = get_runner(settings)
     test_runner = TestRunner()
