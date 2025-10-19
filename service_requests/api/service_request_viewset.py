@@ -292,6 +292,71 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(detail=True, methods=['patch'], url_path='update_request')
+    def update_request(self, request, pk=None):
+        """
+        Actualiza parcialmente (PATCH) una solicitud usando `PreRequestUpdateSerializer`.
+        Reglas:
+        - Requiere permiso ID 155.
+        - Solo se puede actualizar si la solicitud está en estado 20.
+        """
+        try:
+            # Autenticación
+            if not request.user.is_authenticated:
+                return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
+
+            # Permisos
+            permission_id = 155
+            if not self.check_permission(request, permission_id):
+                return Response({"message": "No tiene permisos para actualizar solicitudes"}, status=status.HTTP_403_FORBIDDEN)
+
+            # Obtener la solicitud
+            service_request = get_object_or_404(ServiceRequest, pk=pk)
+
+            # Validar estado 20
+            if service_request.request_status_id != 20:
+                try:
+                    status_20 = Statues.objects.get(id_statues=20)
+                    status_name = status_20.name
+                except Statues.DoesNotExist:
+                    status_name = "Estado requerido"
+                return Response({
+                    "message": f"La solicitud debe estar en estado '{status_name}' para poder actualizarse"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Serializador de actualización parcial
+            serializer = PreRequestUpdateSerializer(
+                instance=service_request,
+                data=request.data,
+                partial=True,
+                context={'request': request}
+            )
+
+            if not serializer.is_valid():
+                return Response({
+                    'success': False,
+                    'message': 'Error en la validación de datos',
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Guardar cambios
+            with transaction.atomic():
+                updated_request = serializer.save()
+
+            return Response({
+                'success': True,
+                'message': 'Pre-solicitud actualizada exitosamente',
+                'id_request': updated_request.id_request
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error actualizando pre-solicitud: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'message': 'Ocurrió un error al actualizar la pre-solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=True, methods=['post'], url_path='cancel')
     def cancel(self, request, pk=None):
         """
