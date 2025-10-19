@@ -11,7 +11,11 @@ class ServiceRequestCompleteSerializer(serializers.ModelSerializer):
     Valida que la solicitud esté en estado "En proceso" (21) y no esté cancelada.
     """
     
-    completion_cancellation_observations = serializers.CharField(required=True, allow_blank=False)
+    completion_cancellation_observations = serializers.CharField(
+        required=True, 
+        allow_blank=False,
+        max_length=500
+    )
     
     class Meta:
         model = ServiceRequest
