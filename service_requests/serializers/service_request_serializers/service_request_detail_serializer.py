@@ -22,6 +22,21 @@ class RequestMachineryUserSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
     id_machinery = serializers.IntegerField(source='machinery.id_machinery', read_only=True)
     id_user = serializers.IntegerField(source='user.id_user', read_only=True)
+    soil_type_id = serializers.PrimaryKeyRelatedField(source='soil_type', read_only=True)
+    soil_type_surface = serializers.SerializerMethodField()
+    texture_id = serializers.PrimaryKeyRelatedField(source='texture', read_only=True)
+    texture_texture = serializers.SerializerMethodField()
+    implementation_id = serializers.PrimaryKeyRelatedField(source='implementation', read_only=True)
+    implementation_name = serializers.SerializerMethodField()
+
+    def get_soil_type_surface(self, obj):
+        return obj.soil_type.surface if obj.soil_type else None
+
+    def get_texture_texture(self, obj):
+        return obj.texture.texture if obj.texture else None
+
+    def get_implementation_name(self, obj):
+        return obj.implementation.name if obj.implementation else None
 
     class Meta:
         model = RequestMachineryUser
@@ -35,12 +50,25 @@ class RequestMachineryUserSerializer(serializers.ModelSerializer):
             'machinery_image_path',
             'user',
             'id_user',
-            'user_name'
+            'user_name',
+            'soil_type_id',
+            'soil_type_surface',
+            'texture_id',
+            'texture_texture',
+            'humidity_level',
+            'implementation_id',
+            'implementation_name',
+            'depth',
+            'slope',
+            'work_duration'
         ]
         extra_kwargs = {
             'request': {'write_only': True},
             'machinery': {'write_only': True},
-            'user': {'write_only': True}
+            'user': {'write_only': True},
+            'soil_type': {'write_only': True},
+            'texture': {'write_only': True},
+            'implementation': {'write_only': True}
         }
 
     def get_machinery_image_path(self, obj):
@@ -132,12 +160,6 @@ class RequestLocationSerializer(serializers.ModelSerializer):
     area_unit_name = serializers.CharField(source='area_unit.name', read_only=True)
     area_unit_symbol = serializers.CharField(source='area_unit.symbol', read_only=True)
     
-    soil_type_id = serializers.PrimaryKeyRelatedField(
-        source='soil_type',
-        read_only=True
-    )
-    soil_type_name = serializers.CharField(source='soil_type.name', read_only=True)
-    
     altitude_unit_id = serializers.PrimaryKeyRelatedField(
         source='altitude_unit',
         read_only=True
@@ -150,13 +172,12 @@ class RequestLocationSerializer(serializers.ModelSerializer):
         fields = [
             'id_request_location', 'country', 'department', 'city_id', 'place_name',
             'latitude', 'longitude', 'area', 'area_unit_id', 'area_unit_name',
-            'area_unit_symbol', 'soil_type_id', 'soil_type_name', 'humidity_level',
-            'altitude', 'altitude_unit_id', 'altitude_unit_name', 'altitude_unit_symbol'
+            'area_unit_symbol', 'altitude', 'altitude_unit_id', 'altitude_unit_name', 
+            'altitude_unit_symbol'
         ]
         extra_kwargs = {
             'request': {'write_only': True},
             'area_unit': {'write_only': True},
-            'soil_type': {'write_only': True},
             'altitude_unit': {'write_only': True}
         }
 
@@ -201,6 +222,10 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
             source='currency_unit_amount_to_pay',
             read_only=True
         )  
+    # Payment method fields
+    payment_method_name = serializers.CharField(source='payment_method.name', read_only=True, allow_null=True)
+    payment_method_code = serializers.CharField(source='payment_method.code', read_only=True, allow_null=True)  # Keeping for backward compatibility
+    
     # Nested serializers
     request_machinery_user = RequestMachineryUserSerializer(many=True, read_only=True, source='machinery_users')
     request_location = RequestLocationSerializer(read_only=True)
@@ -235,7 +260,8 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
             'amount_to_pay', 
             'currency_unit_amount_to_pay', 'currency_unit_amount_to_pay_id',
             'currency_unit_amount_to_pay_name', 'currency_unit_amount_to_pay_symbol',
-            'payment_status', 'payment_status_id', 'payment_status_name', 'payment_method'
+            'payment_status', 'payment_status_id', 'payment_status_name', 
+            'payment_method_code', 'payment_method_name'
         ]
         extra_kwargs = {
             'customer': {'write_only': True},
@@ -244,7 +270,8 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
             'request_status': {'write_only': True},
             'payment_status': {'write_only': True},
             'currency_unit_amount_paid': {'write_only': True},
-            'currency_unit_amount_to_pay': {'write_only': True}
+            'currency_unit_amount_to_pay': {'write_only': True},
+            'payment_method': {'write_only': True}
         }
 
     def _get_external_user(self, user_id: int) -> Dict[str, Any]:
