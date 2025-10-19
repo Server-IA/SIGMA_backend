@@ -62,6 +62,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
     def details(self, request, pk=None):
         """
         Obtiene los detalles completos de una solicitud de servicio por su ID.
+        El ID debe estar en formato: SOL-YYYY-XXXX (ejemplo: SOL-2025-0072)
         """
         try:
             # Verificar si el usuario tiene permiso para ver los detalles
@@ -69,6 +70,14 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 return Response(
                     {"error": "No tiene permiso para ver los detalles de la solicitud"},
                     status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Validar el formato del ID (SOL-YYYY-XXXX)
+            import re
+            if not re.match(r'^SOL-\d{4}-\d{4}$', str(pk)):
+                return Response(
+                    {"error": "Formato de ID inválido. Debe ser SOL-YYYY-XXXX (ejemplo: SOL-2025-0072)"},
+                    status=status.HTTP_400_BAD_REQUEST
                 )
             
             try:
