@@ -339,21 +339,191 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                     'errors': serializer.errors
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+            # Obtener snapshots antes de la actualización
+            before_request = service_request_snapshot(service_request)
+            before_related = service_request_related_models_snapshot(service_request)
+            
             # Guardar cambios
             with transaction.atomic():
+                # Actualizar la solicitud con los datos validados
                 updated_request = serializer.save()
+                
+                # Tomar instantánea DESPUÉS de los cambios
+                after_request = service_request_snapshot(updated_request)
+                after_related = service_request_related_models_snapshot(updated_request)
+                
+                # Registrar evento de auditoría con cambios detallados
+                try:
+                    actor_id, actor_name, actor_role = get_actor_info(request.user)
+                    
+                    # Calcular cambios detallados
+                    changes = {
+                        'changed': {},
+                        'created': {},
+                        'removed': {}
+                    }
+                    
+                    # Comparar cambios en la solicitud
+                    for field in before_request:
+                        if before_request[field] != after_request.get(field):
+                            changes['changed'][field] = {
+                                'from': before_request[field],
+                                'to': after_request[field]
+                            }
+                    
+                    # Comparar cambios en modelos relacionados
+                    if before_related != after_related:
+                        # Comparar ubicación
+                        if before_related.get('location') != after_related.get('location'):
+                            if before_related.get('location') and after_related.get('location'):
+                                # Actualización de ubicación
+                                location_changes = {}
+                                for field in before_related['location']:
+                                    if before_related['location'][field] != after_related['location'].get(field):
+                                        location_changes[field] = {
+                                            'from': before_related['location'][field],
+                                            'to': after_related['location'].get(field)
+                                        }
+                                if location_changes:
+                                    changes['changed']['location'] = location_changes
+                            elif after_related.get('location'):
+                                # Nueva ubicación
+                                changes['created']['location'] = after_related['location']
+                        
+                        # Comparar maquinaria y operarios
+                        before_machinery = {mu['id_request_machinery_user']: mu 
+                                         for mu in before_related.get('machinery_users', [])}
+                        after_machinery = {mu['id_request_machinery_user']: mu 
+                                        for mu in after_related.get('machinery_users', [])}
+                        
+                        # Encontrar cambios en maquinaria/operarios
+                        for mu_id, mu_data in after_machinery.items():
+                            if mu_id in before_machinery:
+                                # Actualización
+                                mu_changes = {}
+                                for field in mu_data:
+                                    if before_machinery[mu_id].get(field) != mu_data.get(field):
+                                        mu_changes[field] = {
+                                            'from': before_machinery[mu_id].get(field),
+                                            'to': mu_data.get(field)
+                                        }
+                                if mu_changes:
+                                    if 'machinery_users' not in changes['changed']:
+                                        changes['changed']['machinery_users'] = {}
+                                    changes['changed']['machinery_users'][str(mu_id)] = mu_changes
+                            else:
+                                # Nuevo registro
+                                if 'machinery_users' not in changes['created']:
+                                    changes['created']['machinery_users'] = {}
+                                changes['created']['machinery_users'][str(mu_id)] = mu_data
+                        
+                        # Verificar si se eliminó alguna maquinaria/operario
+                        for mu_id in before_machinery:
+                            if mu_id not in after_machinery:
+                                if 'machinery_users' not in changes['removed']:
+                                    changes['removed']['machinery_users'] = {}
+                                changes['removed']['machinery_users'][str(mu_id)] = before_machinery[mu_id]
+                    
+                    # Inicializar estructura de cambios
+                    diff_changes = {}
+
+                    # Procesar cambios en la solicitud principal
+                    if changes.get('changed'):
+                        for field, change in changes['changed'].items():
+                            if field not in ['location', 'machinery_users'] and 'to' in change:
+                                diff_changes[field] = {
+                                    'from': change.get('from'),
+                                    'to': change['to']
+                                }
+                    
+                    # Incluir campos de pago
+                    payment_fields = [
+                        'payment_method', 'payment_status', 'amount_paid',
+                        'currency_unit_amount_paid', 'amount_to_pay', 'currency_unit_amount_to_pay'
+                    ]
+                    for field in payment_fields:
+                        if field in after_request and after_request[field] is not None:
+                            diff_changes[field] = {
+                                'from': before_request.get(field),
+                                'to': after_request[field]
+                            }
+                    
+                    # Incluir todos los campos de location
+                    location = getattr(updated_request, 'request_location', None)
+                    if location:
+                        location_fields = [
+                            'id_request_location', 'country', 'department', 'city_id',
+                            'place_name', 'latitude', 'longitude', 'area', 'area_unit_id',
+                            'altitude', 'altitude_unit_id'
+                        ]
+                        for field in location_fields:
+                            if hasattr(location, field):
+                                field_name = f'location_{field}'
+                                field_value = getattr(location, field, None)
+                                # Si es una relación, obtener solo el ID
+                                if field.endswith('_id') and field_value is None:
+                                    # Intentar obtener el ID del objeto relacionado
+                                    rel_field = field.replace('_id', '')
+                                    if hasattr(location, rel_field):
+                                        rel_obj = getattr(location, rel_field)
+                                        if rel_obj is not None:
+                                            field_value = rel_obj.id if hasattr(rel_obj, 'id') else None
+                                
+                                diff_changes[field_name] = {
+                                    'from': before_related.get('location', {}).get(field) if before_related.get('location') else None,
+                                    'to': field_value
+                                }
+                    
+                    # Procesar maquinaria/operarios
+                    if 'machinery_users' in after_related:
+                        for idx, mu in enumerate(after_related['machinery_users'], 1):
+                            if not isinstance(mu, dict):
+                                continue
+                            for field in [
+                                'machinery_id', 'user_id', 'soil_type_id', 'texture_id', 
+                                'humidity_level', 'implementation_id', 'depth', 'slope', 'work_duration'
+                            ]:
+                                if field in mu:
+                                    diff_changes[f'machinery_{idx}_{field}'] = {
+                                        'from': None,  # Siempre null para actualizaciones
+                                        'to': mu[field]
+                                    }
+                    
+                    # Crear before y after basados en el diff
+                    before_data = {}
+                    after_data = {}
+                    
+                    for field, change in diff_changes.items():
+                        before_data[field] = change['from']
+                        after_data[field] = change['to']
+                    
+                    # Registrar auditoría con before y after
+                    AuditClient(request).update(
+                        object_id=str(updated_request.id_request),
+                        before=before_data or None,
+                        after=after_data,
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role,
+                        permission_id=permission_id,
+                        module='requests',
+                        submodule='requests'
+                    )
+                        
+                except Exception as e:
+                    logger.error(f"Error en auditoría al actualizar solicitud: {str(e)}", exc_info=True)
 
             return Response({
                 'success': True,
-                'message': 'Pre-solicitud actualizada exitosamente',
+                'message': 'solicitud actualizada exitosamente',
                 'id_request': updated_request.id_request
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
-            logger.error(f"Error actualizando pre-solicitud: {e}", exc_info=True)
+            logger.error(f"Error actualizando solicitud: {e}", exc_info=True)
             return Response({
                 'success': False,
-                'message': 'Ocurrió un error al actualizar la pre-solicitud',
+                'message': 'Ocurrió un error al actualizar la solicitud',
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
