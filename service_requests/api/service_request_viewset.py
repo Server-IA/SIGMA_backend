@@ -27,7 +27,7 @@ from service_requests.utils.audit_helpers import (
     service_request_snapshot, 
     service_request_related_models_snapshot
 )
-from django.db.models import Q
+from django.db.models import Q, Max
 
 logger = logging.getLogger(__name__)
 
@@ -295,6 +295,161 @@ class ServiceRequestViewSet(viewsets.ViewSet):
 
         except Exception as e:
             logger.error(f"Error inesperado al crear pre-solicitud: {str(e)}", exc_info=True)
+            return Response({
+                'success': False,
+                'message': 'Ocurrió un error inesperado al procesar la solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'])
+    def create_request(self, request):
+        # Verificar que el usuario esté autenticado
+        if not request.user.is_authenticated:
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 151
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para crear solicitudes de servicio"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Usar PreRequestUpdateSerializer para validar los datos de entrada
+            serializer = PreRequestUpdateSerializer(
+                data=request.data,
+                context={'request': request}
+            )
+
+            if serializer.is_valid():
+                with transaction.atomic():
+                    # Crear la ubicación primero usando el serializer de ubicación
+                    from service_requests.serializers.service_request_serializers.pre_request_update_serializer import RequestLocationUpdateSerializer
+
+                    location_data = serializer.validated_data.pop('location')
+                    machinery_users_data = serializer.validated_data.pop('machinery_users', [])
+
+                    # Obtener usuario responsable
+                    if request and hasattr(request, 'user') and request.user.is_authenticated:
+                        try:
+                            user = User.objects.get(id_user=request.user.id)
+                            responsible_user = user
+                        except User.DoesNotExist:
+                            return Response(
+                                {"message": "Usuario responsable no encontrado"},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+                    else:
+                        return Response(
+                            {"message": "Usuario no autenticado"},
+                            status=status.HTTP_401_UNAUTHORIZED
+                        )
+
+                    # Generar ID usando la misma lógica que PreRequestCreateSerializer
+                    current_year = timezone.now().year
+                    max_request = ServiceRequest.objects.filter(
+                        id_request__startswith=f'SOL-{current_year}'
+                    ).aggregate(Max('id_request'))
+
+                    if max_request['id_request__max']:
+                        last_number = int(max_request['id_request__max'].split('-')[-1])
+                        new_number = last_number + 1
+                    else:
+                        new_number = 1
+
+                    request_id = f'SOL-{current_year}-{new_number:04d}'
+
+                    # Crear estado 20 (En revisión)
+                    status_20 = Statues.objects.get(id_statues=20)
+
+                    # Crear la solicitud de servicio
+                    service_request = ServiceRequest.objects.create(
+                        id_request=request_id,
+                        customer=serializer.validated_data['customer'],
+                        request_detail=serializer.validated_data['request_detail'],
+                        scheduled_start_date=serializer.validated_data['scheduled_start_date'],
+                        scheduled_end_date=serializer.validated_data['scheduled_end_date'],
+                        payment_method=serializer.validated_data.get('payment_method'),
+                        payment_status=serializer.validated_data.get('payment_status'),
+                        amount_paid=serializer.validated_data.get('amount_paid'),
+                        currency_unit_amount_paid=serializer.validated_data.get('currency_unit_amount_paid'),
+                        amount_to_pay=serializer.validated_data.get('amount_to_pay'),
+                        currency_unit_amount_to_pay=serializer.validated_data.get('currency_unit_amount_to_pay'),
+                        request_status=status_20,
+                        id_responsible_user=responsible_user
+                    )
+
+                    # Crear ubicación
+                    from service_requests.models import RequestLocation
+                    RequestLocation.objects.create(
+                        request=service_request,
+                        **location_data
+                    )
+
+                    # Crear asignaciones de máquinas y operarios
+                    from service_requests.models import RequestMachineryUser
+                    for item in machinery_users_data:
+                        RequestMachineryUser.objects.create(
+                            request=service_request,
+                            machinery_id=item['machinery_id'],
+                            user_id=item['user_id'],
+                            soil_type=item.get('soil_type'),
+                            texture=item.get('texture'),
+                            humidity_level=item.get('humidity_level'),
+                            implementation=item.get('implementation'),
+                            depth=item.get('depth'),
+                            slope=item.get('slope'),
+                            work_duration=item.get('work_duration')
+                        )
+
+                    # Auditoría
+                    try:
+                        actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+
+                        # Crear snapshot completo incluyendo modelos relacionados
+                        main_snapshot = service_request_snapshot(service_request)
+                        related_snapshot = service_request_related_models_snapshot(service_request)
+
+                        # Combinar snapshots
+                        combined_after = {**main_snapshot}
+                        if related_snapshot.get('location'):
+                            combined_after['location'] = related_snapshot['location']
+                        if related_snapshot.get('machinery_users'):
+                            combined_after['machinery_users'] = related_snapshot['machinery_users']
+
+                        AuditClient(request).create(
+                            object_id=str(service_request.id_request),
+                            after=combined_after,
+                            actor_id=actor_id,
+                            actor_name=actor_name,
+                            actor_role=actor_role_name,
+                            permission_id=permission_id,
+                            module="requests",
+                            submodule="requests",
+                        )
+                    except Exception as e:
+                        logger.warning("El servicio de auditoría ha fallado en create_request: %s", str(e))
+
+                    # Enviar notificación de creación de solicitud
+                    self._send_request_created_notification(service_request, request)
+
+                    return Response({
+                        'success': True,
+                        'message': 'Solicitud creada exitosamente',
+                        'id_request': service_request.id_request
+                    }, status=status.HTTP_201_CREATED)
+
+            return Response({
+                'success': False,
+                'message': 'Error en la validación de datos',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            logger.error(f"Error inesperado al crear solicitud: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'message': 'Ocurrió un error inesperado al procesar la solicitud',
@@ -1336,3 +1491,83 @@ class ServiceRequestViewSet(viewsets.ViewSet):
 
         except Exception as e:
             logger.error(f"Error inesperado al enviar notificación de cancelación: {str(e)}", exc_info=True)
+
+    def _send_request_created_notification(self, service_request, request=None):
+        """
+        Envía una notificación cuando se crea una nueva solicitud de servicio.
+        """
+        try:
+            customer = service_request.customer
+            if not customer:
+                logger.warning("No se pudo enviar notificación: la solicitud no tiene cliente asociado")
+                return
+
+            # Obtener información del usuario
+            if hasattr(customer, 'id_user') and customer.id_user:
+                user_info = self._get_user_info(customer.id_user.pk, request)
+            else:
+                user_info = None
+
+            # Preparar datos para la notificación
+            email = None
+            client_name = "Cliente"
+
+            if user_info and user_info.get('email'):
+                # Case 1: Customer has id_user - use data from API
+                email = user_info['email']
+                client_name = user_info.get('name', 'Cliente')
+            else:
+                # Case 2: Customer has id_user = null - use data from customer model
+                if hasattr(customer, 'email') and customer.email:
+                    email = customer.email
+                    # Concatenate name fields from customer model
+                    name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                    client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+                else:
+                    # Try to get any available data from customer model as fallback
+                    if any([customer.name, customer.first_last_name, customer.second_last_name]):
+                        name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                        client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+
+            if not email:
+                logger.warning("No se pudo enviar notificación: no hay dirección de correo disponible")
+                return
+
+            # Enviar notificación
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                logger.warning("No se pudo enviar notificación: AUTH_SERVICE_URL no está configurado")
+                return
+
+            url = f"{auth_service_url.rstrip('/')}/users/users/notifications/send-solicitud-created/"
+            headers = {
+                'Content-Type': 'application/json'
+            }
+
+            # Use same authentication logic as user data API call
+            if request is not None:
+                auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or (
+                    request.headers.get('Authorization') if hasattr(request, 'headers') else None
+                )
+                if auth_header:
+                    headers['Authorization'] = auth_header
+
+            payload = {
+                "email": email,
+                "client_name": client_name,
+                "message": "Tu solicitud ha sido creada exitosamente y está siendo procesada.",
+                "request_code": service_request.id_request
+            }
+
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=15
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Error al enviar notificación de creación de solicitud: {response.status_code} - {response.text}")
+
+        except Exception as e:
+            logger.error(f"Error inesperado al enviar notificación de creación de solicitud: {str(e)}", exc_info=True)
