@@ -4,7 +4,7 @@ from service_requests.models.services import Service
 
 
 class ServiceListSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source='id_service')
+    id = serializers.CharField(source='id_service')
     name = serializers.CharField(source='service_name')
     unit_id = serializers.SerializerMethodField()
     unit_name = serializers.SerializerMethodField()
