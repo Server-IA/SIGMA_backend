@@ -6,6 +6,7 @@ from machinery.models.machinery import Machinery
 from machinery.serializers.telemetry_devices_serializers.telemetry_devices_list_serializer import TelemetryDevicesListSerializer
 from machinery.serializers.telemetry_devices_serializers.telemetry_devices_create_serializer import TelemetryDevicesCreateSerializer
 from machinery.utils.audit_helpers import telemetry_devices_snapshot, telemetry_device_parameter_snapshot, get_actor_info
+from audit_sdk import AuditClient
 import logging
 
 logger = logging.getLogger(__name__)
@@ -143,20 +144,16 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
             if related_snapshots:
                 combined_after['parameters'] = related_snapshots
 
-            # Importar AuditClient aquí para evitar errores si no está disponible
-            from django.apps import apps
-            AuditClient = apps.get_app_config('audit').AuditClient if apps.is_installed('audit') else None
-            if AuditClient:
-                AuditClient(request).create(
-                    object_id=str(telemetry_device.id_device),
-                    after=combined_after,
-                    actor_id=actor_id,
-                    actor_name=actor_name,
-                    actor_role=actor_role_name,
-                    permission_id=permission_id,
-                    module="machinery",
-                    submodule="telemetry_devices",
-                )
+            AuditClient(request).create(
+                object_id=str(telemetry_device.id_device),
+                after=combined_after,
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=permission_id,
+                module="monitoring",
+                submodule="telemetry_devices",
+            )
         except Exception as e:
             logger.warning("El servicio de auditoría ha fallado en create: %s", str(e))
 
