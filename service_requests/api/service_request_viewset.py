@@ -22,6 +22,7 @@ from users.models import User
 from service_requests.serializers.service_request_serializers.service_request_detail_serializer import ServiceRequestDetailSerializer
 from service_requests.serializers.service_request_serializers.list_service_request_serializer import ServiceRequestListSerializer
 from service_requests.serializers.service_request_serializers.pre_request_update_serializer import PreRequestUpdateSerializer
+from service_requests.serializers.service_request_serializers.service_request_report_serializer import ServiceRequestReportSerializer
 from service_requests.utils.audit_helpers import (
     get_actor_info, 
     service_request_snapshot, 
@@ -1571,3 +1572,140 @@ class ServiceRequestViewSet(viewsets.ViewSet):
 
         except Exception as e:
             logger.error(f"Error inesperado al enviar notificación de creación de solicitud: {str(e)}", exc_info=True)
+
+    @action(detail=False, methods=['get'], url_path='generate-report')
+    def generate_report(self, request):
+        """
+        Genera un reporte de solicitudes de servicio en formato Excel o CSV.
+        
+        Query parameters:
+        - format: 'excel' o 'csv' (requerido)
+        - customer_document: Documento del cliente (opcional)
+        - request_status: ID del estado de la solicitud (opcional)
+        - date_from: Fecha de inicio (YYYY-MM-DD) (opcional)
+        - date_to: Fecha de fin (YYYY-MM-DD) (opcional)
+        - payment_method: Código del método de pago (opcional)
+        """
+        try:
+            # 1. Verificar autenticación
+            if not request.user.is_authenticated:
+                return Response({
+                    "success": False,
+                    "message": "Usuario no autenticado"
+                }, status=status.HTTP_401_UNAUTHORIZED)
+
+            # 2. Verificar permiso para generar reportes
+            if not self.check_permission(request, 155):  # service_requests.generate_report
+                return Response({
+                    "success": False,
+                    "message": "No tiene permisos para generar reportes"
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            # 3. Validar parámetros de entrada
+            serializer = ServiceRequestReportSerializer(data=request.query_params)
+            if not serializer.is_valid():
+                return Response({
+                    "success": False,
+                    "message": "Parámetros inválidos",
+                    "errors": serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            validated_data = serializer.validated_data
+            report_format = validated_data['format']
+            customer_document = validated_data.get('customer_document', '').strip()
+            request_status_id = validated_data.get('request_status')
+            date_from = validated_data.get('date_from')
+            date_to = validated_data.get('date_to')
+            payment_method_code = validated_data.get('payment_method', '').strip()
+
+            # 4. Construir queryset base con optimizaciones
+            queryset = ServiceRequest.objects.select_related(
+                'customer', 'customer__type_document_id', 'customer__person_type',
+                'request_status', 'payment_status', 'payment_method',
+                'request_location', 'request_location__area_unit', 'request_location__altitude_unit'
+            ).prefetch_related(
+                'machinery_users__machinery',
+                'machinery_users__user'
+            )
+
+            # 5. Aplicar filtros según parámetros
+            if customer_document:
+                queryset = queryset.filter(customer__document_number__icontains=customer_document)
+            
+            if request_status_id:
+                queryset = queryset.filter(request_status_id=request_status_id)
+            
+            if date_from:
+                queryset = queryset.filter(creation_date__date__gte=date_from)
+            
+            if date_to:
+                queryset = queryset.filter(creation_date__date__lte=date_to)
+            
+            if payment_method_code:
+                queryset = queryset.filter(payment_method__code=payment_method_code)
+
+            # 6. Verificar permisos de usuario (solo sus solicitudes vs todas)
+            has_list_all_permission = self.check_permission(request, 149)  # service_requests.list
+            has_list_own_permission = self.check_permission(request, 156)  # service_requests.list_own
+            
+            if has_list_own_permission and not has_list_all_permission:
+                # Usuario solo puede ver sus propias solicitudes
+                queryset = queryset.filter(customer__id_user_id=request.user.id_user)
+            elif not has_list_all_permission and not has_list_own_permission:
+                # Usuario no tiene permisos para ver solicitudes
+                return Response({
+                    "success": False,
+                    "message": "No tiene permisos para ver solicitudes"
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            # 7. Verificar si hay resultados
+            if not queryset.exists():
+                return Response({
+                    "success": True,
+                    "message": "No se encontraron resultados para los criterios aplicados"
+                }, status=status.HTTP_200_OK)
+
+            # 8. Recolectar IDs de usuarios únicos (operarios)
+            user_ids = set()
+            for request_obj in queryset:
+                for machinery_user in request_obj.machinery_users.all():
+                    if machinery_user.user and machinery_user.user.id_user:
+                        user_ids.add(machinery_user.user.id_user)
+            
+            # 9. Obtener información de usuarios en batch
+            from service_requests.utils.external_user_helper import get_users_info_batch
+            user_data_map = get_users_info_batch(list(user_ids), request)
+
+            # 10. Generar reporte según formato
+            from service_requests.utils.report_generator import generate_excel_report, generate_csv_report
+            
+            if report_format == 'excel':
+                report_content = generate_excel_report(queryset, user_data_map)
+                content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                file_extension = 'xlsx'
+            else:  # csv
+                report_content = generate_csv_report(queryset, user_data_map)
+                content_type = 'text/csv; charset=utf-8'
+                file_extension = 'csv'
+
+            # 11. Preparar respuesta
+            from django.http import HttpResponse
+            from datetime import datetime
+            
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'solicitudes_report_{timestamp}.{file_extension}'
+            
+            response = HttpResponse(report_content, content_type=content_type)
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            # Log de generación de reporte
+            logger.info(f"Reporte {report_format} generado por usuario {request.user.id_user} - {len(queryset)} registros")
+            
+            return response
+
+        except Exception as e:
+            logger.error(f"Error generando reporte: {str(e)}", exc_info=True)
+            return Response({
+                "success": False,
+                "message": "Error interno generando el reporte"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

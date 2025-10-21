@@ -1,0 +1,332 @@
+import csv
+import io
+from datetime import datetime
+from typing import List, Dict, Any
+from openpyxl import Workbook
+from openpyxl.styles import Font, Border, Side, Alignment
+from openpyxl.utils import get_column_letter
+
+from service_requests.utils.external_user_helper import get_user_display_name
+
+
+def _format_currency(amount, currency_unit=None):
+    """Formatea un monto como moneda con separadores de miles."""
+    if amount is None:
+        return ""
+    
+    try:
+        # Formatear con separador de miles y 2 decimales
+        formatted = f"{float(amount):,.2f}"
+        if currency_unit and hasattr(currency_unit, 'symbol'):
+            return f"{formatted} {currency_unit.symbol}"
+        return formatted
+    except (ValueError, TypeError):
+        return ""
+
+
+def _format_date_iso(date_obj):
+    """Formatea una fecha en formato ISO YYYY-MM-DD HH:MM:SS."""
+    if not date_obj:
+        return ""
+    
+    if hasattr(date_obj, 'date'):
+        # Es un datetime
+        return date_obj.strftime('%Y-%m-%d %H:%M:%S')
+    else:
+        # Es una fecha
+        return date_obj.strftime('%Y-%m-%d')
+
+
+def _format_date_only(date_obj):
+    """Formatea una fecha solo con fecha (sin hora)."""
+    if not date_obj:
+        return ""
+    
+    if hasattr(date_obj, 'date'):
+        # Es un datetime, extraer solo la fecha
+        return date_obj.date().strftime('%Y-%m-%d')
+    else:
+        # Es una fecha
+        return date_obj.strftime('%Y-%m-%d')
+
+
+def _format_area_with_unit(area, area_unit):
+    """Formatea área con su unidad."""
+    if area is None:
+        return "N/A"
+    
+    try:
+        area_str = f"{float(area):,.2f}"
+        if area_unit and hasattr(area_unit, 'symbol'):
+            return f"{area_str} {area_unit.symbol}"
+        return area_str
+    except (ValueError, TypeError):
+        return "N/A"
+
+
+def _format_altitude_with_unit(altitude, altitude_unit):
+    """Formatea altitud con su unidad."""
+    if altitude is None:
+        return "N/A"
+    
+    try:
+        altitude_str = f"{float(altitude):,.2f}"
+        if altitude_unit and hasattr(altitude_unit, 'symbol'):
+            return f"{altitude_str} {altitude_unit.symbol}"
+        return altitude_str
+    except (ValueError, TypeError):
+        return "N/A"
+
+
+def _build_report_data(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Construye los datos del reporte a partir del queryset y el mapa de usuarios.
+    
+    Args:
+        queryset: QuerySet de ServiceRequest
+        user_data_map: Diccionario mapeando user_id -> user_data
+        
+    Returns:
+        Lista de diccionarios con los datos del reporte
+    """
+    report_data = []
+    
+    for request in queryset:
+        # Datos básicos de la solicitud
+        row_data = {
+            'codigo_seguimiento': request.id_request,
+            'estado_solicitud': request.request_status.name if request.request_status else "",
+            'fecha_registro': _format_date_iso(request.creation_date),
+            'fecha_programada': _format_date_only(request.scheduled_start_date),
+            'fecha_realizacion': _format_date_iso(request.completion_cancellation_datetime) if request.completion_cancellation_datetime else "",
+        }
+        
+        # Datos del cliente
+        customer = request.customer
+        if customer:
+            # Obtener información del cliente (preferir datos externos si existen)
+            customer_name = customer.legal_entity_name or ""
+            if customer.id_user_id and customer.id_user_id in user_data_map:
+                external_user = user_data_map[customer.id_user_id]
+                customer_name = external_user.get('name', '') or customer.legal_entity_name or ""
+            
+            row_data.update({
+                'cliente_nombre': customer_name,
+                'cliente_tipo_documento': customer.type_document_id.name if customer.type_document_id else "",
+                'cliente_documento': str(customer.document_number) if customer.document_number else "",
+            })
+        else:
+            row_data.update({
+                'cliente_nombre': "",
+                'cliente_tipo_documento': "",
+                'cliente_documento': "",
+            })
+        
+        # Maquinarias concatenadas
+        machinery_list = []
+        for machinery_user in request.machinery_users.all():
+            machinery = machinery_user.machinery
+            if machinery:
+                machinery_name = machinery.machinery_name or ""
+                serial_number = machinery.serial_number or ""
+                machinery_str = f"{machinery_name} ({serial_number})" if serial_number else machinery_name
+                machinery_list.append(machinery_str)
+        
+        row_data['maquinaria'] = ", ".join(machinery_list)
+        
+        # Operarios concatenados
+        operators_list = []
+        for machinery_user in request.machinery_users.all():
+            user = machinery_user.user
+            if user and user.id_user in user_data_map:
+                operator_name = get_user_display_name(user_data_map[user.id_user])
+                if operator_name:
+                    operators_list.append(operator_name)
+        
+        row_data['operario'] = ", ".join(operators_list)
+        
+        # Datos de ubicación
+        location = request.request_location
+        if location:
+            row_data.update({
+                'ubic_region': location.department or "",
+                'ubic_municipio': location.place_name or "",
+                'ubic_lugar': location.place_name or "",
+                'ubic_area': _format_area_with_unit(location.area, location.area_unit),
+                'ubic_altitud': _format_altitude_with_unit(location.altitude, location.altitude_unit),
+            })
+        else:
+            row_data.update({
+                'ubic_region': "",
+                'ubic_municipio': "",
+                'ubic_lugar': "",
+                'ubic_area': "N/A",
+                'ubic_altitud': "N/A",
+            })
+        
+        # Datos de pago
+        row_data.update({
+            'monto_a_pagar': _format_currency(request.amount_to_pay, request.currency_unit_amount_to_pay),
+            'cantidad_pagada': _format_currency(request.amount_paid, request.currency_unit_amount_paid),
+            'estado_pago': request.payment_status.name if request.payment_status else "",
+            'modalidad_pago': request.payment_method.name if request.payment_method else "",
+        })
+        
+        # Observación
+        row_data['observacion'] = request.completion_cancellation_observations or ""
+        
+        report_data.append(row_data)
+    
+    return report_data
+
+
+def generate_excel_report(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> bytes:
+    """
+    Genera un reporte en formato Excel.
+    
+    Args:
+        queryset: QuerySet de ServiceRequest
+        user_data_map: Diccionario mapeando user_id -> user_data
+        
+    Returns:
+        Bytes del archivo Excel
+    """
+    # Construir datos del reporte
+    report_data = _build_report_data(queryset, user_data_map)
+    
+    # Crear workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Reporte de Solicitudes"
+    
+    # Definir columnas
+    columns = [
+        "Código Seguimiento",
+        "Estado Solicitud", 
+        "Fecha Registro",
+        "Fecha Programada",
+        "Fecha Realización",
+        "Cliente (Nombre/Razón Social)",
+        "Cliente (Tipo Documento)",
+        "Cliente (Documento)",
+        "Maquinaria",
+        "Operario (Nombre)",
+        "Ubic. Región",
+        "Ubic. Municipio", 
+        "Ubic. Lugar",
+        "Ubic. Área (m²)",
+        "Ubic. Altitud (msnm)",
+        "Monto a Pagar",
+        "Cantidad Pagada",
+        "Estado Pago",
+        "Modalidad Pago",
+        "Observación"
+    ]
+    
+    # Mapeo de campos a columnas
+    field_mapping = [
+        'codigo_seguimiento', 'estado_solicitud', 'fecha_registro', 'fecha_programada',
+        'fecha_realizacion', 'cliente_nombre', 'cliente_tipo_documento', 'cliente_documento',
+        'maquinaria', 'operario', 'ubic_region', 'ubic_municipio', 'ubic_lugar',
+        'ubic_area', 'ubic_altitud', 'monto_a_pagar', 'cantidad_pagada', 'estado_pago',
+        'modalidad_pago', 'observacion'
+    ]
+    
+    # Estilos
+    header_font = Font(bold=True)
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    center_alignment = Alignment(horizontal='center', vertical='center')
+    
+    # Escribir encabezados
+    for col_num, column_title in enumerate(columns, 1):
+        cell = ws.cell(row=1, column=col_num, value=column_title)
+        cell.font = header_font
+        cell.border = border
+        cell.alignment = center_alignment
+    
+    # Escribir datos
+    for row_num, data_row in enumerate(report_data, 2):
+        for col_num, field_name in enumerate(field_mapping, 1):
+            value = data_row.get(field_name, "")
+            cell = ws.cell(row=row_num, column=col_num, value=value)
+            cell.border = border
+    
+    # Ajustar ancho de columnas
+    for col_num in range(1, len(columns) + 1):
+        column_letter = get_column_letter(col_num)
+        ws.column_dimensions[column_letter].width = 15
+    
+    # Guardar en bytes
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.getvalue()
+
+
+def generate_csv_report(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> str:
+    """
+    Genera un reporte en formato CSV.
+    
+    Args:
+        queryset: QuerySet de ServiceRequest
+        user_data_map: Diccionario mapeando user_id -> user_data
+        
+    Returns:
+        String del archivo CSV con BOM UTF-8
+    """
+    # Construir datos del reporte
+    report_data = _build_report_data(queryset, user_data_map)
+    
+    # Definir columnas
+    columns = [
+        "Código Seguimiento",
+        "Estado Solicitud", 
+        "Fecha Registro",
+        "Fecha Programada",
+        "Fecha Realización",
+        "Cliente (Nombre/Razón Social)",
+        "Cliente (Tipo Documento)",
+        "Cliente (Documento)",
+        "Maquinaria",
+        "Operario (Nombre)",
+        "Ubic. Región",
+        "Ubic. Municipio", 
+        "Ubic. Lugar",
+        "Ubic. Área (m²)",
+        "Ubic. Altitud (msnm)",
+        "Monto a Pagar",
+        "Cantidad Pagada",
+        "Estado Pago",
+        "Modalidad Pago",
+        "Observación"
+    ]
+    
+    # Mapeo de campos a columnas
+    field_mapping = [
+        'codigo_seguimiento', 'estado_solicitud', 'fecha_registro', 'fecha_programada',
+        'fecha_realizacion', 'cliente_nombre', 'cliente_tipo_documento', 'cliente_documento',
+        'maquinaria', 'operario', 'ubic_region', 'ubic_municipio', 'ubic_lugar',
+        'ubic_area', 'ubic_altitud', 'monto_a_pagar', 'cantidad_pagada', 'estado_pago',
+        'modalidad_pago', 'observacion'
+    ]
+    
+    # Crear CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Escribir encabezados
+    writer.writerow(columns)
+    
+    # Escribir datos
+    for data_row in report_data:
+        row = [data_row.get(field_name, "") for field_name in field_mapping]
+        writer.writerow(row)
+    
+    # Agregar BOM UTF-8 para compatibilidad con Excel
+    csv_content = output.getvalue()
+    return '\ufeff' + csv_content
