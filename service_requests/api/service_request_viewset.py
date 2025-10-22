@@ -1595,7 +1595,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 }, status=status.HTTP_401_UNAUTHORIZED)
 
             # 2. Verificar permiso para generar reportes
-            if not self.check_permission(request, 155):  # service_requests.generate_report
+            if not self.check_permission(request, 163):  # request.download_report
                 return Response({
                     "success": False,
                     "message": "No tiene permisos para generar reportes"
@@ -1646,7 +1646,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
 
             # 6. Verificar permisos de usuario (solo sus solicitudes vs todas)
             has_list_all_permission = self.check_permission(request, 149)  # service_requests.list
-            has_list_own_permission = self.check_permission(request, 156)  # service_requests.list_own
+            has_list_own_permission = self.check_permission(request, 164)  # request.list_own
             
             if has_list_own_permission and not has_list_all_permission:
                 # Usuario solo puede ver sus propias solicitudes
