@@ -7,9 +7,11 @@ Título: Registrar cliente
 import sys
 import os
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch, Mock
 import requests
+import jwt
+import pytz
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'machpaymanager.settings')
 import django
@@ -27,10 +29,45 @@ sys.path.insert(0, project_root)
 from service_requests.models.customer import Customer
 from service_requests.models.document_type import DocumentType
 from service_requests.models.person_type import PersonType
+from service_requests.models.tax_regime import TaxRegime
 from users.models.user import User
 from parameterization.models import Statues, StatuesCategory
 
 import inspect
+
+# Configuración para JWT
+JWT_TEST_SECRET = "testsecret"
+
+def _ensure_jwt_secret_for_tests():
+    os.environ.setdefault("JWT_SECRET", JWT_TEST_SECRET)
+
+def _make_jwt(payload: dict, expired: bool = False) -> str:
+    _ensure_jwt_secret_for_tests()
+    claims = {
+        **payload,
+    }
+    # exp requerido para casos expirados/no expirados
+    now = datetime.now(pytz.utc)
+    claims["iat"] = int(now.timestamp())
+    if expired:
+        claims["exp"] = int((now - timedelta(minutes=5)).timestamp())
+    else:
+        claims["exp"] = int((now + timedelta(minutes=30)).timestamp())
+    return jwt.encode(claims, os.environ.get("JWT_SECRET", JWT_TEST_SECRET), algorithm="HS256")
+
+def _auth_header_for(perms_ids):
+    payload = {
+        "id": 1,
+        "email": "juanandresveru@gmail.com",
+        "name": "Juan Andrés",
+        "rol": [{
+            "id": 1,
+            "name": "Admin",
+            "permisos": [{"id": pid, "name": f"permission.{pid}"} for pid in perms_ids]
+        }]
+    }
+    token = _make_jwt(payload)
+    return f"Bearer {token}"
 
 @pytest.mark.django_db
 class TestCustomerCreation:
@@ -44,20 +81,11 @@ class TestCustomerCreation:
         self.user.is_authenticated = True
         self.user.id = self.user.id_user
         
-        # Mock JWT authentication
-        self.mock_jwt_payload = {
-            "id": 1,
-            "email": "test@example.com",
-            "name": "Test User",
-            "rol": [{
-                "id": 1,
-                "name": "Admin",
-                "permisos": [{"id": 133, "name": "customer.create"}]
-            }]
-        }
+        # Configurar JWT para pruebas
+        _ensure_jwt_secret_for_tests()
         
-        # Mock authentication
-        self.client.force_authenticate(user=self.user)
+        # Token JWT con permisos para crear clientes (permiso 133)
+        self.auth_header = _auth_header_for([133])
         
         # Crear datos de prueba necesarios
         now = timezone.now()
@@ -104,6 +132,17 @@ class TestCustomerCreation:
             defaults={'name': 'Persona Natural'}
         )
         
+        # Crear regímenes fiscales
+        self.tax_regime_1, created = TaxRegime.objects.get_or_create(
+            id_tax_regime=1,
+            defaults={'code': '01', 'name': 'Régimen General'}
+        )
+        
+        self.tax_regime_2, created = TaxRegime.objects.get_or_create(
+            id_tax_regime=2,
+            defaults={'code': '02', 'name': 'Régimen Simplificado'}
+        )
+        
         # Crear usuario de prueba en el servicio users (simulado)
         self.test_user, created = User.objects.get_or_create(
             id_user=1,
@@ -138,17 +177,6 @@ class TestCustomerCreation:
         print(f"Endpoint: {self.endpoint} (Method: POST)")
         print(f"Description: {self.__doc__}")
         
-        # Mock para simular que el usuario tiene permisos
-        with patch.object(self.client, 'force_authenticate') as mock_auth:
-            mock_auth.return_value = None
-            
-            # Mock JWT payload con permisos
-            mock_user = Mock()
-            mock_user.is_authenticated = True
-            mock_user.id = 1
-            mock_user.auth = self.mock_jwt_payload
-            self.client.force_authenticate(user=mock_user)
-        
         data = {
             "id_user": 1,
             "person_type": 1,
@@ -166,7 +194,12 @@ class TestCustomerCreation:
             "tax_regime": 2
         }
         
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=self.auth_header
+        )
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
         
@@ -192,17 +225,6 @@ class TestCustomerCreation:
         print(f"Endpoint: {self.endpoint} (Method: POST)")
         print(f"Description: {self.__doc__}")
         
-        # Mock para simular que el usuario tiene permisos
-        with patch.object(self.client, 'force_authenticate') as mock_auth:
-            mock_auth.return_value = None
-            
-            # Mock JWT payload con permisos
-            mock_user = Mock()
-            mock_user.is_authenticated = True
-            mock_user.id = 1
-            mock_user.auth = self.mock_jwt_payload
-            self.client.force_authenticate(user=mock_user)
-        
         # Mock respuesta del servicio de usuarios
         mock_response = Mock()
         mock_response.status_code = 200
@@ -226,7 +248,12 @@ class TestCustomerCreation:
             "tax_regime": 2
         }
         
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=self.auth_header
+        )
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
         
@@ -248,17 +275,6 @@ class TestCustomerCreation:
         print(f"\n--- Testing: {self.__class__.__name__}.{inspect.currentframe().f_code.co_name} ---")
         print(f"Endpoint: {self.endpoint} (Method: POST)")
         print(f"Description: {self.__doc__}")
-        
-        # Mock para simular que el usuario tiene permisos
-        with patch.object(self.client, 'force_authenticate') as mock_auth:
-            mock_auth.return_value = None
-            
-            # Mock JWT payload con permisos
-            mock_user = Mock()
-            mock_user.is_authenticated = True
-            mock_user.id = 1
-            mock_user.auth = self.mock_jwt_payload
-            self.client.force_authenticate(user=mock_user)
         
         # Mock respuesta del servicio de usuarios (usuario no encontrado)
         mock_response = Mock()
@@ -283,7 +299,12 @@ class TestCustomerCreation:
             "tax_regime": 1
         }
         
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=self.auth_header
+        )
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
         
@@ -314,17 +335,6 @@ class TestCustomerCreation:
         print(f"Endpoint: {self.endpoint} (Method: POST)")
         print(f"Description: {self.__doc__}")
         
-        # Mock para simular que el usuario tiene permisos
-        with patch.object(self.client, 'force_authenticate') as mock_auth:
-            mock_auth.return_value = None
-            
-            # Mock JWT payload con permisos
-            mock_user = Mock()
-            mock_user.is_authenticated = True
-            mock_user.id = 1
-            mock_user.auth = self.mock_jwt_payload
-            self.client.force_authenticate(user=mock_user)
-        
         data = {
             "id_user": None,
             "person_type": 1,
@@ -342,7 +352,12 @@ class TestCustomerCreation:
             "tax_regime": 1
         }
         
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=self.auth_header
+        )
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
         
@@ -358,17 +373,6 @@ class TestCustomerCreation:
         print(f"\n--- Testing: {self.__class__.__name__}.{inspect.currentframe().f_code.co_name} ---")
         print(f"Endpoint: {self.endpoint} (Method: POST)")
         print(f"Description: {self.__doc__}")
-        
-        # Mock para simular que el usuario tiene permisos
-        with patch.object(self.client, 'force_authenticate') as mock_auth:
-            mock_auth.return_value = None
-            
-            # Mock JWT payload con permisos
-            mock_user = Mock()
-            mock_user.is_authenticated = True
-            mock_user.id = 1
-            mock_user.auth = self.mock_jwt_payload
-            self.client.force_authenticate(user=mock_user)
         
         data = {
             "id_user": None,
@@ -387,7 +391,12 @@ class TestCustomerCreation:
             "tax_regime": 1
         }
         
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=self.auth_header
+        )
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
         
@@ -410,21 +419,10 @@ class TestCustomerCreation:
             person_type=self.person_type_natural,
             legal_entity_name="Cliente Existente",
             id_municipality=1,
-            tax_regime=1,
+            tax_regime=self.tax_regime_1,
             customer_statues=self.active_status,
             id_responsible_user=self.user
         )
-        
-        # Mock para simular que el usuario tiene permisos
-        with patch.object(self.client, 'force_authenticate') as mock_auth:
-            mock_auth.return_value = None
-            
-            # Mock JWT payload con permisos
-            mock_user = Mock()
-            mock_user.is_authenticated = True
-            mock_user.id = 1
-            mock_user.auth = self.mock_jwt_payload
-            self.client.force_authenticate(user=mock_user)
         
         data = {
             "id_user": None,
@@ -443,7 +441,12 @@ class TestCustomerCreation:
             "tax_regime": 1
         }
         
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=self.auth_header
+        )
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
         
@@ -459,17 +462,6 @@ class TestCustomerCreation:
         print(f"\n--- Testing: {self.__class__.__name__}.{inspect.currentframe().f_code.co_name} ---")
         print(f"Endpoint: {self.endpoint} (Method: POST)")
         print(f"Description: {self.__doc__}")
-        
-        # Mock para simular que el usuario tiene permisos
-        with patch.object(self.client, 'force_authenticate') as mock_auth:
-            mock_auth.return_value = None
-            
-            # Mock JWT payload con permisos
-            mock_user = Mock()
-            mock_user.is_authenticated = True
-            mock_user.id = 1
-            mock_user.auth = self.mock_jwt_payload
-            self.client.force_authenticate(user=mock_user)
         
         data = {
             "id_user": None,
@@ -488,7 +480,12 @@ class TestCustomerCreation:
             "tax_regime": 1
         }
         
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=self.auth_header
+        )
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
         
@@ -507,17 +504,6 @@ class TestCustomerCreation:
         print(f"Endpoint: {self.endpoint} (Method: POST)")
         print(f"Description: {self.__doc__}")
         
-        # Mock para simular que el usuario tiene permisos
-        with patch.object(self.client, 'force_authenticate') as mock_auth:
-            mock_auth.return_value = None
-            
-            # Mock JWT payload con permisos
-            mock_user = Mock()
-            mock_user.is_authenticated = True
-            mock_user.id = 1
-            mock_user.auth = self.mock_jwt_payload
-            self.client.force_authenticate(user=mock_user)
-        
         data = {
             "id_user": None,
             # "person_type": 1,  # Campo obligatorio ausente
@@ -535,7 +521,12 @@ class TestCustomerCreation:
             "tax_regime": 1
         }
         
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=self.auth_header
+        )
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
         
@@ -550,9 +541,6 @@ class TestCustomerCreation:
         print(f"\n--- Testing: {self.__class__.__name__}.{inspect.currentframe().f_code.co_name} ---")
         print(f"Endpoint: {self.endpoint} (Method: POST)")
         print(f"Description: {self.__doc__}")
-        
-        # Remover autenticación
-        self.client.force_authenticate(user=None)
         
         data = {
             "id_user": None,
@@ -591,24 +579,8 @@ class TestCustomerCreation:
         user_without_permission.is_authenticated = True
         user_without_permission.id = user_without_permission.id_user
         
-        # Mock JWT payload sin permisos
-        mock_jwt_payload_no_perms = {
-            "id": 2,
-            "email": "test2@example.com",
-            "name": "Test User 2",
-            "rol": [{
-                "id": 2,
-                "name": "User",
-                "permisos": [{"id": 999, "name": "other.permission"}]  # Permiso diferente
-            }]
-        }
-        
-        # Mock authentication
-        mock_user = Mock()
-        mock_user.is_authenticated = True
-        mock_user.id = 2
-        mock_user.auth = mock_jwt_payload_no_perms
-        self.client.force_authenticate(user=mock_user)
+        # Token JWT sin permisos para crear clientes
+        auth_header_no_perms = _auth_header_for([999])  # Permiso diferente
         
         data = {
             "id_user": None,
@@ -627,7 +599,12 @@ class TestCustomerCreation:
             "tax_regime": 1
         }
         
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=auth_header_no_perms
+        )
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
         
@@ -640,17 +617,6 @@ class TestCustomerCreation:
         print(f"\n--- Testing: {self.__class__.__name__}.{inspect.currentframe().f_code.co_name} ---")
         print(f"Endpoint: {self.endpoint} (Method: POST)")
         print(f"Description: {self.__doc__}")
-        
-        # Mock para simular que el usuario tiene permisos
-        with patch.object(self.client, 'force_authenticate') as mock_auth:
-            mock_auth.return_value = None
-            
-            # Mock JWT payload con permisos
-            mock_user = Mock()
-            mock_user.is_authenticated = True
-            mock_user.id = 1
-            mock_user.auth = self.mock_jwt_payload
-            self.client.force_authenticate(user=mock_user)
         
         data = {
             "id_user": 1,
@@ -671,7 +637,12 @@ class TestCustomerCreation:
         
         import time
         start_time = time.time()
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=self.auth_header
+        )
         end_time = time.time()
         
         response_time = end_time - start_time
@@ -693,17 +664,6 @@ class TestCustomerCreation:
         print(f"Endpoint: {self.endpoint} (Method: POST)")
         print(f"Description: {self.__doc__}")
         
-        # Mock para simular que el usuario tiene permisos
-        with patch.object(self.client, 'force_authenticate') as mock_auth:
-            mock_auth.return_value = None
-            
-            # Mock JWT payload con permisos
-            mock_user = Mock()
-            mock_user.is_authenticated = True
-            mock_user.id = 1
-            mock_user.auth = self.mock_jwt_payload
-            self.client.force_authenticate(user=mock_user)
-        
         data = {
             "id_user": 1,
             "person_type": 1,
@@ -721,7 +681,12 @@ class TestCustomerCreation:
             "tax_regime": 2
         }
         
-        response = self.client.post(self.endpoint, data, format='json')
+        response = self.client.post(
+            self.endpoint, 
+            data, 
+            format='json',
+            HTTP_AUTHORIZATION=self.auth_header
+        )
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
         
