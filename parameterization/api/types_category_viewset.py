@@ -6,6 +6,13 @@ from parameterization.serializers.types_category_serializers.types_category_crea
 from parameterization.serializers.types_category_serializers.types_category_list_serializer import TypesCategoryListSerializer
 from users.permissions import HasPermissionId
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info
+from parameterization.utils.audit_helpers import types_category_snapshot
+import logging
+
+logger = logging.getLogger(__name__)
 
 class TypesCategoryViewSet(viewsets.ViewSet):
     # permission_classes = [HasPermissionId]  # Temporalmente deshabilitado para usar check_permission
@@ -51,7 +58,25 @@ class TypesCategoryViewSet(viewsets.ViewSet):
         
         serializer = TypesCategoryCreateSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            instance = serializer.save()
+
+            # Auditoría 
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).create(
+                    object_id=str(getattr(instance, "id_types_categories", None) or getattr(instance, "id", None) or ""),
+                    after=types_category_snapshot(instance),
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",               
+                    submodule="types_categories",         
+                )
+            except Exception as e:
+                logging.warning("El servicio de auditoría ha fallado en create_types_category: %s", e)
+
             return Response({"message": "Categoría de tipo creada exitosamente"},
                             status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -80,7 +105,30 @@ class TypesCategoryViewSet(viewsets.ViewSet):
 
         serializer = TypesCategoryCreateSerializer(categoria, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save()
+
+            before = types_category_snapshot(categoria)
+
+            instance = serializer.save()
+
+            # Auditoría 
+            try:
+                after = types_category_snapshot(instance)
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).update(
+                    object_id=str(getattr(instance, "id_types_categories", None) or getattr(instance, "id", None) or ""),
+                    before=before,
+                    after=after,
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",
+                    submodule="types_categories",
+                )
+            except Exception as e:
+                logging.warning("El servicio de auditoría ha fallado en update_types_category: %s", e)
+
             return Response({"message": "Categoría de tipo actualizada exitosamente"},
                             status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
