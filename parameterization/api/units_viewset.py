@@ -9,6 +9,13 @@ from parameterization.serializers.units_serializers.units_create_serializer impo
 from parameterization.serializers.units_serializers.units_list_serializer import UnitsListSerializer
 from users.permissions import HasPermissionId
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info
+from parameterization.utils.audit_helpers import units_snapshot
+import logging
+
+logger = logging.getLogger(__name__)
 
 class UnitsViewSet(viewsets.ViewSet):
     # permission_classes = [HasPermissionId]  # Temporalmente deshabilitado para usar check_permission
@@ -54,7 +61,25 @@ class UnitsViewSet(viewsets.ViewSet):
         
         serializer = UnitsCreateSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            instance = serializer.save()
+
+            # Auditoría
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).create(
+                    object_id=str(getattr(instance, "id_units", None) or ""),
+                    after=units_snapshot(instance),
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",               
+                    submodule="units", 
+                )
+            except Exception as e:
+                logger.error(f"Error al registrar auditoría para creación de unidad: {e}")
+
             return Response({"message": "Unidad creada exitosamente"},
                             status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -79,7 +104,29 @@ class UnitsViewSet(viewsets.ViewSet):
         unit = get_object_or_404(Units, pk=pk)
         serializer = UnitsCreateSerializer(unit, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save()
+            before = units_snapshot(unit)
+
+            instance = serializer.save()
+
+            # Auditoría
+            try:
+                after = units_snapshot(instance)
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).update(
+                    object_id=str(getattr(instance, "id_units", None) or ""),
+                    before=before,
+                    after=after,
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",               
+                    submodule="units", 
+                )
+            except Exception as e:
+                logger.error(f"Error al registrar auditoría para actualización de unidad: {e}")
+                
             return Response({"message": "Unidad actualizada exitosamente"},
                             status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

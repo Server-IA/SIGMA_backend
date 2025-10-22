@@ -480,11 +480,14 @@ class PreRequestUpdateSerializer(serializers.ModelSerializer):
                         active_statuses = overlapping_requests.values_list(
                             'request__request_status__name', flat=True
                         ).distinct()
-                        
+                        # Incluir IDs de solicitudes en conflicto en el mensaje (solo lectura)
+                        conflict_ids = list(overlapping_requests.values_list('request__id_request', flat=True).distinct())
+
                         raise serializers.ValidationError({
                             'machinery_users': [
                                 f"La máquina {machinery.machinery_name} ya tiene solicitudes activas "
-                                f"(estados: {', '.join(active_statuses)}) en el rango de fechas especificado."
+                                f"(estados: {', '.join(active_statuses)}) en el rango de fechas especificado. "
+                                f"Solicitudes en conflicto: {', '.join(str(cid) for cid in conflict_ids)}."
                             ]
                         })
         
