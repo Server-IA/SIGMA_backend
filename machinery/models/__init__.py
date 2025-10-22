@@ -5,3 +5,5 @@ from .specific_technical_sheet import SpecificTechnicalSheet
 from .machinery_usage_sheet import MachineryUsageSheet
 from .machinery_documentation import MachineryDocumentation
 from .periodic_maintenance import PeriodicMaintenanceScheduling
+from .parameters import Parameters
+from .telemetry_device_parameter import TelemetryDeviceParameter

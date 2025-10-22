@@ -1,3 +1,5 @@
+from django.utils import timezone
+from django.db.models import Max
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
@@ -30,6 +32,7 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Service
         fields = [
+            'id_service',
             'service_name',
             'description',
             'service_type',
@@ -48,7 +51,8 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
             'service_status': {'required': False},
             'is_vat_exempt': {'required': False},
             'tax_rate': {'required': False},
-            'description': {'required': False}
+            'description': {'required': False},
+            'id_service': {'read_only': True}
         }
 
     def validate_service_name(self, value):
@@ -97,6 +101,23 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Categoría de unidad de precio no encontrada")
         return value
 
+    def generate_service_id(self):
+        current_year = timezone.now().year
+        # Find the highest service number for the current year
+        max_service = Service.objects.filter(
+            id_service__startswith=f'SVC-{current_year}'
+        ).aggregate(Max('id_service'))
+
+        if max_service['id_service__max']:
+            # Extract the number part and increment it
+            last_number = int(max_service['id_service__max'].split('-')[-1])
+            new_number = last_number + 1
+        else:
+            # First service of the year
+            new_number = 1
+
+        return f'SVC-{current_year}-{new_number:04d}'
+
     def validate_base_price(self, value):
         """
         Valida que el precio base sea mayor a 0.
@@ -106,6 +127,12 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
                 'base_price': 'El precio base debe ser mayor a 0'
             })
         return value
+    def validate(self, attrs):
+        """
+        Genera automáticamente el ID del servicio.
+        """
+        attrs['id_service'] = self.generate_service_id()
+        return attrs
 
     def create(self, validated_data):
         """

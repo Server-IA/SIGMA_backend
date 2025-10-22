@@ -6,6 +6,15 @@ from parameterization.serializers.statues_category_serializers.statues_category_
 from parameterization.serializers.statues_category_serializers.statues_category_list_serializer import StatuesCategoryListSerializer
 from users.permissions import HasPermissionId
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info
+from parameterization.utils.audit_helpers import statues_category_snapshot
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 class StatuesCategoryViewSet(viewsets.ViewSet):
     # permission_classes = [HasPermissionId]  # Temporalmente deshabilitado para usar check_permission
 
@@ -50,7 +59,26 @@ class StatuesCategoryViewSet(viewsets.ViewSet):
         
         serializer = StatuesCategoryCreateSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            instance = serializer.save()
+
+            # Auditoría 
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).create(
+                    object_id=str(getattr(instance, "id_statues_categories", None) or getattr(instance, "id", None) or ""),
+                    after=statues_category_snapshot(instance),
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",               
+                    submodule="statues_categories",         
+                )
+            except Exception as e:
+                # Logueamos la falla de auditoría, pero NO rompemos la creación
+                logging.warning("El servicio de auditoría ha fallado en create_statues_category: %s", e)
+
             return Response({"message": "Categoría de estado creada exitosamente"},
                             status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -79,7 +107,30 @@ class StatuesCategoryViewSet(viewsets.ViewSet):
 
         serializer = StatuesCategoryCreateSerializer(categoria, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save()
+
+            before = statues_category_snapshot(categoria)
+
+            instance = serializer.save()
+
+            # Auditoría 
+            try:
+                after = statues_category_snapshot(instance)
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).update(
+                    object_id=str(getattr(instance, "id_statues_categories", None) or getattr(instance, "id", None) or ""),
+                    before=before,
+                    after=after,
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",
+                    submodule="statues_categories",
+                )
+            except Exception as e:
+                logging.warning("El servicio de auditoría ha fallado en update_statues_category: %s", e)
+
             return Response({"message": "Categoría de estado actualizada exitosamente"},
                             status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

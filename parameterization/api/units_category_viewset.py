@@ -7,6 +7,13 @@ from parameterization.serializers.units_category_serializers.units_category_crea
 from parameterization.serializers.units_category_serializers.units_category_list_serializer import UnitsCategoryListSerializer
 from users.permissions import HasPermissionId
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info
+from parameterization.utils.audit_helpers import units_category_snapshot
+import logging
+
+logger = logging.getLogger(__name__)
 
 class UnitsCategoryViewSet(viewsets.ViewSet):
     # permission_classes = [HasPermissionId]  # Temporalmente deshabilitado para debug
@@ -57,7 +64,25 @@ class UnitsCategoryViewSet(viewsets.ViewSet):
         
         serializer = UnitsCategoryCreateSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            instance = serializer.save()
+
+            # Auditoría 
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).create(
+                    object_id=str(getattr(instance, "id_units_categories", None) or ""),
+                    after=units_category_snapshot(instance),
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",               
+                    submodule="units_categories",         
+                )
+            except Exception as e:
+                logging.warning("El servicio de auditoría ha fallado en create_units_category: %s", e)
+
             return Response({"message": "Categoría de métricas de medida creada exitosamente"},
                             status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -107,7 +132,29 @@ class UnitsCategoryViewSet(viewsets.ViewSet):
         category = get_object_or_404(UnitsCategory, pk=pk)
         serializer = UnitsCategoryCreateSerializer(category, data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            before = units_category_snapshot(category)
+
+            instance = serializer.save()
+
+            # Auditoría
+            try:
+                after = units_category_snapshot(instance)
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).update(
+                    object_id=str(getattr(instance, "id_units_categories", None) or ""),
+                    before=before,
+                    after=after,
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",               
+                    submodule="units_categories",         
+                )
+            except Exception as e:
+                logging.warning("El servicio de auditoría ha fallado en update_units_category: %s", e)
+
             return Response({"message": "Categoría de métricas de medida actualizada exitosamente"},
                             status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

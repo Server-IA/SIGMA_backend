@@ -1,7 +1,7 @@
 from django.db import models
 
 class Service(models.Model):
-    id_service = models.AutoField(primary_key=True)
+    id_service = models.CharField(primary_key=True, max_length=20, null=False)
     service_name = models.CharField(max_length=100, null=False, blank=False)
     description = models.CharField(max_length=500, null=True, blank=True)
     service_type = models.ForeignKey('parameterization.Types', on_delete=models.PROTECT, null=False, blank=False, related_name='service_type')
