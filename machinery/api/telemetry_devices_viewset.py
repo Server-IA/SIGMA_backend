@@ -8,6 +8,10 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from parameterization.models.statues import Statues
 import logging
+from django.db import IntegrityError
+from django.http import Http404
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info, telemetry_device_snapshot
 
 class TelemetryDevicesViewSet(viewsets.ModelViewSet):
     
@@ -95,113 +99,143 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
         except Exception:
             return None
 
-    @action(detail=True, methods=['patch'])
-    def deactivate(self, request, pk=None):
+    @action(detail=True, methods=['patch'], url_path='toggle-status')
+    def toggle_status(self, request, pk=None):
         
         # Autenticación
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
-            return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({"success": False, "message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 201
+        permission_id = 115
         if not self.check_permission(request, permission_id):
-            return Response({"message": "No tiene permisos para desactivar dispositivos de telemetría."}, status=status.HTTP_403_FORBIDDEN)
-
-        device = get_object_or_404(TelemetryDevices, pk=pk)
-
-        inactive_status = self._get_status_by_name("Inactivo")
-        if not inactive_status:
-            return Response({"message": "No se encontró el estado 'Inactivo' en la parametrización."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Si ya está inactivo, retornamos 409 o idempotente 200. Aquí elegimos 409 para visibilidad.
-        if getattr(device, 'id_statues_id', None) == getattr(inactive_status, 'id_statues', None):
-            return Response({"message": "El dispositivo ya está inactivo."}, status=status.HTTP_409_CONFLICT)
+            return Response({"success": False, "message": "No tiene permisos para activar/desactivar dispositivos."}, status=status.HTTP_403_FORBIDDEN)
 
         try:
+            device = TelemetryDevices.objects.get(pk=pk)
+        except TelemetryDevices.DoesNotExist:
+            return Response({"success": False, "message": "Dispositivo no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            before_status_id = getattr(device, 'id_statues_id', None)
+            before = telemetry_device_snapshot(device)
+            if before_status_id == 1:
+                new_status = Statues.objects.get(pk=2)
+                new_status_id = 2
+                message = "Dispositivo inactivado exitosamente"
+            else:
+                new_status = Statues.objects.get(pk=1)
+                new_status_id = 1
+                message = "Dispositivo activado exitosamente"
+
             with transaction.atomic():
-                device.id_statues = inactive_status
-                device.save(update_fields=["id_statues", "modification_date"])
+                device.id_statues = new_status
+                device.save(update_fields=['id_statues', 'modification_date'])
 
                 logging.info(
-                    "audit: telemetry_device.deactivate",
+                    "audit: telemetry_device.toggle_status",
                     extra={
-                        "action": "soft_delete",
+                        "action": "toggle_status",
+                        "before_status_id": before_status_id,
+                        "after_status_id": new_status_id,
                         "id_device": device.id_device,
                         "name": device.name,
                         "user_id": getattr(request.user, 'id', None),
                     }
                 )
 
-            serializer = TelemetryDevicesListSerializer(device)
-            return Response({"message": "Dispositivo desactivado correctamente.", "device": serializer.data}, status=status.HTTP_200_OK)
+                # Auditoría formal
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                    AuditClient(request).update(
+                        object_id=str(device.id_device),
+                        before=before,
+                        after=telemetry_device_snapshot(device),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="monitoring",
+                        submodule="telemetry_devices",
+                    )
+                except Exception as e:
+                    logging.warning("El servicio de auditoría ha fallado en toggle_status: %s", str(e))
+
+            return Response({"success": True, "message": message}, status=status.HTTP_200_OK)
+
+        except Statues.DoesNotExist:
+            return Response({"success": False, "message": "Estado no válido."}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({"message": "No se pudo completar la desactivación.", "detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logging.error("Error al cambiar el estado del dispositivo: %s", str(e))
+            return Response({"success": False, "message": "Error al cambiar el estado del dispositivo.", "error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def destroy(self, request, pk=None):
-      
+        
         # Autenticación
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
-            return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({"success": False, "message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        permission_id = 200
+        # Permiso alineado a servicio: 162
+        permission_id = 162
         if not self.check_permission(request, permission_id):
-            return Response({"message": "No tiene permisos para eliminar dispositivos de telemetría."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"success": False, "message": "No tiene permisos para eliminar dispositivos de telemetría."}, status=status.HTTP_403_FORBIDDEN)
 
-        device = get_object_or_404(TelemetryDevices, pk=pk)
+        # Obtener dispositivo o 404
+        try:
+            device = TelemetryDevices.objects.get(pk=pk)
+        except TelemetryDevices.DoesNotExist:
+            return Response({"success": False, "message": "Dispositivo no encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Verificar dependencias (asignación a maquinaria)
-        has_dependencies = Machinery.objects.filter(id_device_id=device.id_device).exists()
-
-        if has_dependencies:
-            # Soft delete -> estado Inactivo
-            inactive_status = self._get_status_by_name("Inactivo")
-            if not inactive_status:
-                return Response({"message": "No se encontró el estado 'Inactivo' en la parametrización."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            # Si ya está inactivo, devolvemos 409 para indicar que no procede eliminar físicamente
-            if getattr(device, 'id_statues_id', None) == getattr(inactive_status, 'id_statues', None):
-                return Response({"message": "El dispositivo ya se encuentra inactivo. No es posible eliminación física por dependencias."}, status=status.HTTP_409_CONFLICT)
-
-            try:
-                with transaction.atomic():
-                    device.id_statues = inactive_status
-                    device.save(update_fields=["id_statues", "modification_date"])
-
-                    logging.info(
-                        "audit: telemetry_device.soft_delete",
-                        extra={
-                            "action": "soft_delete",
-                            "reason": "dependencies_present",
-                            "id_device": device.id_device,
-                            "name": device.name,
-                            "user_id": getattr(request.user, 'id', None),
-                        }
-                    )
-
-                serializer = TelemetryDevicesListSerializer(device)
-                return Response({
-                    "message": "El dispositivo tiene información relacionada. Se realizó desactivación lógica.",
-                    "device": serializer.data
-                }, status=status.HTTP_200_OK)
-            except Exception as e:
-                return Response({"message": "No se pudo completar la desactivación lógica.", "detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Sin dependencias -> hard delete
+        # Eliminación física (sin soft delete)
         try:
             with transaction.atomic():
-                device_id = device.id_device
-                device_name = device.name
+                before = telemetry_device_snapshot(device)
                 device.delete()
 
                 logging.info(
                     "audit: telemetry_device.hard_delete",
                     extra={
                         "action": "hard_delete",
-                        "id_device": device_id,
-                        "name": device_name,
+                        "id_device": before.get("id_device"),
+                        "name": before.get("name"),
                         "user_id": getattr(request.user, 'id', None),
                     }
                 )
 
-            return Response(status=status.HTTP_204_NO_CONTENT)
+                # Auditoría formal (delete)
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                    AuditClient(request).delete(
+                        object_id=str(before.get("id_device")),
+                        before=before,
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="monitoring",
+                        submodule="telemetry_devices",
+                    )
+                except Exception as e:
+                    logging.warning("El servicio de auditoría ha fallado en destroy (hard_delete): %s", str(e))
+
+            return Response({
+                "success": True,
+                "code": 200,
+                "message": "Dispositivo eliminado correctamente.",
+                "data": None
+            }, status=status.HTTP_200_OK)
+        except IntegrityError as e:
+            logging.error("Error de integridad al eliminar dispositivo: %s", str(e), exc_info=True)
+            return Response({
+                "success": False,
+                "code": 409,
+                "message": "No se puede eliminar el dispositivo porque tiene referencias asociadas.",
+                "errors": {"detail": [str(e)]}
+            }, status=status.HTTP_409_CONFLICT)
         except Exception as e:
-            return Response({"message": "No se pudo completar la eliminación.", "detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logging.error("Error al eliminar el dispositivo: %s", str(e), exc_info=True)
+            return Response({
+                "success": False,
+                "code": 500,
+                "message": "Error al eliminar el dispositivo.",
+                "errors": {"detail": [str(e)]}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

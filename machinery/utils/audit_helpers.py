@@ -412,3 +412,41 @@ def build_meta_with_machinery_id(
         meta["id_machinery"] = mach_id
 
     return meta
+
+# Telemetry device snapshot
+def telemetry_device_snapshot(dev_obj) -> Dict[str, Any]:
+    def _safe_get(o, attr, default=None):
+        try:
+            return getattr(o, attr, default)
+        except Exception:
+            return default
+
+    def serialize_attr(attr: str):
+        val = _safe_get(dev_obj, attr)
+        if val is None:
+            return None
+        if isinstance(val, (int, float, str, bool)):
+            return val
+        try:
+            if hasattr(val, "id") or hasattr(val, "pk"):
+                return getattr(val, "id", None) or getattr(val, "pk", None)
+            if hasattr(val, "name"):
+                return getattr(val, "name", None)
+        except Exception:
+            pass
+        return None
+
+    responsible = _safe_get(dev_obj, "id_responsible_user")
+    responsible_id = None
+    if responsible is not None:
+        responsible_id = getattr(responsible, "id", None) or getattr(responsible, "pk", None)
+
+    return {
+        "id_device": _safe_get(dev_obj, "id_device") or _safe_get(dev_obj, "id") or _safe_get(dev_obj, "pk"),
+        "name": _safe_get(dev_obj, "name"),
+        "status_id": serialize_attr("id_statues"),
+        "status": serialize_attr("id_statues"),
+        "id_responsible_user": str(responsible_id) if responsible_id else None,
+        "registration_date": str(_safe_get(dev_obj, "registration_date")),
+        "modification_date": str(_safe_get(dev_obj, "modification_date")),
+    }
