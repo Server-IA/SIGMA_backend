@@ -27,7 +27,7 @@ from service_requests.utils.audit_helpers import (
     service_request_snapshot, 
     service_request_related_models_snapshot
 )
-from django.db.models import Q
+from django.db.models import Q, Max
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
     def details(self, request, pk=None):
         """
         Obtiene los detalles completos de una solicitud de servicio por su ID.
+        El ID debe estar en formato: SOL-YYYY-XXXX (ejemplo: SOL-2025-0072)
         """
         try:
             # Verificar si el usuario tiene permiso para ver los detalles
@@ -69,6 +70,14 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 return Response(
                     {"error": "No tiene permiso para ver los detalles de la solicitud"},
                     status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Validar el formato del ID (SOL-YYYY-XXXX)
+            import re
+            if not re.match(r'^SOL-\d{4}-\d{4}$', str(pk)):
+                return Response(
+                    {"error": "Formato de ID inválido. Debe ser SOL-YYYY-XXXX (ejemplo: SOL-2025-0072)"},
+                    status=status.HTTP_400_BAD_REQUEST
                 )
             
             try:
@@ -289,6 +298,396 @@ class ServiceRequestViewSet(viewsets.ViewSet):
             return Response({
                 'success': False,
                 'message': 'Ocurrió un error inesperado al procesar la solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'])
+    def create_request(self, request):
+        # Verificar que el usuario esté autenticado
+        if not request.user.is_authenticated:
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 151
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para crear solicitudes de servicio"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Usar PreRequestUpdateSerializer para validar los datos de entrada
+            serializer = PreRequestUpdateSerializer(
+                data=request.data,
+                context={'request': request}
+            )
+
+            if serializer.is_valid():
+                with transaction.atomic():
+                    # Crear la ubicación primero usando el serializer de ubicación
+                    from service_requests.serializers.service_request_serializers.pre_request_update_serializer import RequestLocationUpdateSerializer
+
+                    location_data = serializer.validated_data.pop('location')
+                    machinery_users_data = serializer.validated_data.pop('machinery_users', [])
+
+                    # Obtener usuario responsable
+                    if request and hasattr(request, 'user') and request.user.is_authenticated:
+                        try:
+                            user = User.objects.get(id_user=request.user.id)
+                            responsible_user = user
+                        except User.DoesNotExist:
+                            return Response(
+                                {"message": "Usuario responsable no encontrado"},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+                    else:
+                        return Response(
+                            {"message": "Usuario no autenticado"},
+                            status=status.HTTP_401_UNAUTHORIZED
+                        )
+
+                    # Generar ID usando la misma lógica que PreRequestCreateSerializer
+                    current_year = timezone.now().year
+                    max_request = ServiceRequest.objects.filter(
+                        id_request__startswith=f'SOL-{current_year}'
+                    ).aggregate(Max('id_request'))
+
+                    if max_request['id_request__max']:
+                        last_number = int(max_request['id_request__max'].split('-')[-1])
+                        new_number = last_number + 1
+                    else:
+                        new_number = 1
+
+                    request_id = f'SOL-{current_year}-{new_number:04d}'
+
+                    # Crear estado 20 (En revisión)
+                    status_20 = Statues.objects.get(id_statues=20)
+
+                    # Crear la solicitud de servicio
+                    service_request = ServiceRequest.objects.create(
+                        id_request=request_id,
+                        customer=serializer.validated_data['customer'],
+                        request_detail=serializer.validated_data['request_detail'],
+                        scheduled_start_date=serializer.validated_data['scheduled_start_date'],
+                        scheduled_end_date=serializer.validated_data['scheduled_end_date'],
+                        payment_method=serializer.validated_data.get('payment_method'),
+                        payment_status=serializer.validated_data.get('payment_status'),
+                        amount_paid=serializer.validated_data.get('amount_paid'),
+                        currency_unit_amount_paid=serializer.validated_data.get('currency_unit_amount_paid'),
+                        amount_to_pay=serializer.validated_data.get('amount_to_pay'),
+                        currency_unit_amount_to_pay=serializer.validated_data.get('currency_unit_amount_to_pay'),
+                        request_status=status_20,
+                        id_responsible_user=responsible_user
+                    )
+
+                    # Crear ubicación
+                    from service_requests.models import RequestLocation
+                    RequestLocation.objects.create(
+                        request=service_request,
+                        **location_data
+                    )
+
+                    # Crear asignaciones de máquinas y operarios
+                    from service_requests.models import RequestMachineryUser
+                    for item in machinery_users_data:
+                        RequestMachineryUser.objects.create(
+                            request=service_request,
+                            machinery_id=item['machinery_id'],
+                            user_id=item['user_id'],
+                            soil_type=item.get('soil_type'),
+                            texture=item.get('texture'),
+                            humidity_level=item.get('humidity_level'),
+                            implementation=item.get('implementation'),
+                            depth=item.get('depth'),
+                            slope=item.get('slope'),
+                            work_duration=item.get('work_duration')
+                        )
+
+                    # Auditoría
+                    try:
+                        actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+
+                        # Crear snapshot completo incluyendo modelos relacionados
+                        main_snapshot = service_request_snapshot(service_request)
+                        related_snapshot = service_request_related_models_snapshot(service_request)
+
+                        # Combinar snapshots
+                        combined_after = {**main_snapshot}
+                        if related_snapshot.get('location'):
+                            combined_after['location'] = related_snapshot['location']
+                        if related_snapshot.get('machinery_users'):
+                            combined_after['machinery_users'] = related_snapshot['machinery_users']
+
+                        AuditClient(request).create(
+                            object_id=str(service_request.id_request),
+                            after=combined_after,
+                            actor_id=actor_id,
+                            actor_name=actor_name,
+                            actor_role=actor_role_name,
+                            permission_id=permission_id,
+                            module="requests",
+                            submodule="requests",
+                        )
+                    except Exception as e:
+                        logger.warning("El servicio de auditoría ha fallado en create_request: %s", str(e))
+
+                    # Enviar notificación de creación de solicitud
+                    self._send_request_created_notification(service_request, request)
+
+                    return Response({
+                        'success': True,
+                        'message': 'Solicitud creada exitosamente',
+                        'id_request': service_request.id_request
+                    }, status=status.HTTP_201_CREATED)
+
+            return Response({
+                'success': False,
+                'message': 'Error en la validación de datos',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            logger.error(f"Error inesperado al crear solicitud: {str(e)}", exc_info=True)
+            return Response({
+                'success': False,
+                'message': 'Ocurrió un error inesperado al procesar la solicitud',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['patch'], url_path='update_request')
+    def update_request(self, request, pk=None):
+        """
+        Actualiza parcialmente (PATCH) una solicitud usando `PreRequestUpdateSerializer`.
+        Reglas:
+        - Requiere permiso ID 155.
+        - Solo se puede actualizar si la solicitud está en estado 20.
+        """
+        try:
+            # Autenticación
+            if not request.user.is_authenticated:
+                return Response({"message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
+
+            # Permisos
+            permission_id = 155
+            if not self.check_permission(request, permission_id):
+                return Response({"message": "No tiene permisos para actualizar solicitudes"}, status=status.HTTP_403_FORBIDDEN)
+
+            # Obtener la solicitud
+            service_request = get_object_or_404(ServiceRequest, pk=pk)
+
+            # Validar estado 20
+            if service_request.request_status_id != 20:
+                try:
+                    status_20 = Statues.objects.get(id_statues=20)
+                    status_name = status_20.name
+                except Statues.DoesNotExist:
+                    status_name = "Estado requerido"
+                return Response({
+                    "message": f"La solicitud debe estar en estado '{status_name}' para poder actualizarse"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Serializador de actualización parcial
+            serializer = PreRequestUpdateSerializer(
+                instance=service_request,
+                data=request.data,
+                partial=True,
+                context={'request': request}
+            )
+
+            if not serializer.is_valid():
+                return Response({
+                    'success': False,
+                    'message': 'Error en la validación de datos',
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Obtener snapshots antes de la actualización
+            before_request = service_request_snapshot(service_request)
+            before_related = service_request_related_models_snapshot(service_request)
+            
+            # Guardar cambios
+            with transaction.atomic():
+                # Actualizar la solicitud con los datos validados
+                updated_request = serializer.save()
+                
+                # Tomar instantánea DESPUÉS de los cambios
+                after_request = service_request_snapshot(updated_request)
+                after_related = service_request_related_models_snapshot(updated_request)
+                
+                # Registrar evento de auditoría con cambios detallados
+                try:
+                    actor_id, actor_name, actor_role = get_actor_info(request.user)
+                    
+                    # Calcular cambios detallados
+                    changes = {
+                        'changed': {},
+                        'created': {},
+                        'removed': {}
+                    }
+                    
+                    # Comparar cambios en la solicitud
+                    for field in before_request:
+                        if before_request[field] != after_request.get(field):
+                            changes['changed'][field] = {
+                                'from': before_request[field],
+                                'to': after_request[field]
+                            }
+                    
+                    # Comparar cambios en modelos relacionados
+                    if before_related != after_related:
+                        # Comparar ubicación
+                        if before_related.get('location') != after_related.get('location'):
+                            if before_related.get('location') and after_related.get('location'):
+                                # Actualización de ubicación
+                                location_changes = {}
+                                for field in before_related['location']:
+                                    if before_related['location'][field] != after_related['location'].get(field):
+                                        location_changes[field] = {
+                                            'from': before_related['location'][field],
+                                            'to': after_related['location'].get(field)
+                                        }
+                                if location_changes:
+                                    changes['changed']['location'] = location_changes
+                            elif after_related.get('location'):
+                                # Nueva ubicación
+                                changes['created']['location'] = after_related['location']
+                        
+                        # Comparar maquinaria y operarios
+                        before_machinery = {mu['id_request_machinery_user']: mu 
+                                         for mu in before_related.get('machinery_users', [])}
+                        after_machinery = {mu['id_request_machinery_user']: mu 
+                                        for mu in after_related.get('machinery_users', [])}
+                        
+                        # Encontrar cambios en maquinaria/operarios
+                        for mu_id, mu_data in after_machinery.items():
+                            if mu_id in before_machinery:
+                                # Actualización
+                                mu_changes = {}
+                                for field in mu_data:
+                                    if before_machinery[mu_id].get(field) != mu_data.get(field):
+                                        mu_changes[field] = {
+                                            'from': before_machinery[mu_id].get(field),
+                                            'to': mu_data.get(field)
+                                        }
+                                if mu_changes:
+                                    if 'machinery_users' not in changes['changed']:
+                                        changes['changed']['machinery_users'] = {}
+                                    changes['changed']['machinery_users'][str(mu_id)] = mu_changes
+                            else:
+                                # Nuevo registro
+                                if 'machinery_users' not in changes['created']:
+                                    changes['created']['machinery_users'] = {}
+                                changes['created']['machinery_users'][str(mu_id)] = mu_data
+                        
+                        # Verificar si se eliminó alguna maquinaria/operario
+                        for mu_id in before_machinery:
+                            if mu_id not in after_machinery:
+                                if 'machinery_users' not in changes['removed']:
+                                    changes['removed']['machinery_users'] = {}
+                                changes['removed']['machinery_users'][str(mu_id)] = before_machinery[mu_id]
+                    
+                    # Inicializar estructura de cambios
+                    diff_changes = {}
+
+                    # Procesar cambios en la solicitud principal
+                    if changes.get('changed'):
+                        for field, change in changes['changed'].items():
+                            if field not in ['location', 'machinery_users'] and 'to' in change:
+                                diff_changes[field] = {
+                                    'from': change.get('from'),
+                                    'to': change['to']
+                                }
+                    
+                    # Incluir campos de pago
+                    payment_fields = [
+                        'payment_method', 'payment_status', 'amount_paid',
+                        'currency_unit_amount_paid', 'amount_to_pay', 'currency_unit_amount_to_pay'
+                    ]
+                    for field in payment_fields:
+                        if field in after_request and after_request[field] is not None:
+                            diff_changes[field] = {
+                                'from': before_request.get(field),
+                                'to': after_request[field]
+                            }
+                    
+                    # Incluir todos los campos de location
+                    location = getattr(updated_request, 'request_location', None)
+                    if location:
+                        location_fields = [
+                            'id_request_location', 'country', 'department', 'city_id',
+                            'place_name', 'latitude', 'longitude', 'area', 'area_unit_id',
+                            'altitude', 'altitude_unit_id'
+                        ]
+                        for field in location_fields:
+                            if hasattr(location, field):
+                                field_name = f'location_{field}'
+                                field_value = getattr(location, field, None)
+                                # Si es una relación, obtener solo el ID
+                                if field.endswith('_id') and field_value is None:
+                                    # Intentar obtener el ID del objeto relacionado
+                                    rel_field = field.replace('_id', '')
+                                    if hasattr(location, rel_field):
+                                        rel_obj = getattr(location, rel_field)
+                                        if rel_obj is not None:
+                                            field_value = rel_obj.id if hasattr(rel_obj, 'id') else None
+                                
+                                diff_changes[field_name] = {
+                                    'from': before_related.get('location', {}).get(field) if before_related.get('location') else None,
+                                    'to': field_value
+                                }
+                    
+                    # Procesar maquinaria/operarios
+                    if 'machinery_users' in after_related:
+                        for idx, mu in enumerate(after_related['machinery_users'], 1):
+                            if not isinstance(mu, dict):
+                                continue
+                            for field in [
+                                'machinery_id', 'user_id', 'soil_type_id', 'texture_id', 
+                                'humidity_level', 'implementation_id', 'depth', 'slope', 'work_duration'
+                            ]:
+                                if field in mu:
+                                    diff_changes[f'machinery_{idx}_{field}'] = {
+                                        'from': None,  # Siempre null para actualizaciones
+                                        'to': mu[field]
+                                    }
+                    
+                    # Crear before y after basados en el diff
+                    before_data = {}
+                    after_data = {}
+                    
+                    for field, change in diff_changes.items():
+                        before_data[field] = change['from']
+                        after_data[field] = change['to']
+                    
+                    # Registrar auditoría con before y after
+                    AuditClient(request).update(
+                        object_id=str(updated_request.id_request),
+                        before=before_data or None,
+                        after=after_data,
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role,
+                        permission_id=permission_id,
+                        module='requests',
+                        submodule='requests'
+                    )
+                        
+                except Exception as e:
+                    logger.error(f"Error en auditoría al actualizar solicitud: {str(e)}", exc_info=True)
+
+            return Response({
+                'success': True,
+                'message': 'solicitud actualizada exitosamente',
+                'id_request': updated_request.id_request
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error actualizando solicitud: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'message': 'Ocurrió un error al actualizar la solicitud',
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -1092,3 +1491,83 @@ class ServiceRequestViewSet(viewsets.ViewSet):
 
         except Exception as e:
             logger.error(f"Error inesperado al enviar notificación de cancelación: {str(e)}", exc_info=True)
+
+    def _send_request_created_notification(self, service_request, request=None):
+        """
+        Envía una notificación cuando se crea una nueva solicitud de servicio.
+        """
+        try:
+            customer = service_request.customer
+            if not customer:
+                logger.warning("No se pudo enviar notificación: la solicitud no tiene cliente asociado")
+                return
+
+            # Obtener información del usuario
+            if hasattr(customer, 'id_user') and customer.id_user:
+                user_info = self._get_user_info(customer.id_user.pk, request)
+            else:
+                user_info = None
+
+            # Preparar datos para la notificación
+            email = None
+            client_name = "Cliente"
+
+            if user_info and user_info.get('email'):
+                # Case 1: Customer has id_user - use data from API
+                email = user_info['email']
+                client_name = user_info.get('name', 'Cliente')
+            else:
+                # Case 2: Customer has id_user = null - use data from customer model
+                if hasattr(customer, 'email') and customer.email:
+                    email = customer.email
+                    # Concatenate name fields from customer model
+                    name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                    client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+                else:
+                    # Try to get any available data from customer model as fallback
+                    if any([customer.name, customer.first_last_name, customer.second_last_name]):
+                        name_parts = [customer.name, customer.first_last_name, customer.second_last_name]
+                        client_name = ' '.join(part for part in name_parts if part).strip() or "Cliente"
+
+            if not email:
+                logger.warning("No se pudo enviar notificación: no hay dirección de correo disponible")
+                return
+
+            # Enviar notificación
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            if not auth_service_url:
+                logger.warning("No se pudo enviar notificación: AUTH_SERVICE_URL no está configurado")
+                return
+
+            url = f"{auth_service_url.rstrip('/')}/users/users/notifications/send-solicitud-created/"
+            headers = {
+                'Content-Type': 'application/json'
+            }
+
+            # Use same authentication logic as user data API call
+            if request is not None:
+                auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') or (
+                    request.headers.get('Authorization') if hasattr(request, 'headers') else None
+                )
+                if auth_header:
+                    headers['Authorization'] = auth_header
+
+            payload = {
+                "email": email,
+                "client_name": client_name,
+                "message": "Tu solicitud ha sido creada exitosamente y está siendo procesada.",
+                "request_code": service_request.id_request
+            }
+
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=15
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Error al enviar notificación de creación de solicitud: {response.status_code} - {response.text}")
+
+        except Exception as e:
+            logger.error(f"Error inesperado al enviar notificación de creación de solicitud: {str(e)}", exc_info=True)

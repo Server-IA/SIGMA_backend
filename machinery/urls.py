@@ -8,6 +8,7 @@ from machinery.api.machinery_usage_viewset import MachineryUsageViewSet
 from machinery.api.machinery_documentation_viewset import MachineryDocumentationViewSet
 from machinery.api.periodic_maintenance_viewset import PeriodicMaintenanceSchedulingViewSet
 from machinery.api.telemetry_devices_viewset import TelemetryDevicesViewSet
+from machinery.api.parameters_viewset import ParametersViewSet
 
 router = routers.DefaultRouter()
 
@@ -18,6 +19,7 @@ router.register(r'machinery-usage', MachineryUsageViewSet, basename='machinery-u
 router.register(r'machinery-documentation', MachineryDocumentationViewSet, basename='machinery-documentation')
 router.register(r'periodic-maintenance', PeriodicMaintenanceSchedulingViewSet, basename='periodic-maintenance')
 router.register(r'telemetry-devices', TelemetryDevicesViewSet, basename='telemetry-devices')
+router.register(r'parameters', ParametersViewSet, basename='parameters')
 
 urlpatterns = [
     path('', include(router.urls))

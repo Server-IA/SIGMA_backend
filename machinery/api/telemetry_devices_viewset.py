@@ -3,7 +3,14 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from machinery.models.telemetry_devices import TelemetryDevices
 from machinery.models.machinery import Machinery
+from machinery.models.telemetry_device_parameter import TelemetryDeviceParameter
 from machinery.serializers.telemetry_devices_serializers.telemetry_devices_list_serializer import TelemetryDevicesListSerializer
+from machinery.serializers.telemetry_devices_serializers.telemetry_devices_create_serializer import TelemetryDevicesCreateSerializer
+from machinery.utils.audit_helpers import telemetry_devices_snapshot, telemetry_device_parameter_snapshot, get_actor_info, telemetry_device_snapshot_toggle
+from audit_sdk import AuditClient
+import logging
+
+
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from parameterization.models.statues import Statues
@@ -11,13 +18,18 @@ import logging
 from django.db import IntegrityError
 from django.http import Http404
 from audit_sdk import AuditClient
-from machinery.utils.audit_helpers import get_actor_info, telemetry_device_snapshot
+logger = logging.getLogger(__name__)
 
 class TelemetryDevicesViewSet(viewsets.ModelViewSet):
-    
+    """
+    ViewSet para el modelo TelemetryDevices.
+    """
 
     def check_permission(self, request, required_permission_id: int):
-        
+        """
+        Verifica si el usuario tiene el permiso (por ID).
+        Adaptado de FastAPI para Django REST Framework.
+        """
         # Obtener el payload del JWT desde request.auth
         payload = getattr(request, "auth", None) or {}
 
@@ -38,8 +50,12 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
     queryset = TelemetryDevices.objects.all()
     
     def get_serializer_class(self):
-        
-        if self.action == 'list' or self.action == 'active':
+        """
+        Usa el serializador de lista para listar y activos, y el de creación para crear.
+        """
+        if self.action == 'create':
+            return TelemetryDevicesCreateSerializer
+        elif self.action == 'list' or self.action == 'active':
             return TelemetryDevicesListSerializer
         return TelemetryDevicesListSerializer
     
@@ -65,7 +81,10 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def active(self, request):
-       
+        """
+        Lista todos los dispositivos de telemetría activos.
+        """
+
         # Verificar que el usuario esté autenticado
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
             return Response(
@@ -92,8 +111,69 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    def create(self, request, *args, **kwargs):
+        """
+        Crea un nuevo dispositivo de telemetría con parámetros asociados.
+        Requiere permiso 113 y registra auditoría.
+        """
+        # Verificar autenticación
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permiso 113 (telemetry_device.create)
+        permission_id = 113
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para crear dispositivos de telemetría."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Usar el serializer personalizado
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        telemetry_device = serializer.save()
+
+        # Auditoría
+        try:
+            actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+
+            # Crear snapshot del dispositivo principal
+            main_snapshot = telemetry_devices_snapshot(telemetry_device)
+
+            # Crear snapshots de parámetros asociados
+            related_snapshots = []
+            for param in telemetry_device.telemetrydeviceparameter_set.all():
+                related_snapshots.append(telemetry_device_parameter_snapshot(param))
+
+            # Combinar snapshots
+            combined_after = {**main_snapshot}
+            if related_snapshots:
+                combined_after['parameters'] = related_snapshots
+
+            AuditClient(request).create(
+                object_id=str(telemetry_device.id_device),
+                after=combined_after,
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=permission_id,
+                module="monitoring",
+                submodule="telemetry_devices",
+            )
+        except Exception as e:
+            logger.warning("El servicio de auditoría ha fallado en create: %s", str(e))
+
+        # Retornar respuesta
+        return Response(
+            {"message": "Dispositivo creado exitosamente", "id": telemetry_device.id_device},
+            status=status.HTTP_201_CREATED
+        )
+
     def _get_status_by_name(self, name: str):
-    
+
         try:
             return Statues.objects.filter(name__iexact=name).first()
         except Exception:
@@ -101,7 +181,7 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['patch'], url_path='toggle-status')
     def toggle_status(self, request, pk=None):
-        
+
         # Autenticación
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
             return Response({"success": False, "message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -117,7 +197,7 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
 
         try:
             before_status_id = getattr(device, 'id_statues_id', None)
-            before = telemetry_device_snapshot(device)
+            before = telemetry_device_snapshot_toggle(device)
             if before_status_id == 1:
                 new_status = Statues.objects.get(pk=2)
                 new_status_id = 2
@@ -149,7 +229,7 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
                     AuditClient(request).update(
                         object_id=str(device.id_device),
                         before=before,
-                        after=telemetry_device_snapshot(device),
+                        after=telemetry_device_snapshot_toggle(device),
                         actor_id=actor_id,
                         actor_name=actor_name,
                         actor_role=actor_role_name,
@@ -169,7 +249,7 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
             return Response({"success": False, "message": "Error al cambiar el estado del dispositivo.", "error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def destroy(self, request, pk=None):
-        
+
         # Autenticación
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
             return Response({"success": False, "message": "Usuario no autenticado"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -188,7 +268,17 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
         # Eliminación física (sin soft delete)
         try:
             with transaction.atomic():
-                before = telemetry_device_snapshot(device)
+                # Obtener parámetros asociados antes de eliminar
+                associated_parameters = device.telemetrydeviceparameter_set.all()
+
+                # Eliminar parámetros intermedios primero
+                parameters_count = associated_parameters.count()
+                associated_parameters.delete()
+
+                # Crear snapshot del dispositivo antes de eliminar
+                before = telemetry_devices_snapshot(device)
+
+                # Eliminar el dispositivo
                 device.delete()
 
                 logging.info(
@@ -197,6 +287,7 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
                         "action": "hard_delete",
                         "id_device": before.get("id_device"),
                         "name": before.get("name"),
+                        "parameters_deleted": parameters_count,
                         "user_id": getattr(request.user, 'id', None),
                     }
                 )
@@ -220,7 +311,7 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
             return Response({
                 "success": True,
                 "code": 200,
-                "message": "Dispositivo eliminado correctamente.",
+                "message": f"Dispositivo y sus {parameters_count} parámetros asociados eliminados correctamente.",
                 "data": None
             }, status=status.HTTP_200_OK)
         except IntegrityError as e:
@@ -229,7 +320,7 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
                 "success": False,
                 "code": 409,
                 "message": "No se puede eliminar el dispositivo porque tiene referencias asociadas.",
-                "errors": {"detail": [str(e)]}
+                "errors": {"detail": ["El dispositivo está siendo utilizado por una maquina y no puede ser eliminado."]}
             }, status=status.HTTP_409_CONFLICT)
         except Exception as e:
             logging.error("Error al eliminar el dispositivo: %s", str(e), exc_info=True)
