@@ -6,6 +6,7 @@ from machinery.models.machinery import Machinery
 from machinery.models.telemetry_device_parameter import TelemetryDeviceParameter
 from machinery.serializers.telemetry_devices_serializers.telemetry_devices_list_serializer import TelemetryDevicesListSerializer
 from machinery.serializers.telemetry_devices_serializers.telemetry_devices_create_serializer import TelemetryDevicesCreateSerializer
+from machinery.serializers.telemetry_devices_serializers.telemetry_devices_detailed_serializer import TelemetryDevicesDetailedSerializer
 from machinery.utils.audit_helpers import telemetry_devices_snapshot, telemetry_device_parameter_snapshot, get_actor_info, telemetry_device_snapshot_toggle
 from audit_sdk import AuditClient
 import logging
@@ -55,7 +56,9 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
         """
         if self.action == 'create':
             return TelemetryDevicesCreateSerializer
-        elif self.action == 'list' or self.action == 'active':
+        elif self.action == 'list':
+            return TelemetryDevicesDetailedSerializer
+        elif self.action == 'active':
             return TelemetryDevicesListSerializer
         return TelemetryDevicesListSerializer
     
@@ -66,17 +69,10 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
         if self.action == 'active':
             return queryset.filter(id_statues=1).order_by('name')
             
-        # For list view, return only active devices (status ID 1) that are not assigned to any machinery
-        # Get all devices that are assigned to any machinery
-        used_device_ids = list(Machinery.objects.exclude(
-            id_device_id=""
-        ).values_list('id_device_id', flat=True).distinct())
-        
-        # Return active devices that are not in the used_device_ids list
-        return queryset.filter(
-            id_statues=1
-        ).exclude(
-            id_device__in=used_device_ids
+        # For list view, return all devices (no filtering)
+        # Only exclude devices with null id_device to avoid serialization errors
+        return queryset.exclude(
+            id_device__isnull=True
         ).order_by('name')
     
     @action(detail=False, methods=['get'])
@@ -103,6 +99,36 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
 
         try:
             queryset = self.get_queryset().filter(id_statues_id=1)
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def list(self, request, *args, **kwargs):
+        """
+        Lista todos los dispositivos de telemetría con información detallada.
+        """
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 112  # telemetry_device.list
+
+        # Verificar permiso usando la función check_permission
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para listar dispositivos de telemetría."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            queryset = self.get_queryset()
             serializer = self.get_serializer(queryset, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
