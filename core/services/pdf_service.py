@@ -343,6 +343,13 @@ def build_maintenance_report_pdf(report, maintenance_items, spare_parts, downloa
     story.append(parts_table)
     story.append(Spacer(1, 12))
 
+    # Recomendaciones (si existen)
+    recommendations_text = getattr(report, 'recommendations', None)
+    if recommendations_text and str(recommendations_text).strip():
+        story.append(Paragraph("Recomendaciones", styles['Heading2']))
+        story.append(Paragraph(str(recommendations_text), table_cell_style))
+        story.append(Spacer(1, 12))
+
     # Resumen económico
     story.append(Paragraph("Resumen Económico", styles['Heading2']))
     try:
