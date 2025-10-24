@@ -9,6 +9,9 @@ from machinery.api.machinery_documentation_viewset import MachineryDocumentation
 from machinery.api.periodic_maintenance_viewset import PeriodicMaintenanceSchedulingViewSet
 from machinery.api.telemetry_devices_viewset import TelemetryDevicesViewSet
 from machinery.api.parameters_viewset import ParametersViewSet
+from machinery.api.machinery_tolerance_thresholds_viewset import MachineryToleranceThresholdsViewSet
+from machinery.api.obd_faults_viewset import OBDFaultsViewSet
+from machinery.api.event_types_viewset import EventTypesViewSet
 
 router = routers.DefaultRouter()
 
@@ -20,6 +23,9 @@ router.register(r'machinery-documentation', MachineryDocumentationViewSet, basen
 router.register(r'periodic-maintenance', PeriodicMaintenanceSchedulingViewSet, basename='periodic-maintenance')
 router.register(r'telemetry-devices', TelemetryDevicesViewSet, basename='telemetry-devices')
 router.register(r'parameters', ParametersViewSet, basename='parameters')
+router.register(r'tolerance-thresholds', MachineryToleranceThresholdsViewSet, basename='tolerance-thresholds')
+router.register(r'obd-faults', OBDFaultsViewSet, basename='obd-faults')
+router.register(r'event-types', EventTypesViewSet, basename='event-types')
 
 urlpatterns = [
     path('', include(router.urls))
