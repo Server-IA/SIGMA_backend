@@ -245,6 +245,7 @@ class MaintenanceReportDetailSerializer(serializers.ModelSerializer):
                 'maintenance_date': maintenance_date,
                 'maintenance_type': maintenance_type_name_sched,
                 'description': getattr(obj, 'description', '') or '',
+                'recommendations': getattr(obj, 'recommendations', '') or '',
                 'time_invested': time_invested_str,
                 'technicians': technicians_text,
                 'maintenance_entries': maintenance_entries,
