@@ -18,6 +18,9 @@ from machinery.serializers.machinery_serializers.machinery_tolerance_thresholds_
 from machinery.serializers.machinery_serializers.machinery_tolerance_thresholds_create_serializer import (
     MachineryToleranceThresholdsCreateSerializer
 )
+from machinery.serializers.machinery_serializers.machinery_tolerance_thresholds_update_serializer import (
+    MachineryToleranceThresholdsUpdateSerializer
+)
 # Auditoría
 from audit_sdk import AuditClient
 from machinery.utils.audit_helpers import (
@@ -189,6 +192,172 @@ class MachineryToleranceThresholdsViewSet(viewsets.ViewSet):
                 {
                     "success": False,
                     "message": f"Error al crear las configuraciones de tolerancia: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['patch'], url_path='update')
+    def update_tolerance_thresholds(self, request):
+        """
+        Actualiza configuraciones de tolerancia, fallos OBD y tipos de eventos para una maquinaria.
+
+        Funcionamiento:
+        - Elimina todas las configuraciones existentes para la maquinaria
+        - Crea las nuevas configuraciones con las mismas validaciones del endpoint create
+
+        Query Parameters:
+        - machinery_id: ID de la maquinaria (requerido)
+
+        Campos requeridos en el JSON body:
+        - tolerance_thresholds: Array de configuraciones de tolerancia (OBLIGATORIO, debe tener al menos 1 elemento)
+        - obd_fault_machinery: Array de fallos OBD (opcional)
+        - event_type_machinery: Array de tipos de eventos (opcional)
+
+        Campos obligatorios en cada item:
+        - tolerance_thresholds: id_parameter, alert_enabled
+        - obd_fault_machinery: id_obd_fault, alert_enabled
+        - event_type_machinery: id_event_type, alert_enabled, threshold
+
+        Validaciones específicas:
+        - alert_enabled es OBLIGATORIO cuando se proporciona el ID principal
+        - tolerance_thresholds: parámetro ID no puede ser 1, 2, 4, 5, 13, 16, 17
+        - event_type_machinery: threshold debe estar en rango del parámetro ID 17
+
+        Permisos:
+        - Requiere permiso ID 166 (machinery.tolerance_thresholds.update)
+        """
+
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        if not self.check_permission(request, 166):
+            return Response(
+                {"message": "No tiene permisos para actualizar configuraciones de tolerancia de maquinaria."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Obtener el ID de maquinaria del query parameter
+            machinery_id = request.query_params.get('machinery_id')
+
+            if not machinery_id:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "El parámetro 'machinery_id' es obligatorio"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Verificar que la maquinaria existe
+            try:
+                machinery = Machinery.objects.get(id_machinery=machinery_id)
+            except Machinery.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": f"No se encontró la maquinaria con ID {machinery_id}"
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Verificar que existan configuraciones previas para actualizar
+            existing_tolerance = ToleranceThresholds.objects.filter(id_machinery=machinery).exists()
+            existing_obd_fault = OBDFaultMachinery.objects.filter(id_machinery=machinery).exists()
+            existing_event_type = EventTypeMachinery.objects.filter(id_machinery=machinery).exists()
+
+            if not (existing_tolerance or existing_obd_fault or existing_event_type):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No existen configuraciones previas para actualizar en esta maquinaria"
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Crear serializer con contexto del machinery_id
+            serializer = MachineryToleranceThresholdsUpdateSerializer(
+                data=request.data,
+                context={'machinery_id': machinery_id, 'request': request}
+            )
+
+            if serializer.is_valid():
+                result = serializer.create(serializer.validated_data)
+
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                    # Crear snapshot simplificado - solo id_machinery ya que object_id ya lo incluye
+                    combined_after = {
+                        "id_machinery": machinery.id_machinery,
+                        "machinery_name": machinery.machinery_name
+                    }
+
+                    # Agregar snapshots de los registros actualizados
+                    updated_records = result['updated_records']
+
+                    # Snapshots detallados de cada tipo de registro
+                    tolerance_snapshots = []
+                    for threshold in updated_records['tolerance_thresholds']:
+                        tolerance_snapshots.append(tolerance_thresholds_snapshot(threshold))
+
+                    obd_fault_snapshots = []
+                    for obd_fault in updated_records['obd_fault_machinery']:
+                        obd_fault_snapshots.append(obd_fault_machinery_snapshot(obd_fault))
+
+                    event_type_snapshots = []
+                    for event_type in updated_records['event_type_machinery']:
+                        event_type_snapshots.append(event_type_machinery_snapshot(event_type))
+
+                    # Combinar todos los snapshots
+                    if tolerance_snapshots:
+                        combined_after['tolerance_thresholds'] = tolerance_snapshots
+                    if obd_fault_snapshots:
+                        combined_after['obd_fault_machinery'] = obd_fault_snapshots
+                    if event_type_snapshots:
+                        combined_after['event_type_machinery'] = event_type_snapshots
+
+                    AuditClient(request).create(
+                        object_id=str(machinery.id_machinery),
+                        after=combined_after,
+                        actor_id=str(actor_id) if actor_id is not None else None,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=166,  # machinery.tolerance_thresholds.update
+                        module="machinery",
+                        submodule="tolerance_thresholds",
+                    )
+                except Exception as e:
+                    # Si la auditoría falla, solo loguear warning pero no fallar la operación
+                    import logging
+                    logging.warning("El servicio de auditoría ha fallado en update_tolerance_thresholds: %s", e)
+
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Umbrales de tolerancia actualizados exitosamente"
+                    },
+                    status=status.HTTP_200_OK
+                )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error en los datos proporcionados",
+                    "errors": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        except Exception as e:
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Error al actualizar las configuraciones de tolerancia: {str(e)}"
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
