@@ -1654,7 +1654,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
 
             # 6. Verificar permisos de usuario (solo sus solicitudes vs todas)
             has_list_all_permission = self.check_permission(request, 149)  # service_requests.list
-            has_list_own_permission = self.check_permission(request, 164)  # request.list_own
+            has_list_own_permission = self.check_permission(request, 168)  # request.list_own
             
             if has_list_own_permission and not has_list_all_permission:
                 # Usuario solo puede ver sus propias solicitudes
@@ -1694,7 +1694,11 @@ class ServiceRequestViewSet(viewsets.ViewSet):
             # 10. Generar reporte en formato Excel
             from service_requests.utils.report_generator import generate_excel_report
             
-            report_content = generate_excel_report(queryset, user_data_map)
+            # Obtener información del usuario actual
+            current_user_id = getattr(request.user, 'id_user', None) or getattr(request.user, 'id', None) or getattr(request.user, 'user_id', None)
+            user_info = user_data_map.get(current_user_id) if current_user_id else None
+            
+            report_content = generate_excel_report(queryset, user_data_map, user_info)
             content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             file_extension = 'xlsx'
 

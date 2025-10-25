@@ -207,7 +207,7 @@ def _build_report_data(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> Li
     return report_data
 
 
-def generate_excel_report(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> bytes:
+def generate_excel_report(queryset, user_data_map: Dict[int, Dict[str, Any]], user_info: Dict[str, Any] = None) -> bytes:
     """
     Genera un reporte en formato Excel.
     
@@ -226,7 +226,29 @@ def generate_excel_report(queryset, user_data_map: Dict[int, Dict[str, Any]]) ->
     ws = wb.active
     ws.title = "Reporte de Solicitudes"
     
-    # Definir columnas
+    # Agregar fila informativa en la primera fila
+    from datetime import datetime
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Información del usuario
+    user_name = "Usuario no identificado"
+    if user_info:
+        user_name = user_info.get('name', 'Usuario no identificado')
+    
+    # Escribir fila informativa
+    info_row = [
+        f"Usuario: {user_name}",
+        f"Fecha y hora: {current_time}",
+        "Formato: Excel"
+    ]
+    
+    # Escribir información en la primera fila (combinar celdas para que se vea bien)
+    for col_num, info_text in enumerate(info_row, 1):
+        cell = ws.cell(row=1, column=col_num, value=info_text)
+        cell.font = Font(bold=True, size=12)
+        cell.alignment = Alignment(horizontal='left', vertical='center')
+    
+    # Definir columnas (empezar desde la fila 3)
     columns = [
         "Código Seguimiento",
         "Estado Solicitud", 
@@ -269,15 +291,15 @@ def generate_excel_report(queryset, user_data_map: Dict[int, Dict[str, Any]]) ->
     )
     center_alignment = Alignment(horizontal='center', vertical='center')
     
-    # Escribir encabezados
+    # Escribir encabezados (fila 3)
     for col_num, column_title in enumerate(columns, 1):
-        cell = ws.cell(row=1, column=col_num, value=column_title)
+        cell = ws.cell(row=3, column=col_num, value=column_title)
         cell.font = header_font
         cell.border = border
         cell.alignment = center_alignment
     
-    # Escribir datos
-    for row_num, data_row in enumerate(report_data, 2):
+    # Escribir datos (empezar desde fila 4)
+    for row_num, data_row in enumerate(report_data, 4):
         for col_num, field_name in enumerate(field_mapping, 1):
             value = data_row.get(field_name, "")
             cell = ws.cell(row=row_num, column=col_num, value=value)
