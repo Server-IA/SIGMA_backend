@@ -1709,8 +1709,37 @@ class ServiceRequestViewSet(viewsets.ViewSet):
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             
             # Construir nombre del archivo
-            if customer_id:
-                # Si se filtró por customer_id, obtener nombre del cliente
+            # Si el usuario solo puede ver sus propias solicitudes (permiso 168 sin 149), incluir su nombre
+            if has_list_own_permission and not has_list_all_permission:
+                # Usuario solo puede ver sus propias solicitudes - incluir su nombre en el archivo
+                current_user_name = ""
+                if user_info:
+                    # Construir nombre completo desde datos externos
+                    name_parts = []
+                    name = user_info.get('name', '').strip()
+                    first_last_name = user_info.get('first_last_name', '').strip()
+                    second_last_name = user_info.get('second_last_name', '').strip()
+                    
+                    if name:
+                        name_parts.append(name)
+                    if first_last_name:
+                        name_parts.append(first_last_name)
+                    if second_last_name:
+                        name_parts.append(second_last_name)
+                    
+                    current_user_name = '_'.join(name_parts) if name_parts else ""
+                
+                # Limpiar nombre para usar en archivo (remover caracteres especiales)
+                import re
+                current_user_name = re.sub(r'[^\w\s-]', '', current_user_name).strip()
+                current_user_name = re.sub(r'[-\s]+', '_', current_user_name)
+                
+                if current_user_name:
+                    filename = f'RF_{timestamp}_{current_user_name}.{file_extension}'
+                else:
+                    filename = f'RF_{timestamp}.{file_extension}'
+            elif customer_id:
+                # Si se filtró por customer_id y el usuario puede ver todas las solicitudes, obtener nombre del cliente
                 customer = queryset.first().customer if queryset.exists() else None
                 if customer:
                     # Obtener nombre del cliente (preferir datos externos si existen)
