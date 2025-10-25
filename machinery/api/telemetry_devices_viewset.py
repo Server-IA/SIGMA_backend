@@ -56,6 +56,9 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
         """
         if self.action == 'create':
             return TelemetryDevicesCreateSerializer
+        elif self.action == 'retrieve':
+            from machinery.serializers.telemetry_devices_serializers.telemetry_devices_retrieve_serializer import TelemetryDevicesRetrieveSerializer
+            return TelemetryDevicesRetrieveSerializer
         elif self.action == 'update_device':
             from machinery.serializers.telemetry_devices_serializers.telemetry_devices_update_serializer import TelemetryDevicesUpdateSerializer
             return TelemetryDevicesUpdateSerializer
@@ -77,7 +80,55 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
         return queryset.exclude(
             id_device__isnull=True
         ).order_by('name')
-    
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Obtiene información detallada de un dispositivo de telemetría por id_device.
+        Requiere permiso 169 (telemetry_device.retrieve)
+        """
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permiso 169 (telemetry_device.retrieve)
+        permission_id = 169
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para obtener información del dispositivo de telemetría."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Buscar dispositivo por id_device en lugar del pk con prefetch para optimización
+            id_device = kwargs.get('pk')
+            device = get_object_or_404(
+                TelemetryDevices.objects.prefetch_related('telemetrydeviceparameter_set__parameter'),
+                id_device=id_device
+            )
+
+            serializer = self.get_serializer(device)
+            return Response({
+                'success': True,
+                'message': 'Dispositivo encontrado exitosamente',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+
+        except Http404:
+            return Response({
+                'success': False,
+                'message': 'Dispositivo no encontrado'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            logger.error(f"Error al obtener el dispositivo de telemetría: {str(e)}")
+            return Response({
+                'success': False,
+                'message': 'Error al obtener el dispositivo',
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)    
 
     def update(self, request, *args, **kwargs):
         
