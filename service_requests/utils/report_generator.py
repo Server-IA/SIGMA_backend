@@ -317,13 +317,14 @@ def generate_excel_report(queryset, user_data_map: Dict[int, Dict[str, Any]], us
     return output.getvalue()
 
 
-def generate_csv_report(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> str:
+def generate_csv_report(queryset, user_data_map: Dict[int, Dict[str, Any]], user_info: Dict[str, Any] = None) -> str:
     """
     Genera un reporte en formato CSV.
     
     Args:
         queryset: QuerySet de ServiceRequest
         user_data_map: Diccionario mapeando user_id -> user_data
+        user_info: Información del usuario que genera el reporte
         
     Returns:
         String del archivo CSV con BOM UTF-8
@@ -367,6 +368,28 @@ def generate_csv_report(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> s
     # Crear CSV
     output = io.StringIO()
     writer = csv.writer(output)
+    
+    # Agregar fila informativa en la primera fila
+    from datetime import datetime
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Información del usuario
+    user_name = "Usuario no identificado"
+    if user_info:
+        user_name = user_info.get('name', 'Usuario no identificado')
+    
+    # Escribir fila informativa
+    info_row = [
+        f"Usuario: {user_name}",
+        f"Fecha y hora: {current_time}",
+        "Formato: CSV"
+    ]
+    
+    # Escribir información en la primera fila
+    writer.writerow(info_row)
+    
+    # Escribir fila vacía para separación
+    writer.writerow([])
     
     # Escribir encabezados
     writer.writerow(columns)

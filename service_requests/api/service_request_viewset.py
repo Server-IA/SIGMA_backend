@@ -1576,9 +1576,10 @@ class ServiceRequestViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'], url_path='generate-report')
     def generate_report(self, request):
         """
-        Genera un reporte de solicitudes de servicio en formato Excel.
+        Genera un reporte de solicitudes de servicio en formato Excel o CSV.
         
         Query parameters:
+        - report_format: Formato del reporte (excel o csv) - opcional, default: excel
         - customer_id: ID del cliente (opcional)
         - request_status: ID del estado de la solicitud (opcional)
         - date_from: Fecha de inicio de registro (YYYY-MM-DD) (opcional)
@@ -1612,6 +1613,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             validated_data = serializer.validated_data
+            format_type = validated_data.get('report_format', 'excel')
             customer_id = validated_data.get('customer_id')
             request_status_id = validated_data.get('request_status')
             date_from = validated_data.get('date_from')
@@ -1620,177 +1622,40 @@ class ServiceRequestViewSet(viewsets.ViewSet):
             scheduled_start_date_from = validated_data.get('scheduled_start_date_from')
             scheduled_start_date_to = validated_data.get('scheduled_start_date_to')
 
-            # 4. Construir queryset base con optimizaciones
-            queryset = ServiceRequest.objects.select_related(
-                'customer', 'customer__type_document_id', 'customer__person_type',
-                'request_status', 'payment_status', 'payment_method',
-                'request_location', 'request_location__area_unit', 'request_location__altitude_unit'
-            ).prefetch_related(
-                'machinery_users__machinery',
-                'machinery_users__user'
-            )
-
-            # 5. Aplicar filtros según parámetros
-            if customer_id:
-                queryset = queryset.filter(customer_id=customer_id)
+            # 4. Construir queryset y aplicar filtros
+            queryset = self._build_filtered_queryset(validated_data)
             
-            if request_status_id:
-                queryset = queryset.filter(request_status_id=request_status_id)
-            
-            if date_from:
-                queryset = queryset.filter(creation_date__date__gte=date_from)
-            
-            if date_to:
-                queryset = queryset.filter(creation_date__date__lte=date_to)
-            
-            if payment_method_code:
-                queryset = queryset.filter(payment_method__code=payment_method_code)
-            
-            if scheduled_start_date_from:
-                queryset = queryset.filter(scheduled_start_date__gte=scheduled_start_date_from)
-            
-            if scheduled_start_date_to:
-                queryset = queryset.filter(scheduled_start_date__lte=scheduled_start_date_to)
-
-            # 6. Verificar permisos de usuario (solo sus solicitudes vs todas)
+            # 5. Verificar permisos de usuario
             has_list_all_permission = self.check_permission(request, 149)  # service_requests.list
             has_list_own_permission = self.check_permission(request, 168)  # request.list_own
             
-            if has_list_own_permission and not has_list_all_permission:
-                # Usuario solo puede ver sus propias solicitudes
-                user_id = getattr(request.user, 'id_user', None) or getattr(request.user, 'id', None) or getattr(request.user, 'user_id', None)
-                if user_id:
-                    queryset = queryset.filter(customer__id_user_id=user_id)
-            elif not has_list_all_permission and not has_list_own_permission:
-                # Usuario no tiene permisos para ver solicitudes
-                return Response({
-                    "success": False,
-                    "message": "No tiene permisos para ver solicitudes"
-                }, status=status.HTTP_403_FORBIDDEN)
+            queryset = self._apply_user_permissions(queryset, request, 
+                                                  has_list_all_permission, 
+                                                  has_list_own_permission)
 
-            # 7. Verificar si hay resultados
+            # 6. Verificar si hay resultados
             if not queryset.exists():
                 return Response({
                     "success": True,
                     "message": "No se encontraron resultados para los criterios aplicados"
                 }, status=status.HTTP_200_OK)
 
-            # 8. Recolectar IDs de usuarios únicos (operarios y clientes)
-            user_ids = set()
-            for request_obj in queryset:
-                # Recolectar IDs de operarios
-                for machinery_user in request_obj.machinery_users.all():
-                    if machinery_user.user and machinery_user.user.id_user:
-                        user_ids.add(machinery_user.user.id_user)
-                
-                # Recolectar IDs de clientes que tienen id_user
-                if request_obj.customer and request_obj.customer.id_user_id:
-                    user_ids.add(request_obj.customer.id_user_id)
-            
-            # 9. Obtener información de usuarios en batch
-            from service_requests.utils.external_user_helper import get_users_info_batch
-            user_data_map = get_users_info_batch(list(user_ids), request)
+            # 7. Obtener datos de usuarios
+            user_data_map = self._get_user_data_map(queryset, request)
+            user_info = self._get_current_user_info(request, user_data_map)
 
-            # 10. Generar reporte en formato Excel
-            from service_requests.utils.report_generator import generate_excel_report
+            # 8. Generar respuesta del reporte
+            from service_requests.services.report_service import ReportService
             
-            # Obtener información del usuario actual
-            current_user_id = getattr(request.user, 'id_user', None) or getattr(request.user, 'id', None) or getattr(request.user, 'user_id', None)
-            user_info = user_data_map.get(current_user_id) if current_user_id else None
-            
-            report_content = generate_excel_report(queryset, user_data_map, user_info)
-            content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            file_extension = 'xlsx'
-
-            # 11. Preparar respuesta
-            from django.http import HttpResponse
-            from datetime import datetime
-            
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            
-            # Construir nombre del archivo
-            # Si el usuario solo puede ver sus propias solicitudes (permiso 168 sin 149), incluir su nombre
-            if has_list_own_permission and not has_list_all_permission:
-                # Usuario solo puede ver sus propias solicitudes - incluir su nombre en el archivo
-                current_user_name = ""
-                if user_info:
-                    # Construir nombre completo desde datos externos
-                    name_parts = []
-                    name = user_info.get('name', '').strip()
-                    first_last_name = user_info.get('first_last_name', '').strip()
-                    second_last_name = user_info.get('second_last_name', '').strip()
-                    
-                    if name:
-                        name_parts.append(name)
-                    if first_last_name:
-                        name_parts.append(first_last_name)
-                    if second_last_name:
-                        name_parts.append(second_last_name)
-                    
-                    current_user_name = '_'.join(name_parts) if name_parts else ""
-                
-                # Limpiar nombre para usar en archivo (remover caracteres especiales)
-                import re
-                current_user_name = re.sub(r'[^\w\s-]', '', current_user_name).strip()
-                current_user_name = re.sub(r'[-\s]+', '_', current_user_name)
-                
-                if current_user_name:
-                    filename = f'RF_{timestamp}_{current_user_name}.{file_extension}'
-                else:
-                    filename = f'RF_{timestamp}.{file_extension}'
-            elif customer_id:
-                # Si se filtró por customer_id y el usuario puede ver todas las solicitudes, obtener nombre del cliente
-                customer = queryset.first().customer if queryset.exists() else None
-                if customer:
-                    # Obtener nombre del cliente (preferir datos externos si existen)
-                    customer_name = ""
-                    if customer.id_user_id and customer.id_user_id in user_data_map:
-                        external_user = user_data_map[customer.id_user_id]
-                        # Construir nombre completo desde datos externos
-                        name_parts = []
-                        name = external_user.get('name', '').strip()
-                        first_last_name = external_user.get('first_last_name', '').strip()
-                        second_last_name = external_user.get('second_last_name', '').strip()
-                        
-                        if name:
-                            name_parts.append(name)
-                        if first_last_name:
-                            name_parts.append(first_last_name)
-                        if second_last_name:
-                            name_parts.append(second_last_name)
-                        
-                        customer_name = '_'.join(name_parts) if name_parts else ""
-                    else:
-                        # Si no hay datos externos, usar datos de la tabla customers
-                        name_parts = []
-                        if customer.name:
-                            name_parts.append(customer.name)
-                        if customer.first_last_name:
-                            name_parts.append(customer.first_last_name)
-                        if customer.second_last_name:
-                            name_parts.append(customer.second_last_name)
-                        
-                        customer_name = '_'.join(name_parts) if name_parts else ""
-                    
-                    # Limpiar nombre para usar en archivo (remover caracteres especiales)
-                    import re
-                    customer_name = re.sub(r'[^\w\s-]', '', customer_name).strip()
-                    customer_name = re.sub(r'[-\s]+', '_', customer_name)
-                    
-                    filename = f'RF_{timestamp}_{customer_name}.{file_extension}'
-                else:
-                    filename = f'RF_{timestamp}.{file_extension}'
-            else:
-                filename = f'RF_{timestamp}.{file_extension}'
-            
-            response = HttpResponse(report_content, content_type=content_type)
-            response['Content-Disposition'] = f'attachment; filename="{filename}"'
-            
-            # Log de generación de reporte
-            user_id = getattr(request.user, 'id_user', None) or getattr(request.user, 'id', None) or getattr(request.user, 'user_id', None) or 'unknown'
-            logger.info(f"Reporte Excel generado por usuario {user_id} - {len(queryset)} registros")
-            
-            return response
+            return ReportService.generate_report_response(
+                queryset=queryset,
+                format_type=format_type,
+                user_data_map=user_data_map,
+                user_info=user_info,
+                customer_id=customer_id,
+                has_list_own_permission=has_list_own_permission,
+                has_list_all_permission=has_list_all_permission
+            )
 
         except Exception as e:
             logger.error(f"Error generando reporte: {str(e)}", exc_info=True)
@@ -1798,3 +1663,70 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 "success": False,
                 "message": "Error interno generando el reporte"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _build_filtered_queryset(self, validated_data):
+        """Construye el queryset con filtros aplicados."""
+        queryset = ServiceRequest.objects.select_related(
+            'customer', 'customer__type_document_id', 'customer__person_type',
+            'request_status', 'payment_status', 'payment_method',
+            'request_location', 'request_location__area_unit', 'request_location__altitude_unit'
+        ).prefetch_related(
+            'machinery_users__machinery',
+            'machinery_users__user'
+        )
+        
+        # Aplicar filtros
+        if validated_data.get('customer_id'):
+            queryset = queryset.filter(customer_id=validated_data['customer_id'])
+        
+        if validated_data.get('request_status'):
+            queryset = queryset.filter(request_status_id=validated_data['request_status'])
+        
+        if validated_data.get('date_from'):
+            queryset = queryset.filter(creation_date__date__gte=validated_data['date_from'])
+        
+        if validated_data.get('date_to'):
+            queryset = queryset.filter(creation_date__date__lte=validated_data['date_to'])
+        
+        if validated_data.get('payment_method'):
+            queryset = queryset.filter(payment_method__code=validated_data['payment_method'])
+        
+        if validated_data.get('scheduled_start_date_from'):
+            queryset = queryset.filter(scheduled_start_date__gte=validated_data['scheduled_start_date_from'])
+        
+        if validated_data.get('scheduled_start_date_to'):
+            queryset = queryset.filter(scheduled_start_date__lte=validated_data['scheduled_start_date_to'])
+        
+        return queryset
+
+    def _apply_user_permissions(self, queryset, request, has_list_all_permission, has_list_own_permission):
+        """Aplica filtros según permisos del usuario."""
+        if has_list_own_permission and not has_list_all_permission:
+            user_id = getattr(request.user, 'id_user', None) or getattr(request.user, 'id', None) or getattr(request.user, 'user_id', None)
+            if user_id:
+                queryset = queryset.filter(customer__id_user_id=user_id)
+        elif not has_list_all_permission and not has_list_own_permission:
+            raise PermissionError("No tiene permisos para ver solicitudes")
+        
+        return queryset
+
+    def _get_user_data_map(self, queryset, request):
+        """Obtiene datos de usuarios en batch."""
+        user_ids = set()
+        for request_obj in queryset:
+            # Recolectar IDs de operarios
+            for machinery_user in request_obj.machinery_users.all():
+                if machinery_user.user and machinery_user.user.id_user:
+                    user_ids.add(machinery_user.user.id_user)
+            
+            # Recolectar IDs de clientes que tienen id_user
+            if request_obj.customer and request_obj.customer.id_user_id:
+                user_ids.add(request_obj.customer.id_user_id)
+        
+        from service_requests.utils.external_user_helper import get_users_info_batch
+        return get_users_info_batch(list(user_ids), request)
+
+    def _get_current_user_info(self, request, user_data_map):
+        """Obtiene información del usuario actual."""
+        current_user_id = getattr(request.user, 'id_user', None) or getattr(request.user, 'id', None) or getattr(request.user, 'user_id', None)
+        return user_data_map.get(current_user_id) if current_user_id else None

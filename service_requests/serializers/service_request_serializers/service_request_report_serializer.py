@@ -44,6 +44,11 @@ class ServiceRequestReportSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Fecha de inicio programada hasta (YYYY-MM-DD)"
     )
+    report_format = serializers.ChoiceField(
+        choices=[('excel', 'Excel'), ('csv', 'CSV')],
+        default='excel',
+        help_text="Formato del reporte: excel o csv"
+    )
 
     def validate_date_from(self, value):
         """Validar que la fecha de inicio no sea futura."""
@@ -74,6 +79,14 @@ class ServiceRequestReportSerializer(serializers.Serializer):
         if value and value > timezone.now().date():
             raise serializers.ValidationError(
                 "La fecha de inicio programada hasta no puede ser futura."
+            )
+        return value
+
+    def validate_report_format(self, value):
+        """Validar que el formato sea válido."""
+        if value not in ['excel', 'csv']:
+            raise serializers.ValidationError(
+                "El formato debe ser 'excel' o 'csv'."
             )
         return value
 
