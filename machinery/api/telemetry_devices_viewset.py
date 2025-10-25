@@ -7,6 +7,7 @@ from machinery.models.telemetry_device_parameter import TelemetryDeviceParameter
 from machinery.serializers.telemetry_devices_serializers.telemetry_devices_list_serializer import TelemetryDevicesListSerializer
 from machinery.serializers.telemetry_devices_serializers.telemetry_devices_create_serializer import TelemetryDevicesCreateSerializer
 from machinery.serializers.telemetry_devices_serializers.telemetry_devices_detailed_serializer import TelemetryDevicesDetailedSerializer
+from machinery.serializers.telemetry_devices_serializers.telemetry_devices_update_serializer import TelemetryDevicesUpdateSerializer
 from machinery.utils.audit_helpers import telemetry_devices_snapshot, telemetry_device_parameter_snapshot, get_actor_info, telemetry_device_snapshot_toggle
 from audit_sdk import AuditClient
 import logging
@@ -52,10 +53,15 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
     
     def get_serializer_class(self):
         """
-        Usa el serializador de lista para listar y activos, y el de creación para crear.
+        Retorna el serializador adecuado según la acción.
         """
         if self.action == 'create':
             return TelemetryDevicesCreateSerializer
+        elif self.action == 'update':
+            return TelemetryDevicesUpdateSerializer
+        elif self.action == 'retrieve':
+            from machinery.serializers.telemetry_devices_serializers.telemetry_devices_retrieve_serializer import TelemetryDevicesRetrieveSerializer
+            return TelemetryDevicesRetrieveSerializer
         elif self.action == 'list':
             return TelemetryDevicesDetailedSerializer
         elif self.action == 'active':
@@ -74,7 +80,56 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
         return queryset.exclude(
             id_device__isnull=True
         ).order_by('name')
-    
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Obtiene información detallada de un dispositivo de telemetría por id_device.
+        Requiere permiso 169 (telemetry_device.retrieve)
+        """
+        # Verificar que el usuario esté autenticado
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permiso 169 (telemetry_device.retrieve)
+        permission_id = 169
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para obtener información del dispositivo de telemetría."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Buscar dispositivo por id_device en lugar del pk con prefetch para optimización
+            id_device = kwargs.get('pk')
+            device = get_object_or_404(
+                TelemetryDevices.objects.prefetch_related('telemetrydeviceparameter_set__parameter'),
+                id_device=id_device
+            )
+
+            serializer = self.get_serializer(device)
+            return Response({
+                'success': True,
+                'message': 'Dispositivo encontrado exitosamente',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+
+        except Http404:
+            return Response({
+                'success': False,
+                'message': 'Dispositivo no encontrado'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            logger.error(f"Error al obtener el dispositivo de telemetría: {str(e)}")
+            return Response({
+                'success': False,
+                'message': 'Error al obtener el dispositivo',
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)    
+
     @action(detail=False, methods=['get'])
     def active(self, request):
         """
@@ -196,6 +251,95 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Dispositivo creado exitosamente", "id": telemetry_device.id_device},
             status=status.HTTP_201_CREATED
+        )
+
+    def update(self, request, *args, **kwargs):
+        """
+        Actualiza un dispositivo de telemetría (name, IMEI) y sus parámetros asociados.
+        Requiere permiso 114 y registra auditoría.
+        Los parámetros anteriores son eliminados y reemplazados por los nuevos.
+        Solo se actualiza la fecha de modificación, registration_date y id_responsible_user se mantienen igual.
+        """
+        # Verificar autenticación
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permiso 114 (telemetry_device.update)
+        permission_id = 114
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para actualizar dispositivos de telemetría."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Obtener dispositivo por id_device (consistente con retrieve)
+        id_device = kwargs.get('pk')
+        device = get_object_or_404(
+            TelemetryDevices.objects.prefetch_related('telemetrydeviceparameter_set__parameter'),
+            id_device=id_device
+        )
+
+        # Crear snapshots para auditoría antes de la actualización
+        try:
+            before = telemetry_devices_snapshot(device)
+            before_parameters = [
+                telemetry_device_parameter_snapshot(param)
+                for param in device.telemetrydeviceparameter_set.all()
+            ] if device.telemetrydeviceparameter_set.exists() else []
+        except Exception as e:
+            logger.warning("Error al crear snapshots para auditoría en update: %s", str(e))
+            before = {}
+            before_parameters = []
+
+        # Usar el serializer personalizado para validación y actualización
+        serializer = self.get_serializer(device, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated_device = serializer.save()
+
+        # Crear snapshot después de la actualización
+        try:
+            # Crear snapshot simple como en tolerance_thresholds_viewset
+            combined_after = {
+                "id_device": updated_device.id_device,
+                "name": updated_device.name,
+                "IMEI": updated_device.IMEI,
+                "modification_date": str(updated_device.modification_date)
+            }
+
+            # Agregar parámetros como lista de snapshots
+            after_parameters = [
+                telemetry_device_parameter_snapshot(param)
+                for param in updated_device.telemetrydeviceparameter_set.all()
+            ] if updated_device.telemetrydeviceparameter_set.exists() else []
+
+            if after_parameters:
+                combined_after['parameters'] = after_parameters
+
+            # Auditoría formal - enviar solo after como en tolerance_thresholds_viewset
+            actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+            AuditClient(request).update(
+                object_id=str(updated_device.id_device),
+                after=combined_after,
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=permission_id,
+                module="monitoring",
+                submodule="telemetry_devices",
+            )
+        except Exception as e:
+            logger.warning("El servicio de auditoría ha fallado en update: %s", str(e))
+
+        # Retornar respuesta
+        return Response(
+            {
+                "success": True,
+                "message": "Dispositivo actualizado exitosamente"
+            },
+            status=status.HTTP_200_OK
         )
 
     def _get_status_by_name(self, name: str):
