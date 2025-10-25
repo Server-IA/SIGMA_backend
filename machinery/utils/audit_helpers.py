@@ -508,3 +508,102 @@ def telemetry_device_snapshot_toggle(dev_obj) -> Dict[str, Any]:
         "registration_date": str(_safe_get(dev_obj, "registration_date")),
         "modification_date": str(_safe_get(dev_obj, "modification_date")),
     }
+
+# Tolerance Thresholds snapshot
+def tolerance_thresholds_snapshot(threshold_obj) -> Dict[str, Any]:
+    """
+    Snapshot ligero y JSON-serializable para el modelo ToleranceThresholds.
+    Devuelve solo primitivos: ids, strings, números, booleans o None.
+    """
+    def _safe_get(o, attr, default=None):
+        try:
+            return getattr(o, attr, default)
+        except Exception:
+            return default
+
+    def serialize_attr(attr: str):
+        val = _safe_get(threshold_obj, attr)
+        if val is None:
+            return None
+        if isinstance(val, (int, float, str, bool)):
+            return val
+        if hasattr(val, "id") or hasattr(val, "pk"):
+            return getattr(val, "id", None) or getattr(val, "pk", None)
+        if hasattr(val, "name"):
+            return getattr(val, "name", None)
+        return None
+
+    return {
+        "id": _safe_get(threshold_obj, "id") or _safe_get(threshold_obj, "pk"),
+        "id_machinery": serialize_attr("id_machinery"),
+        "id_parameter": serialize_attr("id_parameter"),
+        "minimum_threshold": _safe_get(threshold_obj, "minimum_threshold"),
+        "maximum_threshold": _safe_get(threshold_obj, "maximum_threshold"),
+        "id_maintenance": serialize_attr("id_maintenance"),
+        "alert_enabled": bool(_safe_get(threshold_obj, "alert_enabled")),
+    }
+
+
+def obd_fault_machinery_snapshot(obd_obj) -> Dict[str, Any]:
+    """
+    Snapshot ligero y JSON-serializable para el modelo OBDFaultMachinery.
+    Devuelve solo primitivos: ids, strings, números, booleans o None.
+    """
+    def _safe_get(o, attr, default=None):
+        try:
+            return getattr(o, attr, default)
+        except Exception:
+            return default
+
+    def serialize_attr(attr: str):
+        val = _safe_get(obd_obj, attr)
+        if val is None:
+            return None
+        if isinstance(val, (int, float, str, bool)):
+            return val
+        if hasattr(val, "id") or hasattr(val, "pk"):
+            return getattr(val, "id", None) or getattr(val, "pk", None)
+        if hasattr(val, "name"):
+            return getattr(val, "name", None)
+        return None
+
+    return {
+        "id": _safe_get(obd_obj, "id") or _safe_get(obd_obj, "pk"),
+        "id_machinery": serialize_attr("id_machinery"),
+        "id_obd_fault": serialize_attr("id_obd_fault"),
+        "alert_enabled": bool(_safe_get(obd_obj, "alert_enabled")),
+        "id_maintenance": serialize_attr("id_maintenance"),
+    }
+
+
+def event_type_machinery_snapshot(event_obj) -> Dict[str, Any]:
+    """
+    Snapshot ligero y JSON-serializable para el modelo EventTypeMachinery.
+    Devuelve solo primitivos: ids, strings, números, booleans o None.
+    """
+    def _safe_get(o, attr, default=None):
+        try:
+            return getattr(o, attr, default)
+        except Exception:
+            return default
+
+    def serialize_attr(attr: str):
+        val = _safe_get(event_obj, attr)
+        if val is None:
+            return None
+        if isinstance(val, (int, float, str, bool)):
+            return val
+        if hasattr(val, "id") or hasattr(val, "pk"):
+            return getattr(val, "id", None) or getattr(val, "pk", None)
+        if hasattr(val, "name"):
+            return getattr(val, "name", None)
+        return None
+
+    return {
+        "id": _safe_get(event_obj, "id") or _safe_get(event_obj, "pk"),
+        "id_machinery": serialize_attr("id_machinery"),
+        "id_event_type": serialize_attr("id_event_type"),
+        "threshold": _safe_get(event_obj, "threshold"),
+        "alert_enabled": bool(_safe_get(event_obj, "alert_enabled")),
+        "id_maintenance": serialize_attr("id_maintenance"),
+    }
