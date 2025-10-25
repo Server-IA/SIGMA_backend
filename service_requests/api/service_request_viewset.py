@@ -1626,8 +1626,8 @@ class ServiceRequestViewSet(viewsets.ViewSet):
             queryset = self._build_filtered_queryset(validated_data)
             
             # 5. Verificar permisos de usuario
-            has_list_all_permission = self.check_permission(request, 149)  # service_requests.list
-            has_list_own_permission = self.check_permission(request, 168)  # request.list_own
+            has_list_all_permission = self.check_permission(request, 167)  # download_all_requests
+            has_list_own_permission = self.check_permission(request, 168)  # downloar_own_requests
             
             queryset = self._apply_user_permissions(queryset, request, 
                                                   has_list_all_permission, 
