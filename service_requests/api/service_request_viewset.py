@@ -22,6 +22,7 @@ from users.models import User
 from service_requests.serializers.service_request_serializers.service_request_detail_serializer import ServiceRequestDetailSerializer
 from service_requests.serializers.service_request_serializers.list_service_request_serializer import ServiceRequestListSerializer
 from service_requests.serializers.service_request_serializers.pre_request_update_serializer import PreRequestUpdateSerializer
+from service_requests.serializers.service_request_serializers.service_request_report_serializer import ServiceRequestReportSerializer
 from service_requests.utils.audit_helpers import (
     get_actor_info, 
     service_request_snapshot, 
@@ -1571,3 +1572,161 @@ class ServiceRequestViewSet(viewsets.ViewSet):
 
         except Exception as e:
             logger.error(f"Error inesperado al enviar notificación de creación de solicitud: {str(e)}", exc_info=True)
+
+    @action(detail=False, methods=['get'], url_path='generate-report')
+    def generate_report(self, request):
+        """
+        Genera un reporte de solicitudes de servicio en formato Excel o CSV.
+        
+        Query parameters:
+        - report_format: Formato del reporte (excel o csv) - opcional, default: excel
+        - customer_id: ID del cliente (opcional)
+        - request_status: ID del estado de la solicitud (opcional)
+        - date_from: Fecha de inicio de registro (YYYY-MM-DD) (opcional)
+        - date_to: Fecha de fin de registro (YYYY-MM-DD) (opcional)
+        - payment_method: Código del método de pago (opcional)
+        - scheduled_start_date_from: Fecha de inicio programada desde (YYYY-MM-DD) (opcional)
+        - scheduled_start_date_to: Fecha de inicio programada hasta (YYYY-MM-DD) (opcional)
+        """
+        try:
+            # 1. Verificar autenticación
+            if not request.user.is_authenticated:
+                return Response({
+                    "success": False,
+                    "message": "Usuario no autenticado"
+                }, status=status.HTTP_401_UNAUTHORIZED)
+
+            # 2. Verificar permiso para generar reportes
+            if not self.check_permission(request, 163):  # request.download_report
+                return Response({
+                    "success": False,
+                    "message": "No tiene permisos para generar reportes"
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            # 3. Validar parámetros de entrada
+            serializer = ServiceRequestReportSerializer(data=request.query_params)
+            if not serializer.is_valid():
+                return Response({
+                    "success": False,
+                    "message": "Parámetros inválidos",
+                    "errors": serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            validated_data = serializer.validated_data
+            format_type = validated_data.get('report_format', 'excel')
+            customer_id = validated_data.get('customer_id')
+            request_status_id = validated_data.get('request_status')
+            date_from = validated_data.get('date_from')
+            date_to = validated_data.get('date_to')
+            payment_method_code = validated_data.get('payment_method', '').strip()
+            scheduled_start_date_from = validated_data.get('scheduled_start_date_from')
+            scheduled_start_date_to = validated_data.get('scheduled_start_date_to')
+
+            # 4. Construir queryset y aplicar filtros
+            queryset = self._build_filtered_queryset(validated_data)
+            
+            # 5. Verificar permisos de usuario
+            has_list_all_permission = self.check_permission(request, 149)  # service_requests.list
+            has_list_own_permission = self.check_permission(request, 168)  # request.list_own
+            
+            queryset = self._apply_user_permissions(queryset, request, 
+                                                  has_list_all_permission, 
+                                                  has_list_own_permission)
+
+            # 6. Verificar si hay resultados
+            if not queryset.exists():
+                return Response({
+                    "success": True,
+                    "message": "No se encontraron resultados para los criterios aplicados"
+                }, status=status.HTTP_200_OK)
+
+            # 7. Obtener datos de usuarios
+            user_data_map = self._get_user_data_map(queryset, request)
+            user_info = self._get_current_user_info(request, user_data_map)
+
+            # 8. Generar respuesta del reporte
+            from service_requests.services.report_service import ReportService
+            
+            return ReportService.generate_report_response(
+                queryset=queryset,
+                format_type=format_type,
+                user_data_map=user_data_map,
+                user_info=user_info,
+                customer_id=customer_id,
+                has_list_own_permission=has_list_own_permission,
+                has_list_all_permission=has_list_all_permission
+            )
+
+        except Exception as e:
+            logger.error(f"Error generando reporte: {str(e)}", exc_info=True)
+            return Response({
+                "success": False,
+                "message": "Error interno generando el reporte"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _build_filtered_queryset(self, validated_data):
+        """Construye el queryset con filtros aplicados."""
+        queryset = ServiceRequest.objects.select_related(
+            'customer', 'customer__type_document_id', 'customer__person_type',
+            'request_status', 'payment_status', 'payment_method',
+            'request_location', 'request_location__area_unit', 'request_location__altitude_unit'
+        ).prefetch_related(
+            'machinery_users__machinery',
+            'machinery_users__user'
+        )
+        
+        # Aplicar filtros
+        if validated_data.get('customer_id'):
+            queryset = queryset.filter(customer_id=validated_data['customer_id'])
+        
+        if validated_data.get('request_status'):
+            queryset = queryset.filter(request_status_id=validated_data['request_status'])
+        
+        if validated_data.get('date_from'):
+            queryset = queryset.filter(creation_date__date__gte=validated_data['date_from'])
+        
+        if validated_data.get('date_to'):
+            queryset = queryset.filter(creation_date__date__lte=validated_data['date_to'])
+        
+        if validated_data.get('payment_method'):
+            queryset = queryset.filter(payment_method__code=validated_data['payment_method'])
+        
+        if validated_data.get('scheduled_start_date_from'):
+            queryset = queryset.filter(scheduled_start_date__gte=validated_data['scheduled_start_date_from'])
+        
+        if validated_data.get('scheduled_start_date_to'):
+            queryset = queryset.filter(scheduled_start_date__lte=validated_data['scheduled_start_date_to'])
+        
+        return queryset
+
+    def _apply_user_permissions(self, queryset, request, has_list_all_permission, has_list_own_permission):
+        """Aplica filtros según permisos del usuario."""
+        if has_list_own_permission and not has_list_all_permission:
+            user_id = getattr(request.user, 'id_user', None) or getattr(request.user, 'id', None) or getattr(request.user, 'user_id', None)
+            if user_id:
+                queryset = queryset.filter(customer__id_user_id=user_id)
+        elif not has_list_all_permission and not has_list_own_permission:
+            raise PermissionError("No tiene permisos para ver solicitudes")
+        
+        return queryset
+
+    def _get_user_data_map(self, queryset, request):
+        """Obtiene datos de usuarios en batch."""
+        user_ids = set()
+        for request_obj in queryset:
+            # Recolectar IDs de operarios
+            for machinery_user in request_obj.machinery_users.all():
+                if machinery_user.user and machinery_user.user.id_user:
+                    user_ids.add(machinery_user.user.id_user)
+            
+            # Recolectar IDs de clientes que tienen id_user
+            if request_obj.customer and request_obj.customer.id_user_id:
+                user_ids.add(request_obj.customer.id_user_id)
+        
+        from service_requests.utils.external_user_helper import get_users_info_batch
+        return get_users_info_batch(list(user_ids), request)
+
+    def _get_current_user_info(self, request, user_data_map):
+        """Obtiene información del usuario actual."""
+        current_user_id = getattr(request.user, 'id_user', None) or getattr(request.user, 'id', None) or getattr(request.user, 'user_id', None)
+        return user_data_map.get(current_user_id) if current_user_id else None
