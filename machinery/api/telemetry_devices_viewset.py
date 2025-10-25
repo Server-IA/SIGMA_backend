@@ -52,10 +52,13 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
     
     def get_serializer_class(self):
         """
-        Usa el serializador de lista para listar y activos, y el de creación para crear.
+        Retorna el serializador adecuado según la acción.
         """
         if self.action == 'create':
             return TelemetryDevicesCreateSerializer
+        elif self.action == 'update_device':
+            from machinery.serializers.telemetry_devices_serializers.telemetry_devices_update_serializer import TelemetryDevicesUpdateSerializer
+            return TelemetryDevicesUpdateSerializer
         elif self.action == 'list':
             return TelemetryDevicesDetailedSerializer
         elif self.action == 'active':
@@ -75,6 +78,98 @@ class TelemetryDevicesViewSet(viewsets.ModelViewSet):
             id_device__isnull=True
         ).order_by('name')
     
+
+    def update(self, request, *args, **kwargs):
+        
+        """
+        Actualiza un dispositivo de telemetría existente.
+        Requiere permiso 114 (telemetry_device.update)
+        """
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 114  # telemetry_device.update
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para actualizar dispositivos de telemetría."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Obtener la instancia del dispositivo
+            instance = self.get_object()
+            
+            # Tomar snapshot para auditoría
+            before = telemetry_devices_snapshot(instance)
+            
+            # Obtener parámetros actuales para el snapshot
+            current_params = list(instance.telemetrydeviceparameter_set.values_list('parameter_id', flat=True))
+            
+            # Validar y actualizar
+            serializer = self.get_serializer(instance, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            
+            # Realizar la actualización
+            updated_device = serializer.save()
+            
+            # Obtener parámetros después de la actualización
+            updated_params = list(updated_device.telemetrydeviceparameter_set.values_list('parameter_id', flat=True))
+            
+            # Registrar auditoría
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                
+                # Preparar los datos para la auditoría
+                after = telemetry_devices_snapshot(updated_device)
+                
+                # Si hay cambios en los parámetros, incluirlos en el after
+                if set(current_params) != set(updated_params):
+                    after["parameters"] = updated_params
+                    before["parameters"] = current_params
+                
+                # Registrar una sola entrada de auditoría que incluya tanto el dispositivo como los parámetros
+                AuditClient(request).update(
+                    object_id=str(updated_device.id_device),
+                    before=before,
+                    after=after,
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="monitoring",
+                    submodule="telemetry_devices",
+                )
+                    
+            except Exception as e:
+                logger.warning("El servicio de auditoría ha fallado en update: %s", str(e))
+            
+            # Obtener los datos actualizados para la respuesta
+            from machinery.serializers.telemetry_devices_serializers.telemetry_devices_detailed_serializer import TelemetryDevicesDetailedSerializer
+            device_data = TelemetryDevicesDetailedSerializer(updated_device, context={'request': request}).data
+            
+            return Response({
+                'success': True,
+                'message': 'Dispositivo actualizado exitosamente',
+                'data': device_data
+            }, status=status.HTTP_200_OK)
+            
+        except Http404:
+            return Response({
+                'success': False,
+                'message': 'Dispositivo no encontrado'
+            }, status=status.HTTP_404_NOT_FOUND)
+            
+        except Exception as e:
+            logger.error(f"Error al actualizar el dispositivo de telemetría: {str(e)}")
+            return Response({
+                'success': False,
+                'message': 'Error al actualizar el dispositivo',
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=False, methods=['get'])
     def active(self, request):
         """
