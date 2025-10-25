@@ -104,16 +104,43 @@ def _build_report_data(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> Li
         # Datos del cliente
         customer = request.customer
         if customer:
-            # Obtener información del cliente (preferir datos externos si existen)
-            customer_name = customer.legal_entity_name or ""
+            # Si el cliente tiene id_user, obtener datos del servicio externo
             if customer.id_user_id and customer.id_user_id in user_data_map:
                 external_user = user_data_map[customer.id_user_id]
-                customer_name = external_user.get('name', '') or customer.legal_entity_name or ""
+                # Construir nombre completo desde datos externos
+                name_parts = []
+                name = external_user.get('name', '').strip()
+                first_last_name = external_user.get('first_last_name', '').strip()
+                second_last_name = external_user.get('second_last_name', '').strip()
+                
+                if name:
+                    name_parts.append(name)
+                if first_last_name:
+                    name_parts.append(first_last_name)
+                if second_last_name:
+                    name_parts.append(second_last_name)
+                
+                customer_name = ' '.join(name_parts)
+                customer_document_type = external_user.get('type_document_name', '') or ""
+                customer_document = str(external_user.get('document_number', '')) if external_user.get('document_number') else ""
+            else:
+                # Si no tiene id_user o no hay datos externos, usar datos de la tabla customers
+                name_parts = []
+                if customer.name:
+                    name_parts.append(customer.name)
+                if customer.first_last_name:
+                    name_parts.append(customer.first_last_name)
+                if customer.second_last_name:
+                    name_parts.append(customer.second_last_name)
+                
+                customer_name = ' '.join(name_parts)
+                customer_document_type = customer.type_document_id.name if customer.type_document_id else ""
+                customer_document = str(customer.document_number) if customer.document_number else ""
             
             row_data.update({
                 'cliente_nombre': customer_name,
-                'cliente_tipo_documento': customer.type_document_id.name if customer.type_document_id else "",
-                'cliente_documento': str(customer.document_number) if customer.document_number else "",
+                'cliente_tipo_documento': customer_document_type,
+                'cliente_documento': customer_document,
             })
         else:
             row_data.update({
@@ -150,7 +177,7 @@ def _build_report_data(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> Li
         if location:
             row_data.update({
                 'ubic_region': location.department or "",
-                'ubic_municipio': location.place_name or "",
+                'ubic_municipio': str(location.city_id) if location.city_id else "",
                 'ubic_lugar': location.place_name or "",
                 'ubic_area': _format_area_with_unit(location.area, location.area_unit),
                 'ubic_altitud': _format_altitude_with_unit(location.altitude, location.altitude_unit),
@@ -206,7 +233,7 @@ def generate_excel_report(queryset, user_data_map: Dict[int, Dict[str, Any]]) ->
         "Fecha Registro",
         "Fecha Programada",
         "Fecha Realización",
-        "Cliente (Nombre/Razón Social)",
+        "Cliente (Nombre)",
         "Cliente (Tipo Documento)",
         "Cliente (Documento)",
         "Maquinaria",
@@ -289,7 +316,7 @@ def generate_csv_report(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> s
         "Fecha Registro",
         "Fecha Programada",
         "Fecha Realización",
-        "Cliente (Nombre/Razón Social)",
+        "Cliente (Nombre)",
         "Cliente (Tipo Documento)",
         "Cliente (Documento)",
         "Maquinaria",
