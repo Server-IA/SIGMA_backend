@@ -321,7 +321,7 @@ class MachineryToleranceThresholdsViewSet(viewsets.ViewSet):
                     if event_type_snapshots:
                         combined_after['event_type_machinery'] = event_type_snapshots
 
-                    AuditClient(request).create(
+                    AuditClient(request).update(
                         object_id=str(machinery.id_machinery),
                         after=combined_after,
                         actor_id=str(actor_id) if actor_id is not None else None,
