@@ -10,6 +10,7 @@ class Parameters(models.Model):
     unit = models.CharField(max_length=20, null=True, blank=True)
     minimun_message = models.CharField(max_length=100, null=True, blank=True)
     maximum_message = models.CharField(max_length=100, null=True, blank=True)
+    category = models.CharField(max_length=50, null=True, blank=True)
 
     class Meta:
         db_table = 'parameters'

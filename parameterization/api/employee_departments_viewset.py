@@ -7,6 +7,14 @@ from parameterization.serializers.employee_departments_serializers.employee_depa
 from django.shortcuts import get_object_or_404
 from users.permissions import HasPermissionId
 
+# Auditoría
+from audit_sdk import AuditClient
+from machinery.utils.audit_helpers import get_actor_info
+from parameterization.utils.audit_helpers import employee_department_snapshot
+import logging
+
+logger = logging.getLogger(__name__)
+
 class EmployeeDepartmentViewSet(viewsets.ViewSet):
     # permission_classes = [HasPermissionId]  # Temporalmente deshabilitado para usar check_permission
 
@@ -51,7 +59,25 @@ class EmployeeDepartmentViewSet(viewsets.ViewSet):
         
         serializer = EmployeeDepartmentCreateSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            instance = serializer.save()
+
+            # Auditoría
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).create(
+                    object_id=str(getattr(instance, "id_employee_department", None) or getattr(instance, "id", None) or ""),
+                    after=employee_department_snapshot(instance),
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",
+                    submodule="employee_departments",
+                )
+            except Exception as e:
+                logger.error(f"Error al registrar la auditoría para la creación del departamento: {e}")
+
             return Response({"message": "Departamento creado exitosamente"},
                             status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -80,7 +106,29 @@ class EmployeeDepartmentViewSet(viewsets.ViewSet):
 
         serializer = EmployeeDepartmentCreateSerializer(department, data=request.data, partial=True)
         if serializer.is_valid():
+            before = employee_department_snapshot(department)
+
             serializer.save()
+
+            # Auditoría
+            try:
+                after = employee_department_snapshot(department)
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                AuditClient(request).update(
+                    object_id=str(getattr(department, "id_employee_department", None) or getattr(department, "id", None) or ""),
+                    before=before,
+                    after=after,
+                    actor_id=str(actor_id) if actor_id is not None else None,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="parameterization",
+                    submodule="employee_departments",
+                )
+            except Exception as e:
+                logger.error(f"Error al registrar la auditoría para la actualización del departamento: {e}")
+                
             return Response({"message": "Departamento actualizado exitosamente"},
                             status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
