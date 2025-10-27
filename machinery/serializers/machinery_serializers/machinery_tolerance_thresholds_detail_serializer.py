@@ -13,12 +13,15 @@ from maintenance.models import Maintenance
 class ToleranceThresholdsDetailSerializer(serializers.ModelSerializer):
     """Serializer para ToleranceThresholds con detalles del parámetro y mantenimiento"""
     parameter_name = serializers.CharField(source='id_parameter.parameter_name', read_only=True)
+    parameter_unit = serializers.CharField(source='id_parameter.unit', read_only=True)
+    parameter_category = serializers.CharField(source='id_parameter.category', read_only=True)
     maintenance_name = serializers.CharField(source='id_maintenance.name', read_only=True)
 
     class Meta:
         model = ToleranceThresholds
         fields = [
-            'id', 'id_machinery', 'id_parameter', 'parameter_name',
+            'id', 'id_machinery', 'id_parameter', 'parameter_name', 
+            'parameter_unit', 'parameter_category',
             'minimum_threshold', 'maximum_threshold',
             'id_maintenance', 'maintenance_name', 'alert_enabled'
         ]
