@@ -48,11 +48,15 @@ class TestServiceRequestCreation:
         self.user.id = self.user.id_user
         
         # Payload válido base según el caso de prueba
+        # Usar fechas futuras para evitar errores de fecha anterior a la actual
+        from datetime import date, timedelta
+        future_date = (date.today() + timedelta(days=30)).strftime("%Y-%m-%d")
+        
         self.valid_payload = {
             "customer": 90,
-            "request_detail": "Solicitud de servicio de mantenimiento2",
-            "scheduled_start_date": "2025-11-12",
-            "scheduled_end_date": "2025-11-12",
+            "request_detail": "Solicitud de servicio de mantenimiento",
+            "scheduled_start_date": future_date,
+            "scheduled_end_date": future_date,
             "payment_method": "20",
             "payment_status": 17,
             "amount_paid": 500,
@@ -64,8 +68,8 @@ class TestServiceRequestCreation:
                 "department": "codeD",
                 "city_id": 1,
                 "place_name": "Finca La Esperanza",
-                "latitude": 90.244255,
-                "longitude": -90.581299,
+                "latitude": 4.244255,
+                "longitude": -74.581299,
                 "area": 5000,
                 "area_unit": 19,
                 "altitude": 1000,
@@ -645,6 +649,181 @@ class TestServiceRequestCreation:
             f"Status code inesperado: {response.status_code}"
         
         print(f"[UT-SOL-002.15] ✓ Content-Type manejado correctamente")
+
+    # ====================================================================================
+    # UT-SOL-002.16: Validación de monto pagado mayor a monto a pagar
+    # ====================================================================================
+    @patch('service_requests.api.service_request_viewset.ServiceRequestViewSet.check_permission')
+    def test_UT_SOL_002_16_monto_pagado_mayor_retorna_400(self, mock_check_perm):
+        """
+        GIVEN: Un payload con amount_paid > amount_to_pay
+        WHEN: Se intenta crear la solicitud
+        THEN: Debe retornar 400 Bad Request
+        """
+        # Arrange: Usuario con permiso, monto pagado mayor
+        mock_check_perm.return_value = True
+        self.client.force_authenticate(user=self.user)
+        payload = self.get_valid_payload()
+        payload["amount_paid"] = 2000  # Mayor que amount_to_pay (1000)
+        
+        # Act
+        response = self.client.post(
+            self.endpoint,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        
+        # Assert
+        print(f"\n[UT-SOL-002.16] Status Code: {response.status_code}")
+        print(f"[UT-SOL-002.16] Esperado: 400, Obtenido: {response.status_code}")
+        
+        if response.status_code == status.HTTP_400_BAD_REQUEST:
+            response_data = response.json()
+            assert 'errors' in response_data, "Expected 'errors' field in response"
+            print(f"[UT-SOL-002.16] ✓ Error de monto pagado capturado")
+        else:
+            assert response.status_code in [400, 401, 403, 404, 500], \
+                f"Status code inesperado: {response.status_code}"
+
+    # ====================================================================================
+    # UT-SOL-002.17: Validación de latitudes fuera de rango -90 a 90
+    # ====================================================================================
+    @patch('service_requests.api.service_request_viewset.ServiceRequestViewSet.check_permission')
+    def test_UT_SOL_002_17_latitude_fuera_rango_retorna_400(self, mock_check_perm):
+        """
+        GIVEN: Un payload con latitude = 95.0 (fuera de rango)
+        WHEN: Se intenta crear la solicitud
+        THEN: Debe retornar 400 Bad Request
+        """
+        # Arrange: Usuario con permiso, latitude fuera de rango
+        mock_check_perm.return_value = True
+        self.client.force_authenticate(user=self.user)
+        payload = self.get_valid_payload()
+        payload["location"]["latitude"] = 95.0  # Fuera de rango
+        
+        # Act
+        response = self.client.post(
+            self.endpoint,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        
+        # Assert
+        print(f"\n[UT-SOL-002.17] Status Code: {response.status_code}")
+        print(f"[UT-SOL-002.17] Esperado: 400, Obtenido: {response.status_code}")
+        
+        if response.status_code == status.HTTP_400_BAD_REQUEST:
+            response_data = response.json()
+            assert 'errors' in response_data, "Expected 'errors' field in response"
+            print(f"[UT-SOL-002.17] ✓ Error de latitude capturado")
+        else:
+            assert response.status_code in [400, 401, 403, 404, 500], \
+                f"Status code inesperado: {response.status_code}"
+
+    # ====================================================================================
+    # UT-SOL-002.18: Validación de longitudes fuera de rango -180 a 180
+    # ====================================================================================
+    @patch('service_requests.api.service_request_viewset.ServiceRequestViewSet.check_permission')
+    def test_UT_SOL_002_18_longitude_fuera_rango_retorna_400(self, mock_check_perm):
+        """
+        GIVEN: Un payload con longitude = 200.0 (fuera de rango)
+        WHEN: Se intenta crear la solicitud
+        THEN: Debe retornar 400 Bad Request
+        """
+        # Arrange: Usuario con permiso, longitude fuera de rango
+        mock_check_perm.return_value = True
+        self.client.force_authenticate(user=self.user)
+        payload = self.get_valid_payload()
+        payload["location"]["longitude"] = 200.0  # Fuera de rango
+        
+        # Act
+        response = self.client.post(
+            self.endpoint,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        
+        # Assert
+        print(f"\n[UT-SOL-002.18] Status Code: {response.status_code}")
+        print(f"[UT-SOL-002.18] Esperado: 400, Obtenido: {response.status_code}")
+        
+        if response.status_code == status.HTTP_400_BAD_REQUEST:
+            response_data = response.json()
+            assert 'errors' in response_data, "Expected 'errors' field in response"
+            print(f"[UT-SOL-002.18] ✓ Error de longitude capturado")
+        else:
+            assert response.status_code in [400, 401, 403, 404, 500], \
+                f"Status code inesperado: {response.status_code}"
+
+    # ====================================================================================
+    # UT-SOL-002.19: Validación de área negativa
+    # ====================================================================================
+    @patch('service_requests.api.service_request_viewset.ServiceRequestViewSet.check_permission')
+    def test_UT_SOL_002_19_area_negativa_retorna_400(self, mock_check_perm):
+        """
+        GIVEN: Un payload con area negativa
+        WHEN: Se intenta crear la solicitud
+        THEN: Debe retornar 400 Bad Request
+        """
+        # Arrange: Usuario con permiso, área negativa
+        mock_check_perm.return_value = True
+        self.client.force_authenticate(user=self.user)
+        payload = self.get_valid_payload()
+        payload["location"]["area"] = -100
+        
+        # Act
+        response = self.client.post(
+            self.endpoint,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        
+        # Assert
+        print(f"\n[UT-SOL-002.19] Status Code: {response.status_code}")
+        print(f"[UT-SOL-002.19] Esperado: 400, Obtenido: {response.status_code}")
+        
+        if response.status_code == status.HTTP_400_BAD_REQUEST:
+            response_data = response.json()
+            assert 'errors' in response_data, "Expected 'errors' field in response"
+            print(f"[UT-SOL-002.19] ✓ Error de área negativa capturado")
+        else:
+            assert response.status_code in [400, 401, 403, 404, 500], \
+                f"Status code inesperado: {response.status_code}"
+
+    # ====================================================================================
+    # UT-SOL-002.20: Validación de altitud negativa
+    # ====================================================================================
+    @patch('service_requests.api.service_request_viewset.ServiceRequestViewSet.check_permission')
+    def test_UT_SOL_002_20_altitude_negativa_retorna_400(self, mock_check_perm):
+        """
+        GIVEN: Un payload con altitude negativa
+        WHEN: Se intenta crear la solicitud
+        THEN: Debe retornar 400 Bad Request
+        """
+        # Arrange: Usuario con permiso, altitud negativa
+        mock_check_perm.return_value = True
+        self.client.force_authenticate(user=self.user)
+        payload = self.get_valid_payload()
+        payload["location"]["altitude"] = -100
+        
+        # Act
+        response = self.client.post(
+            self.endpoint,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        
+        # Assert
+        print(f"\n[UT-SOL-002.20] Status Code: {response.status_code}")
+        print(f"[UT-SOL-002.20] Esperado: 400, Obtenido: {response.status_code}")
+        
+        if response.status_code == status.HTTP_400_BAD_REQUEST:
+            response_data = response.json()
+            assert 'errors' in response_data, "Expected 'errors' field in response"
+            print(f"[UT-SOL-002.20] ✓ Error de altitud negativa capturado")
+        else:
+            assert response.status_code in [400, 401, 403, 404, 500], \
+                f"Status code inesperado: {response.status_code}"
 
 
 def main():

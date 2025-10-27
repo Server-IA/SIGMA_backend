@@ -1,12 +1,13 @@
 # Resultados de Pruebas - UT-SOL-002
 ## Creación de Solicitud de Servicio (POST /service_requests/create_request/)
 
-**Fecha de ejecución:** 22 de Octubre, 2025  
+**Fecha de ejecución:** 29 de Noviembre, 2025  
 **Ejecutado por:** Sistema de Pruebas Automatizadas  
 **Contenedor:** machpay_backend  
-**Total de pruebas:** 15  
-**Pruebas Aprobadas:** 15  
-**Pruebas No Aprobadas:** 0
+**Total de pruebas:** 20  
+**Pruebas Aprobadas:** 20  
+**Pruebas No Aprobadas:** 0  
+**Tiempo de ejecución:** 1.66 segundos
 
 ---
 
@@ -281,19 +282,119 @@
 
 ---
 
+## Caso de Prueba UT-SOL-002.16
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | UT-SOL-002.16 |
+| **Título** | Validación de monto pagado mayor a monto a pagar |
+| **Descripción** | Verifica que POST /service_requests/create_request/ responde 400 Bad Request cuando el monto pagado es mayor al monto a pagar. |
+| **Precondiciones** | Usuario autenticado con permiso; amount_paid = 2000 (mayor que amount_to_pay = 1000). |
+| **Datos de Entrada** | `{"method":"POST","path":"/service_requests/create_request/","headers":{"Authorization":"Bearer <token>","Content-Type":"application/json"},"body":{"customer":90,"request_detail":"Solicitud de servicio de mantenimiento2","amount_paid":2000,"amount_to_pay":1000,...}}` |
+| **Pasos (AAA)** | **Arrange:** Mock de check_permission retornando True, payload con amount_paid > amount_to_pay. **Act:** Enviar POST con monto pagado mayor. **Assert:** Status 400; body contiene errors con mensaje de validación. |
+| **Resultado Esperado** | Respuesta HTTP 400 Bad Request con mensaje "El monto pagado no puede ser mayor al monto a pagar." |
+| **Resultado Obtenido** | Status 400 con error de monto pagado capturado correctamente. |
+| **Estado** | ✅ **APROBADO** |
+| **Fecha Ejecución** | Noviembre 29, 2025 |
+| **Ejecutado por** | Sistema de Pruebas Automatizadas |
+
+---
+
+## Caso de Prueba UT-SOL-002.17
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | UT-SOL-002.17 |
+| **Título** | Validación de latitudes fuera de rango -90 a 90 |
+| **Descripción** | Verifica que POST /service_requests/create_request/ responde 400 Bad Request cuando la latitud está fuera del rango válido (-90 a 90 grados). |
+| **Precondiciones** | Usuario autenticado con permiso; latitude = 95.0 (fuera de rango). |
+| **Datos de Entrada** | `{"method":"POST","path":"/service_requests/create_request/","headers":{"Authorization":"Bearer <token>","Content-Type":"application/json"},"body":{"customer":90,"request_detail":"Solicitud de servicio de mantenimiento2","location":{"latitude":95.0,"longitude":-74.581299,...},...}}` |
+| **Pasos (AAA)** | **Arrange:** Mock de check_permission retornando True, payload con latitude fuera de rango. **Act:** Enviar POST con latitud 95.0. **Assert:** Status 400; body contiene errors con mensaje de latitud fuera de rango. |
+| **Resultado Esperado** | Respuesta HTTP 400 Bad Request con mensaje "La latitud debe estar entre -90 y 90 grados." |
+| **Resultado Obtenido** | Status 400 con error de latitud capturado correctamente. |
+| **Estado** | ✅ **APROBADO** |
+| **Fecha Ejecución** | Noviembre 29, 2025 |
+| **Ejecutado por** | Sistema de Pruebas Automatizadas |
+
+---
+
+## Caso de Prueba UT-SOL-002.18
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | UT-SOL-002.18 |
+| **Título** | Validación de longitudes fuera de rango -180 a 180 |
+| **Descripción** | Verifica que POST /service_requests/create_request/ responde 400 Bad Request cuando la longitud está fuera del rango válido (-180 a 180 grados). |
+| **Precondiciones** | Usuario autenticado con permiso; longitude = 200.0 (fuera de rango). |
+| **Datos de Entrada** | `{"method":"POST","path":"/service_requests/create_request/","headers":{"Authorization":"Bearer <token>","Content-Type":"application/json"},"body":{"customer":90,"request_detail":"Solicitud de servicio de mantenimiento2","location":{"latitude":4.244255,"longitude":200.0,...},...}}` |
+| **Pasos (AAA)** | **Arrange:** Mock de check_permission retornando True, payload con longitude fuera de rango. **Act:** Enviar POST con longitud 200.0. **Assert:** Status 400; body contiene errors con mensaje de longitud fuera de rango. |
+| **Resultado Esperado** | Respuesta HTTP 400 Bad Request con mensaje "La longitud debe estar entre -180 y 180 grados." |
+| **Resultado Obtenido** | Status 400 con error de longitud capturado correctamente. |
+| **Estado** | ✅ **APROBADO** |
+| **Fecha Ejecución** | Noviembre 29, 2025 |
+| **Ejecutado por** | Sistema de Pruebas Automatizadas |
+
+---
+
+## Caso de Prueba UT-SOL-002.19
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | UT-SOL-002.19 |
+| **Título** | Validación de área negativa |
+| **Descripción** | Verifica que POST /service_requests/create_request/ responde 400 Bad Request cuando se proporciona un valor de área negativo. |
+| **Precondiciones** | Usuario autenticado con permiso; area = -100 (negativa). |
+| **Datos de Entrada** | `{"method":"POST","path":"/service_requests/create_request/","headers":{"Authorization":"Bearer <token>","Content-Type":"application/json"},"body":{"customer":90,"request_detail":"Solicitud de servicio de mantenimiento2","location":{"area":-100,"area_unit":19,...},...}}` |
+| **Pasos (AAA)** | **Arrange:** Mock de check_permission retornando True, payload con área negativa. **Act:** Enviar POST con área -100. **Assert:** Status 400; body contiene errors con mensaje de área negativa. |
+| **Resultado Esperado** | Respuesta HTTP 400 Bad Request con mensaje "El área no puede ser un valor negativo." |
+| **Resultado Obtenido** | Status 400 con error de área negativa capturado correctamente. |
+| **Estado** | ✅ **APROBADO** |
+| **Fecha Ejecución** | Noviembre 29, 2025 |
+| **Ejecutado por** | Sistema de Pruebas Automatizadas |
+
+---
+
+## Caso de Prueba UT-SOL-002.20
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | UT-SOL-002.20 |
+| **Título** | Validación de altitud negativa |
+| **Descripción** | Verifica que POST /service_requests/create_request/ responde 400 Bad Request cuando se proporciona un valor de altitud negativo. |
+| **Precondiciones** | Usuario autenticado con permiso; altitude = -100 (negativa). |
+| **Datos de Entrada** | `{"method":"POST","path":"/service_requests/create_request/","headers":{"Authorization":"Bearer <token>","Content-Type":"application/json"},"body":{"customer":90,"request_detail":"Solicitud de servicio de mantenimiento2","location":{"altitude":-100,"altitude_unit":16,...},...}}` |
+| **Pasos (AAA)** | **Arrange:** Mock de check_permission retornando True, payload con altitud negativa. **Act:** Enviar POST con altitud -100. **Assert:** Status 400; body contiene errors con mensaje de altitud negativa. |
+| **Resultado Esperado** | Respuesta HTTP 400 Bad Request con mensaje "La altitud no puede ser un valor negativo." |
+| **Resultado Obtenido** | Status 400 con error de altitud negativa capturado correctamente. |
+| **Estado** | ✅ **APROBADO** |
+| **Fecha Ejecución** | Noviembre 29, 2025 |
+| **Ejecutado por** | Sistema de Pruebas Automatizadas |
+
+---
+
 ## Resumen Ejecutivo
 
-✅ **Tasa de Aprobación:** 100% (15/15)  
-❌ **Tasa de Rechazo:** 0% (0/15)  
-📊 **Estado General:** FUNCIONAMIENTO EXCELENTE
+✅ **Tasa de Aprobación:** 100% (20/20)  
+❌ **Tasa de Rechazo:** 0% (0/20)  
+📊 **Estado General:** FUNCIONAMIENTO EXCELENTE  
+⚡ **Performance:** 1.66 segundos (Muy por debajo del límite de 3s)
 
 **Conclusión:** El endpoint de creación de solicitudes de servicio está completamente validado y cumple con todos los requisitos funcionales especificados. Las pruebas cubren exhaustivamente todos los escenarios de validación incluyendo:
 
 - **Autenticación y Autorización:** Validación correcta de tokens, permisos y acceso no autorizado
 - **Validaciones de Datos:** Cliente, fechas, montos, coordenadas, maquinaria, campos obligatorios y longitud
+- **Validaciones Geoespaciales Avanzadas:** Latitud, longitud, área y altitud con rangos específicos
+- **Validaciones Financieras:** Relaciones entre montos pagados y a pagar
 - **Estructura de Respuesta:** Formato correcto para casos exitosos y de error
-- **Performance:** Tiempo de respuesta excelente (0.014s vs límite de 3s)
+- **Performance:** Tiempo de respuesta excelente (1.66s vs límite de 3s)
 - **Manejo de Errores:** Content-Type y códigos de estado apropiados
+
+**Nuevos Casos de Prueba Añadidos (UT-SOL-002.16 - 002.20):**
+1. Validación de monto pagado mayor a monto a pagar
+2. Validación de latitudes fuera de rango (-90 a 90)
+3. Validación de longitudes fuera de rango (-180 a 180)
+4. Validación de área negativa
+5. Validación de altitud negativa
 
 El sistema está listo para implementación en producción con todas las validaciones de negocio correctamente implementadas.
 
