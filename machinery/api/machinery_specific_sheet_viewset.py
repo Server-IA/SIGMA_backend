@@ -87,11 +87,11 @@ class SpecificTechnicalSheetViewSet(viewsets.ModelViewSet):
                         actor_role=actor_role_name,
                         permission_id=permission_id,
                         module="machinery",
-                        submodule="machinery_general_sheet",
+                        submodule="specific_technical_sheet",
                     )
                 except Exception as e:
                     logging.warning(
-                        "El servicio de auditoría ha fallado en create_machinery_general_sheet: %s", e
+                        "El servicio de auditoría ha fallado en create_specific_technical_sheet: %s", e
                     )
 
             headers = self.get_success_headers(serializer.data)

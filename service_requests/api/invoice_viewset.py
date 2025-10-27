@@ -1,0 +1,946 @@
+import logging
+from decimal import Decimal
+from django.apps import apps
+from django.db import transaction
+from django.http import Http404, HttpResponse
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+import pytz
+import requests
+import base64
+import os
+import time
+
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
+# Imports locales
+from parameterization.models import Statues
+from service_requests.models import PaymentMethod
+from ..models.invoice import Invoice
+from ..models.invoice_line import InvoiceLine
+from ..models.service_request import ServiceRequest
+from ..serializers.invoice_serializers import (
+    InvoiceListSerializer,
+    InvoiceDetailSerializer,
+    InvoiceDraftCreationSerializer,
+    InvoiceLineSerializer
+)
+from ..utils.invoice_generator_utils import (
+    generate_unique_reference_code,
+    recalculate_invoice_totals,
+    build_factus_payload
+)
+from core.services.factus_service import FactusService, FactusServiceError
+from core.services.file_upload_service import upload_invoice_files_pair
+from core.services.zip_service import ZipService
+
+from core.services.file_upload_service import upload_invoice_pdf
+
+# Auditoría
+from audit_sdk import AuditClient
+from service_requests.utils.audit_helpers import invoice_snapshot
+from service_requests.utils.audit_helpers import get_actor_info  
+import logging
+
+logger = logging.getLogger(__name__)
+COLOMBIA_TIMEZONE = pytz.timezone("America/Bogota")
+
+# Constantes de permisos
+PERM_INVOICE_LIST = 20
+PERM_INVOICE_RETRIEVE = 20
+PERM_INVOICE_CREATE_EDIT = 20
+PERM_INVOICE_LINES_CRUD = 20
+PERM_INVOICE_GENERATE = 20
+PERM_INVOICE_DOWNLOAD = 20
+
+
+class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet para gestión de Facturas Electrónicas."""
+    
+    # Estados de factura
+    BORRADOR = 24
+    ENVIADA = 25
+    VALIDADA = 26
+    RECHAZADA = 27
+    ANULADA = 28
+    
+    VALID_STATUS_TRANSITIONS = {
+        BORRADOR: [ENVIADA, ANULADA],
+        ENVIADA: [VALIDADA, RECHAZADA],
+        VALIDADA: [ANULADA],
+        RECHAZADA: [BORRADOR, ANULADA],
+        ANULADA: []
+    }
+    
+    queryset = Invoice.objects.all()
+    lookup_field = 'id_invoice'
+    
+    def get_queryset(self):
+        """Filtra por customer_id si se proporciona."""
+        queryset = self.queryset
+        customer_id = self.request.query_params.get('customer_id')
+        
+        if customer_id:
+            try:
+                queryset = queryset.filter(customer_id=int(customer_id))
+            except ValueError:
+                pass
+        
+        return queryset.order_by('-invoice_date')
+    
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return InvoiceListSerializer
+        if self.action in ('create_draft', 'update_draft'):
+            return InvoiceDraftCreationSerializer
+        return InvoiceDetailSerializer
+    
+    def check_permission(self, request, required_permission_id: int):
+        """Verifica permisos del usuario."""
+        payload = getattr(request, "auth", None) or {}
+        user_roles = payload.get("rol") or payload.get("roles") or []
+        permisos_usuario = []
+        
+        for rol in user_roles:
+            perms = rol.get("permisos") or rol.get("permissions") or []
+            for perm in perms:
+                if isinstance(perm, dict) and "id" in perm:
+                    permisos_usuario.append(perm.get("id"))
+        
+        is_authenticated = getattr(request, 'user', None) and getattr(request.user, 'is_authenticated', False)
+        return is_authenticated and (required_permission_id in permisos_usuario)
+    
+    def _transition_status(self, invoice, new_status_id: int, user=None):
+        """Valida y ejecuta transición de estado."""
+        current_status_id = invoice.status_id
+        
+        if new_status_id not in self.VALID_STATUS_TRANSITIONS.get(current_status_id, []):
+            current_status = Statues.objects.get(pk=current_status_id).name
+            new_status = Statues.objects.get(pk=new_status_id).name
+            raise ValueError(f"Transición inválida de {current_status} a {new_status}")
+        
+        old_status = invoice.status
+        invoice.status_id = new_status_id
+        
+        if new_status_id == self.ENVIADA:
+            invoice.sent_at = timezone.now()
+            invoice.save(update_fields=['status', 'sent_at'])
+        else:
+            invoice.save(update_fields=['status'])
+        
+        actor = self._get_actor_name(user)
+        logger.info(f"Factura {invoice.id_invoice} cambió de {old_status} a {invoice.status} por {actor}")
+        return True
+    
+    def _get_actor_name(self, user):
+        """Extrae nombre del actor para auditoría."""
+        if not user:
+            return 'sistema'
+        return (
+            getattr(user, 'username', None) or
+            getattr(user, 'email', None) or
+            getattr(user, 'id', None) or
+            'usuario'
+        )
+    
+    # Métodos estándar de ViewSet
+    
+    def list(self, request):
+        """GET /invoices/"""
+        if not self.check_permission(request, PERM_INVOICE_LIST):
+            return Response(
+                {"success": False, "message": "No tiene permisos para listar facturas."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().list(request)
+    
+    def retrieve(self, request, pk=None, *args, **kwargs):
+        """GET /invoices/{id}/"""
+        if not self.check_permission(request, PERM_INVOICE_RETRIEVE):
+            return Response(
+                {"success": False, "message": "No tiene permisos para ver el detalle de la factura."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().retrieve(request, pk, *args, **kwargs)
+    
+    def destroy(self, request, pk=None, *args, **kwargs):
+        """DELETE /invoices/{id}/"""
+        if not self.check_permission(request, PERM_INVOICE_CREATE_EDIT):
+            return Response(
+                {"status": False, "detail": "No tiene permisos para eliminar facturas."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        invoice_id = pk or kwargs.get('id_invoice')
+        invoice = get_object_or_404(Invoice, id_invoice=invoice_id)
+        
+        allowed = [self.BORRADOR, self.RECHAZADA, self.ANULADA]
+        if invoice.status_id not in allowed:
+            return Response(
+                {"status": False, "detail": "Solo se pueden eliminar facturas en estado BORRADOR, RECHAZADA o ANULADA."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        reference = invoice.reference_code
+        invoice.delete()
+        logger.info(f"Factura {invoice_id} ({reference}) eliminada por {self._get_actor_name(request.user)}")
+        
+        return Response({
+            "status": True,
+            "reference_code": reference,
+            "detail": "Factura eliminada exitosamente."
+        }, status=status.HTTP_200_OK)
+    
+    # Endpoints personalizados
+    
+    @action(detail=False, methods=['post'], url_path='create-draft')
+    def create_draft(self, request):
+        """POST /invoices/create-draft/ - Crea borrador desde solicitud de servicio."""
+        if not self.check_permission(request, PERM_INVOICE_CREATE_EDIT):
+            return Response(
+                {"success": False, "message": "No tiene permisos para crear borradores."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        service_request_code = request.data.get('service_request')
+        observation = request.data.get('observation', '')
+        
+        if len(observation) > 250:
+            return Response(
+                {"success": False, "message": "La observación no debe exceder 250 caracteres."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        REQUIRED_STATUS_IDS = [20, 21, 22]
+        if not service_request_code:
+            return Response(
+                {"success": False, "message": "El campo 'service_request' es obligatorio."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            service_request_obj = get_object_or_404(
+                ServiceRequest.objects.select_related('request_status', 'customer__tax_regime'),
+                id_request=service_request_code
+            )
+            
+            if service_request_obj.request_status_id not in REQUIRED_STATUS_IDS:
+                return Response(
+                    {"success": False, "message": "Solo es posible crear factura para solicitudes en estado 'Pendiente', 'En proceso' o 'Finalizada'."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if Invoice.objects.filter(service_request=service_request_obj).exclude(status_id__in=[27, 28]).exists():
+                return Response(
+                    {"success": False, "message": f"Ya existe una factura en trámite para la solicitud '{service_request_code}'."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            customer_id = service_request_obj.customer_id
+            tax_regime_id = service_request_obj.customer.tax_regime.pk if service_request_obj.customer.tax_regime else None
+            
+            if not customer_id or not tax_regime_id:
+                return Response(
+                    {"success": False, "message": "La solicitud no tiene Cliente o Régimen Fiscal asociado."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+        except Http404:
+            return Response(
+                {"success": False, "message": f"Solicitud de Servicio '{service_request_code}' no encontrada."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error en create_draft: {e}", exc_info=True)
+            return Response(
+                {"success": False, "message": "Error interno al procesar la solicitud."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        mutable_data = request.data.copy()
+        mutable_data['customer'] = customer_id
+        mutable_data['tax_regime'] = tax_regime_id
+        
+        if not mutable_data.get('payment_method'):
+            efectivo = PaymentMethod.objects.filter(code='10').first()
+            if efectivo:
+                mutable_data['payment_method'] = efectivo.pk
+        
+        serializer = self.get_serializer(data=mutable_data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        invoice = serializer.save(
+            reference_code=generate_unique_reference_code(),
+            status_id=self.BORRADOR
+        )
+        
+        return Response({
+            'id_invoice': invoice.id_invoice,
+            'reference_code': invoice.reference_code,
+            'created_at': timezone.now().astimezone(COLOMBIA_TIMEZONE).isoformat(),
+            'detail': 'Factura creada exitosamente.'
+        }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['put', 'patch'], url_path='update-draft')
+    def update_draft(self, request, pk=None, *args, **kwargs):
+        """PATCH /invoices/{id}/update-draft/ - Actualiza cabecera."""
+        if not self.check_permission(request, PERM_INVOICE_CREATE_EDIT):
+            return Response(
+                {"success": False, "message": "No tiene permisos para actualizar borradores."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        invoice_id = pk or kwargs.get("id_invoice")
+        instance = get_object_or_404(Invoice, id_invoice=invoice_id, status_id=self.BORRADOR)
+        
+        allowed_fields = {"observation", "payment_method"}
+        update_data = {k: v for k, v in request.data.items() if k in allowed_fields}
+        
+        if not update_data:
+            return Response(
+                {"success": False, "message": "No se proporcionaron campos válidos."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        for field, value in update_data.items():
+            setattr(instance, field, value)
+        instance.save(update_fields=update_data.keys())
+        
+        return Response({
+            "success": True,
+            "detail": "Borrador actualizado con éxito.",
+            "id_invoice": instance.id_invoice
+        }, status=status.HTTP_200_OK)
+    
+    # Gestión de líneas (endpoints de conveniencia)
+    
+    @action(detail=True, methods=['post'], url_path='lines')
+    def add_line(self, request, id_invoice=None):
+        """POST /invoices/{id}/lines/ - Agrega línea a factura."""
+        if not self.check_permission(request, PERM_INVOICE_LINES_CRUD):
+            return Response(
+                {"success": False, "message": "No tiene permisos para gestionar líneas."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        invoice = get_object_or_404(Invoice, id_invoice=id_invoice)
+        
+        if invoice.status_id != self.BORRADOR:
+            return Response(
+                {"success": False, "message": "Solo se pueden modificar líneas en facturas BORRADOR."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        line_data = request.data.copy()
+        if not line_data.get('units_measurement_id'):
+            line_data['units_measurement_id'] = 70
+        
+        serializer = InvoiceLineSerializer(data=line_data)
+        serializer.is_valid(raise_exception=True)
+        
+        service_item = serializer.validated_data.get('service_item')
+        if service_item and InvoiceLine.objects.filter(invoice=invoice, service_item_id=service_item.pk).exists():
+            return Response(
+                {"success": False, "message": "Este servicio ya existe en la factura."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        line = serializer.save(invoice=invoice)
+        
+        try:
+            recalculate_invoice_totals(invoice)
+        except Exception:
+            logger.exception("Error recalculando totales tras agregar línea")
+        
+        line_serialized = InvoiceLineSerializer(line).data
+        line_serialized.pop('factus_payload', None)
+        
+        return Response({
+            'success': True,
+            'detail': 'Línea agregada con éxito.',
+            'line': line_serialized,
+            'id_invoice': invoice.id_invoice
+        }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['put', 'patch', 'delete'], url_path='lines/(?P<line_id>[^/.]+)')
+    def update_line(self, request, id_invoice=None, line_id=None):
+        """PUT/PATCH/DELETE /invoices/{id}/lines/{line_id}/"""
+        if not self.check_permission(request, PERM_INVOICE_LINES_CRUD):
+            return Response(
+                {"success": False, "message": "No tiene permisos para gestionar líneas."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        invoice = get_object_or_404(Invoice, id_invoice=id_invoice)
+        
+        if invoice.status_id != self.BORRADOR:
+            return Response(
+                {"success": False, "message": "Solo se pueden modificar líneas en facturas BORRADOR."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            line = InvoiceLine.objects.get(id_invoice_line=line_id, invoice=invoice)
+        except InvoiceLine.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Línea no encontrada."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        if request.method == 'DELETE':
+            line.delete()
+            try:
+                recalculate_invoice_totals(invoice)
+            except Exception:
+                logger.exception("Error recalculando totales tras eliminar línea")
+            
+            return Response({
+                'success': True,
+                'detail': 'Línea eliminada con éxito.',
+                'id_invoice': invoice.id_invoice
+            }, status=status.HTTP_200_OK)
+        
+        # PUT/PATCH
+        allowed = {'quantity', 'units_measurement_id', 'percentage_taxes_per_line', 'discount_percentage'}
+        update_data = {k: v for k, v in request.data.items() if k in allowed}
+        
+        if not update_data:
+            return Response(
+                {"success": False, "message": "No se proporcionaron campos válidos."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if 'units_measurement_id' in update_data:
+            try:
+                if not FactusService().validate_measurement_unit(update_data['units_measurement_id']):
+                    return Response(
+                        {"success": False, "message": "Unidad de medida no válida en Factus."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except Exception:
+                return Response(
+                    {"success": False, "message": "Error validando unidad de medida en Factus."},
+                    status=status.HTTP_502_BAD_GATEWAY
+                )
+        
+        for field, value in update_data.items():
+            setattr(line, field, value)
+        line.save()
+        
+        try:
+            recalculate_invoice_totals(invoice)
+        except Exception:
+            logger.exception("Error recalculando totales tras actualizar línea")
+        
+        line_serialized = InvoiceLineSerializer(line).data
+        line_serialized.pop('factus_payload', None)
+        
+        return Response({
+            'success': True,
+            'detail': 'Línea actualizada con éxito.',
+            'line': line_serialized,
+            'id_invoice': invoice.id_invoice
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], url_path='final-charges')
+    def final_charges(self, request, id_invoice=None):
+        """POST /invoices/{id}/final-charges/ - Aplica recargos globales."""
+        if not self.check_permission(request, PERM_INVOICE_CREATE_EDIT):
+            return Response(
+                {"success": False, "message": "No tiene permisos para aplicar cargos finales."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        invoice = get_object_or_404(Invoice, id_invoice=id_invoice)
+        
+        if invoice.status_id != self.BORRADOR:
+            return Response(
+                {"success": False, "message": "Solo en facturas BORRADOR."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not invoice.lines.exists():
+            return Response(
+                {"success": False, "message": "La factura no tiene líneas."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        payload_list = request.data.get('allowance_charges') or []
+        if not isinstance(payload_list, (list, tuple)):
+            return Response(
+                {"success": False, "message": "allowance_charges debe ser una lista."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        recalculate_invoice_totals(invoice)
+        base_imponible = Decimal(invoice.total_without_taxes or 0)
+        processed = []
+        allowance_total = Decimal('0.00')
+        
+        for idx, item in enumerate(payload_list):
+            reason = item.get('reason')
+            amount_raw = item.get('amount')
+            
+            if not reason or not isinstance(reason, str):
+                return Response(
+                    {"success": False, "message": f"Elemento #{idx+1}: 'reason' requerido."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            try:
+                amount = Decimal(str(amount_raw))
+            except:
+                return Response(
+                    {"success": False, "message": f"Elemento #{idx+1}: 'amount' debe ser numérico."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if amount <= 0 or amount > base_imponible:
+                return Response(
+                    {"success": False, "message": f"Elemento #{idx+1}: amount inválido."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            allowance_total += amount
+            processed.append({
+                "concept_type": "03",
+                "is_surcharge": True,
+                "reason": reason,
+                "base_amount": f"{base_imponible:.2f}",
+                "amount": f"{amount:.2f}"
+            })
+        
+        amount_before = Decimal(invoice.total_without_taxes or 0) + Decimal(invoice.total_taxes or 0) - Decimal(invoice.total_withholding_taxes or 0)
+        invoice.amount_to_pay = (amount_before + allowance_total).quantize(Decimal('0.01'))
+        
+        api_resp = invoice.api_response or {}
+        api_resp['allowance_charges'] = processed
+        api_resp['allowance_total'] = f"{allowance_total:.2f}"
+        invoice.api_response = api_resp
+        invoice.save(update_fields=['amount_to_pay', 'api_response'])
+        
+        if invoice.service_request_id:
+            ServiceRequest.objects.filter(pk=invoice.service_request_id).update(amount_to_pay=float(invoice.amount_to_pay))
+        
+        return Response({
+            "success": True,
+            "detail": "Cargos aplicados correctamente.",
+            "allowance_charges": processed,
+            "allowance_total": f"{allowance_total:.2f}",
+            "amount_to_pay": f"{invoice.amount_to_pay:.2f}"
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'])
+    def generate_fe(self, request, id_invoice=None):
+        """POST /invoices/{id}/generate_fe/ - Genera factura electrónica."""
+        if not self.check_permission(request, PERM_INVOICE_GENERATE):
+            return Response(
+                {"success": False, "message": "No tiene permisos para generar facturas FE."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        invoice = get_object_or_404(Invoice, id_invoice=id_invoice, status_id=self.BORRADOR)
+        
+        if not invoice.service_request:
+            return Response(
+                {'detail': 'Debe asociarse a una Solicitud de Servicio.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            with transaction.atomic():
+                recalculate_invoice_totals(invoice)
+                invoice_payload = build_factus_payload(invoice)
+                factus_response = FactusService().generate_invoice(invoice_payload)
+                
+                logger.info(f"Respuesta Factus para factura {invoice.id_invoice}: {factus_response}")
+                
+                bill_data = factus_response.get('data', {}).get('bill', {})
+                
+                if not bill_data.get('cufe') and not bill_data.get('number'):
+                    logger.error(f"Respuesta Factus incompleta: {factus_response}")
+                    return Response(
+                        {'detail': 'Error en respuesta de Factus: sin CUFE ni número.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                invoice.cufe = bill_data.get('cufe')
+                invoice.invoice_number = bill_data.get('number')
+                invoice.api_response = factus_response
+                
+                if invoice.cufe and invoice.invoice_number:
+                    if invoice.status_id == self.BORRADOR:
+                        self._transition_status(invoice, self.ENVIADA, request.user)
+                    self._transition_status(invoice, self.VALIDADA, request.user)
+                else:
+                    self._transition_status(invoice, self.ENVIADA, request.user)
+                
+                invoice.save()
+
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                    AuditClient(request).create(
+                        object_id=str(invoice.id_invoice),
+                        after=invoice_snapshot(invoice),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=PERM_INVOICE_GENERATE,
+                        module="requests",
+                        submodule="invoice_generate_fe",
+                    )
+                except Exception as e:
+                    logger.warning("El servicio de auditoría ha fallado en generate_fe: %s", e)
+
+                # Descargar y subir archivos
+                self._handle_invoice_files(invoice)
+                
+                return Response({
+                    'detail': 'Factura generada y enviada con éxito.',
+                    'id_invoice': invoice.id_invoice,
+                    'invoice_pdf_url': invoice.invoice_pdf_url,
+                    'invoice_xml_url': invoice.invoice_xml_url
+                }, status=status.HTTP_201_CREATED)
+                
+        except ValueError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except FactusServiceError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error generando factura {id_invoice}: {e}", exc_info=True)
+            return Response(
+                {'detail': 'Error interno del servidor.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _handle_invoice_files(self, invoice):
+        """Descarga archivos de Factus y sube a Firebase."""
+        time.sleep(2)
+        
+        if not invoice.invoice_number and not invoice.cufe:
+            logger.error(f"Factura {invoice.id_invoice} sin número ni CUFE")
+            return
+        
+        try:
+            key = invoice.invoice_number or invoice.cufe
+            
+            if invoice.invoice_number:
+                pdf_data, _ = FactusService().get_invoice_pdf_by_number(invoice.invoice_number)
+                try:
+                    xml_data, _ = FactusService().get_invoice_xml_by_number(invoice.invoice_number)
+                except FactusServiceError:
+                    logger.warning(f"XML no disponible para factura {invoice.invoice_number}")
+                    xml_data = None
+            else:
+                pdf_data, _ = FactusService().get_invoice_pdf(invoice.cufe)
+                xml_data = None
+            
+            if not pdf_data:
+                raise ValueError("PDF vacío")
+            
+            if xml_data:
+                pdf_url, xml_url = upload_invoice_files_pair(
+                    pdf_data=pdf_data,
+                    xml_data=xml_data,
+                    invoice_number=key,
+                    reference_code=invoice.reference_code
+                )
+                invoice.invoice_pdf_url = pdf_url
+                invoice.invoice_xml_url = xml_url
+                invoice.save(update_fields=['invoice_pdf_url', 'invoice_xml_url'])
+            else:
+                pdf_url = upload_invoice_pdf(
+                    pdf_data=pdf_data,
+                    invoice_number=key,
+                    reference_code=invoice.reference_code
+                )
+                invoice.invoice_pdf_url = pdf_url
+                invoice.save(update_fields=['invoice_pdf_url'])
+            
+            logger.info(f"Archivos subidos para factura {invoice.id_invoice}")
+            
+        except Exception as e:
+            logger.error(f"Error procesando archivos de factura {invoice.id_invoice}: {e}", exc_info=True)
+    
+    @action(detail=True, methods=['post'], url_path='send-by-email')
+    def send_by_email(self, request, id_invoice=None):
+        """
+        Crea un ZIP temporal en memoria con PDF y XML de la factura 
+        y lo envía por correo electrónico al cliente.
+        
+        El ZIP se crea en memoria, se convierte a base64 y se envía al servicio
+        de email (UsersMachPay) sin almacenarlo en Firebase.
+        
+        Validaciones:
+        - Usuario autenticado con permisos
+        - Factura en estado VALIDADA
+        - Cliente con email registrado
+        - PDF y XML disponibles en Firebase
+        
+        Returns:
+            Response con success, message, zip_size_mb y email del destinatario
+        """
+        # Verificar autenticación
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = PERM_INVOICE_DOWNLOAD
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para enviar facturas por email."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        invoice = get_object_or_404(Invoice, id_invoice=id_invoice)
+        
+        # 1. Validar estado 
+        if invoice.status_id != self.VALIDADA:
+            return Response({
+                'success': False,
+                'message': 'Solo se pueden enviar por email facturas en estado VALIDADA.',
+                'errors': {'status': ['La factura debe estar validada para ser enviada.']}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Validar cliente y email
+        if not invoice.customer:
+            return Response({
+                'success': False,
+                'message': 'La factura no tiene un cliente asociado.',
+                'errors': {'customer': ['Se requiere un cliente para enviar la factura.']}
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not invoice.customer.email:
+            return Response({
+                'success': False,
+                'message': 'El cliente no tiene correo electrónico registrado.',
+                'errors': {'email': ['El cliente debe tener un email válido.']}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. Validar existencia de PDF y XML en Firebase
+        if not invoice.invoice_pdf_url:
+            return Response({
+                'success': False,
+                'message': 'La factura no tiene PDF disponible.',
+                'errors': {'pdf': ['No se encontró el archivo PDF de la factura.']}
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not invoice.invoice_xml_url:
+            return Response({
+                'success': False,
+                'message': 'La factura no tiene XML disponible.',
+                'errors': {'xml': ['No se encontró el archivo XML de la factura.']}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            logger.info(f"[SEND EMAIL] Creando ZIP temporal para factura {invoice.invoice_number}")
+            
+            zip_bytes, zip_filename = ZipService.create_invoice_zip_in_memory(
+                pdf_url=invoice.invoice_pdf_url,
+                xml_url=invoice.invoice_xml_url,
+                invoice_number=invoice.invoice_number,
+                reference_code=invoice.reference_code
+            )
+            
+            zip_size_mb = ZipService.get_zip_size_mb(zip_bytes)
+            logger.info(f"[SEND EMAIL] ZIP creado: {zip_filename} ({zip_size_mb} MB)")
+            
+            customer = invoice.customer
+            
+            client_name = f"{customer.name or ''} {customer.first_last_name or ''}".strip()
+            if not client_name:
+                client_name = "Cliente"
+            
+            total_formatted = f"${invoice.amount_to_pay:,.0f} COP".replace(",", ".")
+            
+            invoice_date = invoice.invoice_date.strftime('%d/%m/%Y') if invoice.invoice_date else "N/A"
+            
+            auth_service_url = os.getenv('AUTH_SERVICE_URL')
+            logger.info(f"[SEND EMAIL] AUTH_SERVICE_URL desde .env: '{auth_service_url}'")
+            
+            if not auth_service_url:
+                logger.error("[SEND EMAIL] AUTH_SERVICE_URL no configurado")
+                return Response({
+                    'success': False,
+                    'message': 'Servicio de email no disponible.',
+                    'errors': {'config': ['Configuración del servicio de email no encontrada.']}
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            logger.info("[SEND EMAIL] Codificando ZIP a base64...")
+            zip_base64 = base64.b64encode(zip_bytes).decode('utf-8')
+            logger.info(f"[SEND EMAIL] ZIP base64 generado - Longitud: {len(zip_base64)} caracteres")
+            
+            url = f"{auth_service_url.rstrip('/')}/users/users/send-invoice-zip/"
+            logger.info(f"[SEND EMAIL] URL COMPLETA construida: '{url}'")
+            
+            payload = {
+                "email": customer.email,
+                "client_name": client_name,
+                "invoice_number": invoice.invoice_number,
+                "invoice_date": invoice_date,
+                "total_amount": total_formatted,
+                "zip_base64": zip_base64,
+                "zip_filename": zip_filename,
+                "cufe": invoice.cufe if hasattr(invoice, 'cufe') else None
+            }
+            
+            headers = {'Content-Type': 'application/json'}
+            
+            auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION')
+            if not auth_header and hasattr(request, 'headers'):
+                auth_header = request.headers.get('Authorization')
+            
+            if auth_header:
+                headers['Authorization'] = auth_header
+                logger.info(f"[SEND EMAIL] Token de autorización propagado: {auth_header[:20]}...")
+            else:
+                logger.warning("[SEND EMAIL] No se encontró token de autorización para propagar")
+            
+            logger.info(f"[SEND EMAIL] Headers preparados: {list(headers.keys())}")
+            
+            logger.info(f"[SEND EMAIL] === INICIANDO PETICIÓN HTTP ===")
+            logger.info(f"[SEND EMAIL] Método: POST")
+            logger.info(f"[SEND EMAIL] URL: {url}")
+            logger.info(f"[SEND EMAIL] Factura: {invoice.invoice_number}")
+            logger.info(f"[SEND EMAIL] Destinatario: {customer.email}")
+            logger.info(f"[SEND EMAIL] Payload keys: {list(payload.keys())}")
+            logger.info(f"[SEND EMAIL] ZIP filename: {zip_filename}")
+            logger.info(f"[SEND EMAIL] === ENVIANDO... ===")
+            
+            response = requests.post(
+                url, 
+                json=payload, 
+                headers=headers, 
+                timeout=60
+            )
+            
+            logger.info(f"[SEND EMAIL] === RESPUESTA RECIBIDA ===")
+            logger.info(f"[SEND EMAIL] Status Code: {response.status_code}")
+            logger.info(f"[SEND EMAIL] Headers de respuesta: {dict(response.headers)}")
+            logger.info(f"[SEND EMAIL] Cuerpo de respuesta: {response.text[:500]}")
+            logger.info(f"[SEND EMAIL] === FIN RESPUESTA ===")
+            
+            # --- 8. Procesar respuesta ---
+            if response.status_code == 200:
+                logger.info(f"[SEND EMAIL] ✓ Factura enviada exitosamente a {customer.email}")
+                
+                return Response({
+                    'success': True,
+                    'message': f'Factura enviada exitosamente a {customer.email}',
+                    'data': {
+                        'zip_size_mb': zip_size_mb,
+                        'email': customer.email,
+                        'invoice_number': invoice.invoice_number,
+                        'zip_filename': zip_filename
+                    }
+                }, status=status.HTTP_200_OK)
+            else:
+                logger.error(f"[SEND EMAIL] Error del servicio de email: {response.status_code}")
+                logger.error(f"[SEND EMAIL] Respuesta: {response.text}")
+                
+                return Response({
+                    'success': False,
+                    'message': 'Error al enviar el correo electrónico',
+                    'errors': {
+                        'email_service': [f'Código de error: {response.status_code}', response.text[:200]]
+                    }
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+        except Exception as e:
+            logger.error(f"[SEND EMAIL] Error inesperado: {str(e)}", exc_info=True)
+            return Response({
+                'success': False,
+                'message': 'Error interno al procesar el envío',
+                'errors': {'detail': [str(e)]}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def download_invoice_pdf(request, id_invoice):
+    """GET /invoices/{id}/download_pdf/ - Descarga PDF de factura."""
+    try:
+        invoice = Invoice.objects.get(id_invoice=id_invoice)
+    except Invoice.DoesNotExist:
+        return HttpResponse(
+            '{"detail": "Factura no encontrada."}',
+            content_type='application/json',
+            status=404
+        )
+    
+    if invoice.status_id not in [25, 26]:
+        return HttpResponse(
+            '{"detail": "Factura no lista para descarga."}',
+            content_type='application/json',
+            status=400
+        )
+    
+    try:
+        filename = f"factura_{invoice.reference_code}.pdf"
+        
+        if invoice.invoice_pdf_url:
+            logger.info(f"Descargando PDF desde Firebase: {invoice.invoice_pdf_url}")
+            resp = requests.get(invoice.invoice_pdf_url, timeout=30)
+            resp.raise_for_status()
+            pdf_data = resp.content
+        elif invoice.cufe:
+            logger.info(f"Descargando PDF desde Factus: {invoice.cufe}")
+            pdf_data, filename = FactusService().get_invoice_pdf(invoice.cufe)
+        else:
+            return HttpResponse(
+                '{"detail": "No hay PDF disponible."}',
+                content_type='application/json',
+                status=404
+            )
+        
+        if not pdf_data:
+            raise ValueError("PDF vacío")
+        
+        # Auditoría
+        try:
+            actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+            AuditClient(request).create(
+                object_id=str(invoice.id_invoice),
+                after=invoice_snapshot(invoice),
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=PERM_INVOICE_DOWNLOAD,
+                module="requests",
+                submodule="download_invoice_pdf",
+            )
+            logger.info(f"Auditoría registrada para descarga de factura {invoice.id_invoice}")
+        except Exception as e:
+            logger.warning("El servicio de auditoría ha fallado en download_invoice_pdf: %s", e)
+        
+        response = HttpResponse(pdf_data, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Content-Length'] = len(pdf_data)
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response['Pragma'] = 'no-cache'
+        response['Expires'] = '0'
+        
+        return response
+        
+    except requests.RequestException as e:
+        logger.error(f"Error descarga Firebase: {e}", exc_info=True)
+        return HttpResponse(
+            '{"detail": "Error al descargar desde almacenamiento."}',
+            content_type='application/json',
+            status=502
+        )
+    except Exception as e:
+        logger.error(f"Error descarga PDF {id_invoice}: {e}", exc_info=True)
+        return HttpResponse(
+            '{"detail": "Error interno."}',
+            content_type='application/json',
+            status=500
+        )

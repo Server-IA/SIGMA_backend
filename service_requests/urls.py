@@ -1,6 +1,9 @@
 from django.urls import path, include
 from rest_framework import routers
 from service_requests.api.customer_viewset import CustomerViewSet
+from service_requests.api.invoice_viewset import InvoiceViewSet
+from service_requests.api.invoice_lines_viewset import InvoiceLineViewSet
+from service_requests.api.invoice_issuer_viewset import InvoiceIssuerViewSet
 from service_requests.api.person_type_viewset import PersonTypeViewSet
 from service_requests.api.service_viewset import ServiceViewSet
 from service_requests.api.tax_regime_viewset import TaxRegimeViewSet
@@ -9,6 +12,7 @@ from service_requests.api.payment_method_viewset import PaymentMethodViewSet
 from service_requests.api.soil_type_viewset import SoilTypeViewSet
 from service_requests.api.texture_viewset import TextureViewSet
 from service_requests.api.implementation_viewset import ImplementationViewSet
+from .api.invoice_viewset import download_invoice_pdf
 
 router = routers.DefaultRouter()
 
@@ -22,6 +26,12 @@ router.register(r'soil_types', SoilTypeViewSet, basename='soil_type')
 router.register(r'textures', TextureViewSet, basename='texture')
 router.register(r'implementations', ImplementationViewSet, basename='implementation')
 
+router.register(r'invoices', InvoiceViewSet, basename='invoice')
+router.register(r'invoice-lines', InvoiceLineViewSet, basename='invoice_line')
+router.register(r'invoice-issuers', InvoiceIssuerViewSet, basename='invoice_issuer')
+
+
 urlpatterns = [
-    path('', include(router.urls))
+    path('', include(router.urls)),
+    path('invoices/<int:id_invoice>/download_pdf/', download_invoice_pdf, name='invoice-download-pdf'),
 ]

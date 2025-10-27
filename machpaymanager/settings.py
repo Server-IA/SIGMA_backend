@@ -14,6 +14,13 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv("SECRET_KEY")
 
+# Factus API (Billing)
+FACTUS_API_URL = os.getenv('FACTUS_API_URL')
+FACTUS_CLIENT_ID = os.getenv('FACTUS_CLIENT_ID')
+FACTUS_CLIENT_SECRET = os.getenv('FACTUS_CLIENT_SECRET')
+FACTUS_EMAIL = os.getenv('FACTUS_EMAIL')
+FACTUS_PASSWORD = os.getenv('FACTUS_PASSWORD')
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
