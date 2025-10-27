@@ -12,7 +12,7 @@ from service_requests.api.payment_method_viewset import PaymentMethodViewSet
 from service_requests.api.soil_type_viewset import SoilTypeViewSet
 from service_requests.api.texture_viewset import TextureViewSet
 from service_requests.api.implementation_viewset import ImplementationViewSet
-from .api.invoice_viewset import download_invoice_pdf
+from service_requests.api.invoice_viewset import download_invoice_pdf
 
 router = routers.DefaultRouter()
 

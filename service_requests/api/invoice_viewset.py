@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+from django.contrib.auth.models import AnonymousUser
 import pytz
 import requests
 import base64
@@ -16,8 +17,9 @@ import time
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.authentication import TokenAuthentication
+from users.authentication import JWTAuthentication
 
-# Imports locales
 from parameterization.models import Statues
 from service_requests.models import PaymentMethod
 from ..models.invoice import Invoice
@@ -49,13 +51,13 @@ import logging
 logger = logging.getLogger(__name__)
 COLOMBIA_TIMEZONE = pytz.timezone("America/Bogota")
 
-# Constantes de permisos
-PERM_INVOICE_LIST = 20
-PERM_INVOICE_RETRIEVE = 20
-PERM_INVOICE_CREATE_EDIT = 20
-PERM_INVOICE_LINES_CRUD = 20
-PERM_INVOICE_GENERATE = 20
-PERM_INVOICE_DOWNLOAD = 20
+PERM_INVOICE_LIST = 155 # request.list_invoices
+PERM_INVOICE_RETRIEVE = 156 # request.view_invoice_detail
+PERM_INVOICE_CREATE_EDIT = 157 # request.crud_invoice
+PERM_INVOICE_LINES_CRUD = 158 # request.crud_invoice_lines
+PERM_INVOICE_GENERATE = 159 # request.generate_invoice
+PERM_INVOICE_DOWNLOAD = 160 # request.download_invoice
+PERM_INVOICE_SEND_EMAIL = 161 # request.send_invoice_email
 
 
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -147,16 +149,20 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             'usuario'
         )
     
-    # Métodos estándar de ViewSet
-    
-    def list(self, request):
-        """GET /invoices/"""
+    def list(self, request, *args, **kwargs):
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"status": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
         if not self.check_permission(request, PERM_INVOICE_LIST):
             return Response(
-                {"success": False, "message": "No tiene permisos para listar facturas."},
+                {"status": False, "message": "No tiene permisos para listar facturas."},
                 status=status.HTTP_403_FORBIDDEN
             )
-        return super().list(request)
+        
+        return super().list(request)        
     
     def retrieve(self, request, pk=None, *args, **kwargs):
         """GET /invoices/{id}/"""
@@ -669,31 +675,13 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='send-by-email')
     def send_by_email(self, request, id_invoice=None):
-        """
-        Crea un ZIP temporal en memoria con PDF y XML de la factura 
-        y lo envía por correo electrónico al cliente.
-        
-        El ZIP se crea en memoria, se convierte a base64 y se envía al servicio
-        de email (UsersMachPay) sin almacenarlo en Firebase.
-        
-        Validaciones:
-        - Usuario autenticado con permisos
-        - Factura en estado VALIDADA
-        - Cliente con email registrado
-        - PDF y XML disponibles en Firebase
-        
-        Returns:
-            Response con success, message, zip_size_mb y email del destinatario
-        """
-        # Verificar autenticación
         if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
             return Response(
                 {"success": False, "message": "Usuario no autenticado"},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        permission_id = PERM_INVOICE_DOWNLOAD
-        if not self.check_permission(request, permission_id):
+        if not self.check_permission(request, PERM_INVOICE_SEND_EMAIL):
             return Response(
                 {"success": False, "message": "No tiene permisos para enviar facturas por email."},
                 status=status.HTTP_403_FORBIDDEN
@@ -865,19 +853,57 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
 @csrf_exempt
 @require_http_methods(["GET"])
 def download_invoice_pdf(request, id_invoice):
-    """GET /invoices/{id}/download_pdf/ - Descarga PDF de factura."""
+    """GET /invoices/{id}/download_pdf/ - Descarga PDF de factura."""    
+    jwt_auth = JWTAuthentication()
+    try:
+        user_data = jwt_auth.authenticate(request)
+        if user_data:
+            user, payload = user_data
+            request.user = user
+            request.auth = payload
+    except Exception as e:
+        return HttpResponse(
+            '{"status": false, "detail": "Usuario no autenticado"}',
+            content_type='application/json',
+            status=401
+        )
+    
+    if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+        return HttpResponse(
+            '{"status": false, "detail": "Usuario no autenticado"}',
+            content_type='application/json',
+            status=401
+        )
+    
+    payload = getattr(request, "auth", None) or {}
+    user_roles = payload.get("rol") or payload.get("roles") or []
+    permisos_usuario = []
+    
+    for rol in user_roles:
+        perms = rol.get("permisos") or rol.get("permissions") or []
+        for perm in perms:
+            if isinstance(perm, dict) and "id" in perm:
+                permisos_usuario.append(perm.get("id"))
+    
+    if PERM_INVOICE_DOWNLOAD not in permisos_usuario:
+        return HttpResponse(
+            '{"status": false, "detail": "No tiene permisos para descargar facturas."}',
+            content_type='application/json',
+            status=403
+        )
+    
     try:
         invoice = Invoice.objects.get(id_invoice=id_invoice)
     except Invoice.DoesNotExist:
         return HttpResponse(
-            '{"detail": "Factura no encontrada."}',
+            '{"status": false, "detail": "Factura no encontrada."}',
             content_type='application/json',
             status=404
         )
     
     if invoice.status_id not in [25, 26]:
         return HttpResponse(
-            '{"detail": "Factura no lista para descarga."}',
+            '{"status": false, "detail": "Factura no lista para descarga."}',
             content_type='application/json',
             status=400
         )
@@ -895,7 +921,7 @@ def download_invoice_pdf(request, id_invoice):
             pdf_data, filename = FactusService().get_invoice_pdf(invoice.cufe)
         else:
             return HttpResponse(
-                '{"detail": "No hay PDF disponible."}',
+                '{"status": false, "detail": "No hay PDF disponible."}',
                 content_type='application/json',
                 status=404
             )
@@ -933,14 +959,14 @@ def download_invoice_pdf(request, id_invoice):
     except requests.RequestException as e:
         logger.error(f"Error descarga Firebase: {e}", exc_info=True)
         return HttpResponse(
-            '{"detail": "Error al descargar desde almacenamiento."}',
+            '{"status": false, "detail": "Error al descargar desde almacenamiento."}',
             content_type='application/json',
             status=502
         )
     except Exception as e:
         logger.error(f"Error descarga PDF {id_invoice}: {e}", exc_info=True)
         return HttpResponse(
-            '{"detail": "Error interno."}',
+            '{"status": false, "detail": "Error interno."}',
             content_type='application/json',
             status=500
         )

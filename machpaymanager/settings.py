@@ -22,7 +22,8 @@ FACTUS_EMAIL = os.getenv('FACTUS_EMAIL')
 FACTUS_PASSWORD = os.getenv('FACTUS_PASSWORD')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DEBUG", "False") == "True"
+# DEBUG = os.getenv("DEBUG", "False") == "True"
+DEBUG = True
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
