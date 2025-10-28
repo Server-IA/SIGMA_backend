@@ -170,29 +170,29 @@ class MachineryUserSerializer(serializers.Serializer):
 
     def validate_humidity_level(self, value):
         """
-        Valida que el nivel de humedad sea un porcentaje válido (entre 0 y 100).
+        Valida que el nivel de humedad sea un porcentaje válido (entre 0 y 50).
         Solo se aplica si el valor no es None.
         """
-        if value is not None and not (0 <= value <= 100):
-            raise serializers.ValidationError("El nivel de humedad debe estar entre 0 y 100%.")
+        if value is not None and not (0 <= value <= 50):
+            raise serializers.ValidationError("El nivel de humedad debe estar entre 0 y 50%.")
         return value
 
     def validate_depth(self, value):
         """
-        Valida que la profundidad no sea negativa.
+        Valida que la profundidad esté entre 0.1 y 0.5.
         Solo se aplica si el valor no es None.
         """
-        if value is not None and value < 0:
-            raise serializers.ValidationError("La profundidad no puede ser un valor negativo.")
+        if value is not None and not (0.1 <= value <= 0.5):
+            raise serializers.ValidationError("La profundidad debe estar entre 0.1 y 0.5.")
         return value
 
     def validate_slope(self, value):
         """
-        Valida que la pendiente no sea negativa.
+        Valida que la pendiente esté entre 0 y 30.
         Solo se aplica si el valor no es None.
         """
-        if value is not None and value < 0:
-            raise serializers.ValidationError("La pendiente no puede ser un valor negativo.")
+        if value is not None and not (0 <= value <= 30):
+            raise serializers.ValidationError("La pendiente debe estar entre 0% y 30%.")
         return value
 
     def validate_work_duration(self, value):

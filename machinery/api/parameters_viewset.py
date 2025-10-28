@@ -45,9 +45,7 @@ class ParametersViewSet(viewsets.ViewSet):
             return Response({
                 'success': True,
                 'message': 'Parámetros disponibles obtenidos exitosamente',
-                'data': serializer.data,
-                'excluded_parameters': excluded_ids,
-                'total_count': parameters.count()
+                'data': serializer.data
             }, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({

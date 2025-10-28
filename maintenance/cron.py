@@ -9,6 +9,9 @@ from machinery.models.periodic_maintenance import PeriodicMaintenanceScheduling
 from parameterization.models.types import Types
 from django.db.models import Q
 from decimal import Decimal
+from service_requests.models import ServiceRequest
+from parameterization.models.statues import Statues
+from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -265,3 +268,78 @@ def generate_automatic_request_id():
         new_number = 1
     
     return f'SOL-{current_year}-{new_number:04d}'
+
+
+def start_pending_requests_job():
+    """
+    Cambia el estado de las solicitudes de servicio de 'Pendiente' (20) a 'En Proceso' (21)
+    y actualiza la fecha de inicio a la fecha actual del job.
+    Además, cambia el estado de la maquinaria asignada a 'Reservada' (7).
+    """
+    logger = logging.getLogger(__name__)
+
+    # Zona horaria de Colombia
+    colombia_tz = pytz.timezone("America/Bogota")
+    now_local = timezone.now().astimezone(colombia_tz)
+    today_local = now_local.date()
+
+    # Buscar solicitudes en estado pendiente (20)
+    pending_requests = (
+        ServiceRequest.objects
+        .select_related('request_status', 'id_responsible_user')
+        .prefetch_related('machinery_users__machinery')
+        .filter(request_status_id=20)
+    )
+
+    updated_requests = 0
+    updated_machinery = 0
+    errors = 0
+
+    # Obtener estado 21 (En Proceso) y 7 (Reservada)
+    try:
+        status_21 = Statues.objects.get(id_statues=21)
+        status_7 = Statues.objects.get(id_statues=7)
+    except Statues.DoesNotExist as e:
+        logger.error(f"Estado requerido no encontrado: {str(e)}")
+        return
+
+    for request in pending_requests:
+        try:
+            with transaction.atomic():
+                # Cambiar estado de solicitud a 21 (En Proceso)
+                request.request_status = status_21
+                # Actualizar fecha de inicio a la fecha actual
+                request.scheduled_start_date = today_local
+                request.save(update_fields=['request_status', 'scheduled_start_date', 'modification_date'])
+
+                updated_requests += 1
+
+                # Cambiar estado de maquinaria asignada a 7 (Reservada)
+                machinery_updated = 0
+                for machinery_user in request.machinery_users.all():
+                    machinery = machinery_user.machinery
+                    if machinery and machinery.machinery_operational_status_id != 7:
+                        machinery.machinery_operational_status = status_7
+                        machinery.save(update_fields=['machinery_operational_status', 'modification_date'])
+                        machinery_updated += 1
+
+                updated_machinery += machinery_updated
+
+                logger.info(
+                    f"Solicitud {request.id_request} actualizada: estado 20→21, "
+                    f"fecha inicio: {today_local}, maquinaria actualizada: {machinery_updated}"
+                )
+
+        except Exception as e:
+            errors += 1
+            logger.error(
+                f"Error procesando solicitud {getattr(request, 'id_request', 'unknown')}: {str(e)}",
+                exc_info=True
+            )
+
+    logger.info(
+        f"Job start_pending_requests_job ejecutado (Colombia: {today_local}). "
+        f"Solicitudes actualizadas: {updated_requests}, "
+        f"Maquinarias actualizadas: {updated_machinery}, "
+        f"Errores: {errors}"
+    )
