@@ -13,6 +13,7 @@ import requests
 import base64
 import os
 import time
+import threading
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -51,14 +52,12 @@ import logging
 logger = logging.getLogger(__name__)
 COLOMBIA_TIMEZONE = pytz.timezone("America/Bogota")
 
-PERM_INVOICE_LIST = 155 # request.list_invoices
-PERM_INVOICE_RETRIEVE = 156 # request.view_invoice_detail
-PERM_INVOICE_CREATE_EDIT = 157 # request.crud_invoice
-PERM_INVOICE_LINES_CRUD = 158 # request.crud_invoice_lines
-PERM_INVOICE_GENERATE = 159 # request.generate_invoice
-PERM_INVOICE_DOWNLOAD = 160 # request.download_invoice
-PERM_INVOICE_SEND_EMAIL = 161 # request.send_invoice_email
-
+PERM_INVOICE_LIST = 156 # request.list_invoices
+PERM_INVOICE_RETRIEVE = 157 # request.view_invoice_detail
+PERM_INVOICE_CREATE_EDIT = 158 # request.crud_invoice
+PERM_INVOICE_LINES_CRUD = 159 # request.crud_invoice_lines
+PERM_INVOICE_GENERATE = 160 # request.generate_invoice
+PERM_INVOICE_DOWNLOAD = 161 # request.download_invoice
 
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet para gestión de Facturas Electrónicas."""
@@ -311,9 +310,22 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        fields_to_update = []
         for field, value in update_data.items():
-            setattr(instance, field, value)
-        instance.save(update_fields=update_data.keys())
+            if field == "payment_method":
+                # ForeignKey requiere usar payment_method_id para asignar directamente el ID
+                if not PaymentMethod.objects.filter(pk=value).exists():
+                    return Response(
+                        {"success": False, "message": f"PaymentMethod con ID {value} no existe."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                instance.payment_method_id = value
+                fields_to_update.append('payment_method')
+            else:
+                setattr(instance, field, value)
+                fields_to_update.append(field)
+        
+        instance.save(update_fields=fields_to_update)
         
         return Response({
             "success": True,
@@ -410,7 +422,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             }, status=status.HTTP_200_OK)
         
         # PUT/PATCH
-        allowed = {'quantity', 'units_measurement_id', 'percentage_taxes_per_line', 'discount_percentage'}
+        allowed = {'quantity', 'units_measurement_id', 'percentage_taxes_per_line', 'discount_percentage', 'tribute_id'}
         update_data = {k: v for k, v in request.data.items() if k in allowed}
         
         if not update_data:
@@ -464,7 +476,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         
         if invoice.status_id != self.BORRADOR:
             return Response(
-                {"success": False, "message": "Solo en facturas BORRADOR."},
+                {"success": False, "message": "Solo permito para facturas sin validación."},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -577,6 +589,22 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 invoice.invoice_number = bill_data.get('number')
                 invoice.api_response = factus_response
                 
+                # Sincronizar amount_to_pay con el total de Factus (incluye allowance_charges)
+                factus_total = bill_data.get('total')
+                if factus_total:
+                    try:
+                        invoice.amount_to_pay = Decimal(str(factus_total))
+                        logger.info(f"amount_to_pay sincronizado con Factus: {invoice.amount_to_pay}")
+                        
+                        # Actualizar también el ServiceRequest asociado
+                        if invoice.service_request_id:
+                            ServiceRequest.objects.filter(pk=invoice.service_request_id).update(
+                                amount_to_pay=float(invoice.amount_to_pay)
+                            )
+                            logger.info(f"ServiceRequest {invoice.service_request_id} actualizado con amount_to_pay: {invoice.amount_to_pay}")
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"No se pudo convertir total de Factus a Decimal: {factus_total}, error: {e}")
+                
                 if invoice.cufe and invoice.invoice_number:
                     if invoice.status_id == self.BORRADOR:
                         self._transition_status(invoice, self.ENVIADA, request.user)
@@ -603,8 +631,8 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 except Exception as e:
                     logger.warning("El servicio de auditoría ha fallado en generate_fe: %s", e)
 
-                # Descargar y subir archivos
-                self._handle_invoice_files(invoice)
+                # Descargar y subir archivos + enviar email automáticamente
+                self._handle_invoice_files(invoice, request)
                 
                 return Response({
                     'detail': 'Factura generada y enviada con éxito.',
@@ -624,7 +652,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-    def _handle_invoice_files(self, invoice):
+    def _handle_invoice_files(self, invoice, request=None):
         """Descarga archivos de Factus y sube a Firebase."""
         time.sleep(2)
         
@@ -670,23 +698,99 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             
             logger.info(f"Archivos subidos para factura {invoice.id_invoice}")
             
+            # Enviar email automáticamente después de subir archivos
+            if request and invoice.status_id == self.VALIDADA:
+                auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION')
+                if not auth_header and hasattr(request, 'headers'):
+                    auth_header = request.headers.get('Authorization')
+                
+                logger.info(f"[AUTO-SEND] Iniciando envío automático de email para factura {invoice.invoice_number}")
+                self._send_email_async(invoice, auth_header)
+            
         except Exception as e:
             logger.error(f"Error procesando archivos de factura {invoice.id_invoice}: {e}", exc_info=True)
     
+    def _send_email_async(self, invoice, auth_header=None):
+        """Envía el correo electrónico de forma asíncrona en un thread separado."""
+        def send_email_task():
+            try:
+                logger.info(f"[AUTO-SEND] Thread iniciado para factura {invoice.invoice_number}")
+                
+                # Validar que la factura tenga cliente y email
+                if not invoice.customer:
+                    logger.warning(f"[AUTO-SEND] Factura {invoice.invoice_number} sin cliente asociado")
+                    return
+                
+                if not invoice.customer.email:
+                    logger.warning(f"[AUTO-SEND] Cliente de factura {invoice.invoice_number} sin email")
+                    return
+                
+                # Validar que existan PDF y XML
+                if not invoice.invoice_pdf_url or not invoice.invoice_xml_url:
+                    logger.warning(f"[AUTO-SEND] Factura {invoice.invoice_number} sin archivos completos")
+                    return
+                
+                # Crear ZIP
+                logger.info(f"[AUTO-SEND] Creando ZIP para factura {invoice.invoice_number}")
+                zip_bytes, zip_filename = ZipService.create_invoice_zip_in_memory(
+                    pdf_url=invoice.invoice_pdf_url,
+                    xml_url=invoice.invoice_xml_url,
+                    invoice_number=invoice.invoice_number,
+                    reference_code=invoice.reference_code
+                )
+                
+                customer = invoice.customer
+                client_name = f"{customer.name or ''} {customer.first_last_name or ''}".strip()
+                if not client_name:
+                    client_name = "Cliente"
+                
+                total_formatted = f"${invoice.amount_to_pay:,.0f} COP".replace(",", ".")
+                invoice_date = invoice.invoice_date.strftime('%d/%m/%Y') if invoice.invoice_date else "N/A"
+                
+                auth_service_url = os.getenv('AUTH_SERVICE_URL')
+                if not auth_service_url:
+                    logger.error("[AUTO-SEND] AUTH_SERVICE_URL no configurado")
+                    return
+                
+                zip_base64 = base64.b64encode(zip_bytes).decode('utf-8')
+                url = f"{auth_service_url.rstrip('/')}/users/users/send-invoice-zip/"
+                
+                payload = {
+                    "email": customer.email,
+                    "client_name": client_name,
+                    "invoice_number": invoice.invoice_number,
+                    "invoice_date": invoice_date,
+                    "total_amount": total_formatted,
+                    "zip_base64": zip_base64,
+                    "zip_filename": zip_filename,
+                    "cufe": invoice.cufe if hasattr(invoice, 'cufe') else None
+                }
+                
+                headers = {'Content-Type': 'application/json'}
+                if auth_header:
+                    headers['Authorization'] = auth_header
+                    logger.info(f"[AUTO-SEND] Token propagado: {auth_header[:20]}...")
+                
+                logger.info(f"[AUTO-SEND] Enviando email a {customer.email}")
+                response = requests.post(url, json=payload, headers=headers, timeout=60)
+                
+                logger.info(f"[AUTO-SEND] Status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    logger.info(f"[AUTO-SEND] ✓ Email enviado exitosamente a {customer.email}")
+                else:
+                    logger.error(f"[AUTO-SEND] ✗ Error enviando email: {response.text[:200]}")
+                    
+            except Exception as e:
+                logger.error(f"[AUTO-SEND] ✗ Excepción en envío automático: {e}", exc_info=True)
+        
+        # Crear y ejecutar thread daemon
+        email_thread = threading.Thread(target=send_email_task, daemon=True)
+        email_thread.start()
+        logger.info(f"[AUTO-SEND] Thread lanzado para factura {invoice.invoice_number}")
+    
     @action(detail=True, methods=['post'], url_path='send-by-email')
     def send_by_email(self, request, id_invoice=None):
-        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
-            return Response(
-                {"success": False, "message": "Usuario no autenticado"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        if not self.check_permission(request, PERM_INVOICE_SEND_EMAIL):
-            return Response(
-                {"success": False, "message": "No tiene permisos para enviar facturas por email."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
         invoice = get_object_or_404(Invoice, id_invoice=id_invoice)
         
         # 1. Validar estado 

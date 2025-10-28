@@ -17,6 +17,7 @@ class ServiceRequestListSerializer(serializers.ModelSerializer):
     payment_status_id = serializers.SerializerMethodField()
     scheduled_date = serializers.DateField(source="scheduled_start_date", read_only=True)
     completion_date = serializers.SerializerMethodField()
+    invoice_id = serializers.SerializerMethodField()
 
     class Meta:
         model = ServiceRequest
@@ -31,6 +32,7 @@ class ServiceRequestListSerializer(serializers.ModelSerializer):
             "payment_status_name",
             "scheduled_date",
             "completion_date",
+            "invoice_id",
         ]
 
     def get_customer_name(self, obj):
@@ -107,5 +109,17 @@ class ServiceRequestListSerializer(serializers.ModelSerializer):
                 if obj.completion_cancellation_datetime:
                     return obj.completion_cancellation_datetime.date()
             return None
+        except Exception:
+            return None
+
+    def get_invoice_id(self, obj):
+        """
+        Retorna el ID de la factura validada asociada a esta solicitud.
+        Retorna None si no hay factura validada (status_id = 26).
+        """
+        try:
+            # Buscar factura con estado VALIDADA (26)
+            validated_invoice = obj.invoices.filter(status_id=26).first()
+            return validated_invoice.id_invoice if validated_invoice else None
         except Exception:
             return None

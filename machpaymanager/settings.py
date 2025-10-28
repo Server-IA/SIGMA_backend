@@ -23,8 +23,7 @@ FACTUS_PASSWORD = os.getenv('FACTUS_PASSWORD')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # DEBUG = os.getenv("DEBUG", "False") == "True"
-DEBUG = True
-
+DEBUR = True
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
 # Application definition
@@ -119,7 +118,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'America/Bogota'  # Zona horaria de Colombia (UTC-5)
 
 USE_I18N = True
 
