@@ -225,9 +225,11 @@ class ServiceViewSet(viewsets.ViewSet):
         try:
             # Buscar por id_service (coincidencia exacta insensible a mayúsculas)
             # o por service_name (búsqueda parcial insensible a mayúsculas)
+            # Solo se devuelven servicios activos (service_status=1)
             services = Service.objects.filter(
-                models.Q(id_service__iexact=query) |
-                models.Q(service_name__icontains=query)
+                (models.Q(id_service__iexact=query) |
+                 models.Q(service_name__icontains=query)) &
+                models.Q(service_status_id=1)
             )
             
             if not services.exists():

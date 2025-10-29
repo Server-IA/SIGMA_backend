@@ -22,8 +22,8 @@ FACTUS_EMAIL = os.getenv('FACTUS_EMAIL')
 FACTUS_PASSWORD = os.getenv('FACTUS_PASSWORD')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-# DEBUG = os.getenv("DEBUG", "False") == "True"
-DEBUR = True
+DEBUG = os.getenv("DEBUG", "False") == "True"
+
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
 # Application definition
@@ -118,7 +118,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'America/Bogota'  # Zona horaria de Colombia (UTC-5)
+TIME_ZONE = 'UTC'
 
 USE_I18N = True
 
