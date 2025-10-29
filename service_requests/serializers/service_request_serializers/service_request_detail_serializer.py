@@ -226,6 +226,9 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
     payment_method_name = serializers.CharField(source='payment_method.name', read_only=True, allow_null=True)
     payment_method_code = serializers.CharField(source='payment_method.code', read_only=True, allow_null=True)  # Keeping for backward compatibility
     
+    # Invoice field
+    invoice_id = serializers.SerializerMethodField()
+    
     # Nested serializers
     request_machinery_user = RequestMachineryUserSerializer(many=True, read_only=True, source='machinery_users')
     request_location = RequestLocationSerializer(read_only=True)
@@ -261,7 +264,10 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
             'currency_unit_amount_to_pay', 'currency_unit_amount_to_pay_id',
             'currency_unit_amount_to_pay_name', 'currency_unit_amount_to_pay_symbol',
             'payment_status', 'payment_status_id', 'payment_status_name', 
-            'payment_method_code', 'payment_method_name'
+            'payment_method_code', 'payment_method_name',
+            
+            # Invoice
+            'invoice_id'
         ]
         extra_kwargs = {
             'customer': {'write_only': True},
@@ -449,3 +455,15 @@ class ServiceRequestDetailSerializer(serializers.ModelSerializer):
         if user_info:
             return f"{user_info.get('name', '')} {user_info.get('first_last_name', '')} {user_info.get('second_last_name', '')}".strip()
         return None
+
+    def get_invoice_id(self, obj):
+        """
+        Retorna el ID de la factura validada asociada a esta solicitud.
+        Retorna None si no hay factura validada (status_id = 26).
+        """
+        try:
+            # Buscar factura con estado VALIDADA (26)
+            validated_invoice = obj.invoices.filter(status_id=26).first()
+            return validated_invoice.id_invoice if validated_invoice else None
+        except Exception:
+            return None
