@@ -1,9 +1,10 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from rest_framework.decorators import action
+from rest_framework.decorators import action, authentication_classes, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 import logging
-from django.db import transaction, IntegrityError
+from django.db import transaction, IntegrityError, models
 from django.http import Http404
 from rest_framework import status
 from service_requests.models.services import Service
@@ -198,6 +199,60 @@ class ServiceViewSet(viewsets.ViewSet):
                     "error": str(e)
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    
+    @action(detail=False, methods=['get'], url_path='search')
+    @authentication_classes([])
+    def search_service(self, request):
+        """
+        Busca un servicio por id_service o service_name (búsqueda insensible a mayúsculas/minúsculas).
+        
+        Parámetros de consulta:
+        - query: Término de búsqueda (id_service o service_name)
+        
+        Ejemplo: /api/service-requests/services/search/?query=SV-2023-001
+        """
+        permission_classes = [IsAuthenticated]
+
+        query = request.query_params.get('query', '').strip()
+        
+        if not query:
+            return Response({
+                'success': False,
+                'message': 'El parámetro de búsqueda es requerido'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            # Buscar por id_service (coincidencia exacta insensible a mayúsculas)
+            # o por service_name (búsqueda parcial insensible a mayúsculas)
+            # Solo se devuelven servicios activos (service_status=1)
+            services = Service.objects.filter(
+                (models.Q(id_service__iexact=query) |
+                 models.Q(service_name__icontains=query)) &
+                models.Q(service_status_id=1)
+            )
+            
+            if not services.exists():
+                return Response({
+                    'success': False,
+                    'message': f'No se encontraron servicios que coincidan con: {query}'
+                }, status=status.HTTP_404_NOT_FOUND)
+                
+            serializer = ServiceListSerializer(services, many=True, context={'request': request})
+            
+            return Response({
+                'success': True,
+                'message': 'Búsqueda completada exitosamente',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error en la búsqueda de servicios: {str(e)}", exc_info=True)
+            return Response({
+                'success': False,
+                'message': 'Error al realizar la búsqueda',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['get'], url_path='active')
     def active(self, request):
