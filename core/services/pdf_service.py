@@ -9,6 +9,7 @@ from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 import requests
 import logging
+from core.services import csc_service
 
 logger = logging.getLogger(__name__)
 
@@ -173,11 +174,23 @@ def build_maintenance_report_pdf(report, maintenance_items, spare_parts, downloa
         except Exception:
             machinery_image = None
 
+    # Resolver ubicación legible con CSC API
+    raw_country = getattr(machinery, 'id_country', None)
+    raw_state = getattr(machinery, 'id_department', None)
+    raw_city = getattr(machinery, 'id_city', None)
+
+    country_iso2 = csc_service.get_country_iso2(raw_country) if raw_country else None
+    state_iso2 = csc_service.get_state_iso2(country_iso2 or raw_country, raw_state) if raw_state else None
+    country_name = csc_service.resolve_country_name(raw_country) if raw_country else 'N/D'
+    state_name = csc_service.resolve_state_name(country_iso2 or raw_country, raw_state) if raw_state else 'N/D'
+    city_name = csc_service.resolve_city_name(country_iso2 or raw_country, state_iso2 or (raw_state or ''), raw_city) if raw_city is not None else 'N/D'
+    location_display = f"{country_name} - {state_name} - {city_name}"
+
     machinery_rows = [
         ["Serial", str(getattr(machinery, 'serial_number', 'N/D'))],
         ["Nombre", str(getattr(machinery, 'machinery_name', 'N/D'))],
         ["Tipo", str(getattr(getattr(machinery, 'machinery_type', None), 'name', 'N/D'))],
-        ["Ubicación", f"{getattr(machinery,'id_country','N/D')}-{getattr(machinery,'id_department','N/D')}-{getattr(machinery,'id_city','N/D')}"]
+        ["Ubicación", location_display]
     ]
 
     if machinery_image:
