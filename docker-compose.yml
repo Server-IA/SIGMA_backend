@@ -39,6 +39,13 @@ services:
     container_name: django_cron
     command: bash -c "python manage.py crontab remove || true; python manage.py crontab add; cron -f"
     # SOLUCIÓN: Agregar las mismas variables de entorno que el contenedor web
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: machpayroll
+      AUDIT_URL: ${AUDIT_URL}
+      AUDIT_TOKEN: ${AUDIT_TOKEN}
+      AUDIT_HTTP_TIMEOUT: "1.5"
     depends_on:
       - db
     networks:
