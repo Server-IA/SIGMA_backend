@@ -37,7 +37,7 @@ services:
   cron:
     build: .
     container_name: django_cron
-    command: bash -c "python manage.py crontab remove || true; python manage.py crontab add; cron -f"
+    command: bash -c 'python manage.py crontab remove || true && python manage.py crontab add && cron -f'
     # SOLUCIÓN: Agregar las mismas variables de entorno que el contenedor web
     env_file:
       - .env
