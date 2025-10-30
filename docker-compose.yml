@@ -13,8 +13,6 @@ services:
       AUDIT_URL: ${AUDIT_URL}
       AUDIT_TOKEN: ${AUDIT_TOKEN}
       AUDIT_HTTP_TIMEOUT: "1.5"
-    depends_on:
-      - db
 
   cron:
     build: .
@@ -28,7 +26,7 @@ services:
       AUDIT_TOKEN: ${AUDIT_TOKEN}
       AUDIT_HTTP_TIMEOUT: "1.5"
     depends_on:
-      - db
+      - web
 
 volumes:
   machpay_postgres_data:
