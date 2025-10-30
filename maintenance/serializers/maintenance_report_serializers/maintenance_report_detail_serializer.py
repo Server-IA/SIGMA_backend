@@ -4,6 +4,7 @@ import requests
 import logging
 
 from maintenance.models import MaintenanceReport
+from core.services import csc_service
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,20 @@ class MaintenanceReportDetailSerializer(serializers.ModelSerializer):
                     machinery_location = f"{country}-{dept}-{city}"
             except Exception:
                 machinery_location = None
+
+            # Resolver nombres legibles para ubicación (adicional, sin romper 'machinery_location')
+            try:
+                raw_country = getattr(machinery, 'id_country', None)
+                raw_state = getattr(machinery, 'id_department', None)
+                raw_city = getattr(machinery, 'id_city', None)
+                country_iso2 = csc_service.get_country_iso2(raw_country) if raw_country else None
+                state_iso2 = csc_service.get_state_iso2(country_iso2 or raw_country, raw_state) if raw_state else None
+                country_name = csc_service.resolve_country_name(raw_country) if raw_country else None
+                state_name = csc_service.resolve_state_name(country_iso2 or raw_country, raw_state) if raw_state else None
+                city_name = csc_service.resolve_city_name(country_iso2 or raw_country, state_iso2 or (raw_state or ''), raw_city) if raw_city is not None else None
+                machinery_location_name = " - ".join([p for p in [country_name, state_name, city_name] if p]) or None
+            except Exception:
+                machinery_location_name = None
 
             # Fecha y tipo del mantenimiento
             scheduled_at = getattr(scheduling, 'scheduled_at', None) if scheduling else None
@@ -241,6 +256,7 @@ class MaintenanceReportDetailSerializer(serializers.ModelSerializer):
                 'machinery_name': machinery_name,
                 'machinery_type': machinery_type_name,
                 'machinery_location': machinery_location,
+                'machinery_location_name': machinery_location_name,
                 'machinery_image': machinery_image,
                 'maintenance_date': maintenance_date,
                 'maintenance_type': maintenance_type_name_sched,

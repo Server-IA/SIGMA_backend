@@ -49,6 +49,11 @@ SERVICE_NAME=machpayroll
 AUDIT_URL=http://audit-service:8002/audit-events
 AUDIT_TOKEN=devtoken
 AUDIT_HTTP_TIMEOUT=1.5
+
+# Country/State/City API
+X_CSCAPI_KEY=SThkSGZBV3Z4amdiSVduRlp0SkE4MEpwMnU4UWhpM2xOdDJERE5uWA==
+# Opcional (por defecto: https://api.countrystatecity.in/v1)
+# CSC_API_BASE_URL=https://api.countrystatecity.in/v1
 ```
 ## 3. Crear la Red de Docker
 
