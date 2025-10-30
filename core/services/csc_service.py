@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_base_url() -> str:
-    base = os.getenv('CSC_API_BASE_URL', 'https://api.countrystatecity.in/v1').rstrip('/')
+    base = os.getenv('CSC_API_BASE_URL').rstrip('/')
     return base
 
 
