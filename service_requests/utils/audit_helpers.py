@@ -296,3 +296,57 @@ def service_request_cancel_snapshot(service_request_obj, machinery_statuses: Opt
         'completion_cancellation_user_id': _safe_get(service_request_obj.completion_cancellation_user, 'id_user') if hasattr(service_request_obj, 'completion_cancellation_user') and service_request_obj.completion_cancellation_user else None,
         'machinery_statuses': machinery_statuses,
     }
+
+def invoice_snapshot(invoice_obj) -> Dict[str, Any]:
+    """
+    Snapshot ligero y serializable en JSON para el modelo Invoice.
+    Devuelve solo valores primitivos o None.
+    """
+    if not invoice_obj:
+        return {}
+
+    def _safe_get(obj, attr, default=None):
+        try:
+            if obj is None:
+                return default
+            if isinstance(obj, dict):
+                return obj.get(attr, default)
+            return getattr(obj, attr, default)
+        except Exception:
+            return default
+
+    def serialize_attr(attr):
+        val = _safe_get(invoice_obj, attr)
+        if val is None:
+            return None
+        if isinstance(val, (int, float, str, bool)):
+            return val
+        if hasattr(val, "id"):
+            return getattr(val, "id", None)
+        if hasattr(val, "pk"):
+            return getattr(val, "pk", None)
+        if hasattr(val, "name"):
+            return getattr(val, "name", None)
+        return str(val)
+
+    return {
+        "id_invoice": _safe_get(invoice_obj, "id_invoice"),
+        "reference_code": _safe_get(invoice_obj, "reference_code"),
+        "invoice_number": _safe_get(invoice_obj, "invoice_number"),
+        "invoice_date": str(_safe_get(invoice_obj, "invoice_date")),
+        "cufe": _safe_get(invoice_obj, "cufe"),
+        "status": serialize_attr("status"),
+        "customer": serialize_attr("customer"),
+        "tax_regime": serialize_attr("tax_regime"),
+        "service_request": serialize_attr("service_request"),
+        "payment_method": serialize_attr("payment_method"),
+        "amount_to_pay": float(_safe_get(invoice_obj, "amount_to_pay") or 0.0),
+        "total_without_taxes": float(_safe_get(invoice_obj, "total_without_taxes") or 0.0),
+        "total_taxes": float(_safe_get(invoice_obj, "total_taxes") or 0.0),
+        "total_withholding_taxes": float(_safe_get(invoice_obj, "total_withholding_taxes") or 0.0),
+        "invoice_pdf_url": _safe_get(invoice_obj, "invoice_pdf_url"),
+        "invoice_xml_url": _safe_get(invoice_obj, "invoice_xml_url"),
+        "created_at": str(_safe_get(invoice_obj, "created_at")),
+        "sent_at": str(_safe_get(invoice_obj, "sent_at")),
+        "modification_date": _safe_get(invoice_obj, 'modification_date', timezone.now()).isoformat()
+    }

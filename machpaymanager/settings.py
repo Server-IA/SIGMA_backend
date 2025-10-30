@@ -14,6 +14,13 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv("SECRET_KEY")
 
+# Factus API (Billing)
+FACTUS_API_URL = os.getenv('FACTUS_API_URL')
+FACTUS_CLIENT_ID = os.getenv('FACTUS_CLIENT_ID')
+FACTUS_CLIENT_SECRET = os.getenv('FACTUS_CLIENT_SECRET')
+FACTUS_EMAIL = os.getenv('FACTUS_EMAIL')
+FACTUS_PASSWORD = os.getenv('FACTUS_PASSWORD')
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
@@ -165,8 +172,8 @@ CRONJOBS = [
     # Diario: generar solicitudes automáticas de mantenimiento por horas de uso
     ('10 0 * * *', 'maintenance.cron.generate_automatic_maintenance_requests_job', '>> /proc/1/fd/1 2>&1'),
     # ('*/1 * * * *', 'maintenance.cron.test_job', '>> /proc/1/fd/1 2>&1')
-    ('0 1 * * *', 'maintenance.cron.start_pending_requests_job', '>> /proc/1/fd/1 2>&1')
-    # iniciar solicitudes pendientes diario a las 1 de la mañana
+    ('0 * * * *', 'maintenance.cron.start_pending_requests_job', '>> /proc/1/fd/1 2>&1')
+    # iniciar solicitudes pendientes cada hora
 ]
 
 LOGGING = {

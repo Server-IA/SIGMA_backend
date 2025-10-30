@@ -64,3 +64,60 @@ def upload_file_to_firebase(
         
     except Exception as e:
         raise Exception(f"Error al subir el archivo: {str(e)}")
+
+
+def upload_invoice_file(file_data: bytes, invoice_number: str, reference_code: str, file_extension: str, content_type: str) -> str:
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"factura_{invoice_number}_{reference_code}_{timestamp}.{file_extension}"
+        
+        blob_path = f"invoices/{filename}"
+        blob = bucket.blob(blob_path)
+        
+        blob.upload_from_string(file_data, content_type=content_type)
+        blob.make_public()
+        
+        return blob.public_url
+        
+    except Exception as e:
+        raise Exception(f"Error al subir el archivo {file_extension.upper()} a Firebase: {str(e)}")
+
+
+def upload_invoice_pdf(file_data: bytes, invoice_number: str, reference_code: str) -> str:
+    return upload_invoice_file(file_data, invoice_number, reference_code, 'pdf', 'application/pdf')
+
+
+def upload_invoice_files_pair(pdf_data: bytes, xml_data: bytes, invoice_number: str, reference_code: str) -> tuple:
+    """
+    Sube simultáneamente PDF y XML de una factura con el mismo nombre base.
+    
+    Args:
+        pdf_data: Contenido del PDF en bytes
+        xml_data: Contenido del XML en bytes
+        invoice_number: Número de la factura
+        reference_code: Código de referencia de la factura
+
+    Returns:
+        tuple: (pdf_url, xml_url)
+    """
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_name = f"factura_{invoice_number}_{reference_code}_{timestamp}"
+        
+        # Subir PDF
+        pdf_filename = f"{base_name}.pdf"
+        pdf_blob = bucket.blob(f"invoices/{pdf_filename}")
+        pdf_blob.upload_from_string(pdf_data, content_type='application/pdf')
+        pdf_blob.make_public()
+        
+        # Subir XML
+        xml_filename = f"{base_name}.xml"
+        xml_blob = bucket.blob(f"invoices/{xml_filename}")
+        xml_blob.upload_from_string(xml_data, content_type='application/xml')
+        xml_blob.make_public()
+        
+        return pdf_blob.public_url, xml_blob.public_url
+        
+    except Exception as e:
+        raise Exception(f"Error al subir archivos de factura a Firebase: {str(e)}")
+
