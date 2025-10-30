@@ -7,6 +7,7 @@ from openpyxl.styles import Font, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
 
 from service_requests.utils.external_user_helper import get_user_display_name
+from core.services import csc_service
 
 
 def _format_currency(amount, currency_unit=None):
@@ -175,9 +176,22 @@ def _build_report_data(queryset, user_data_map: Dict[int, Dict[str, Any]]) -> Li
         # Datos de ubicación
         location = request.request_location
         if location:
+            # Resolver país/estado/ciudad a nombres legibles vía CSC API
+            country_raw = getattr(location, 'country', None)
+            department_raw = getattr(location, 'department', None)
+            city_raw = getattr(location, 'city_id', None)
+
+            country_iso2 = csc_service.get_country_iso2(country_raw) if country_raw else None
+            state_iso2 = csc_service.get_state_iso2(country_iso2 or country_raw, department_raw) if department_raw else None
+
+            country_name = csc_service.resolve_country_name(country_raw) if country_raw else ""
+            state_name = csc_service.resolve_state_name(country_iso2 or country_raw, department_raw) if department_raw else ""
+            city_name = csc_service.resolve_city_name(country_iso2 or country_raw, state_iso2 or (department_raw or ''), city_raw) if city_raw is not None else ""
+
             row_data.update({
-                'ubic_region': location.department or "",
-                'ubic_municipio': str(location.city_id) if location.city_id else "",
+                'ubic_pais': country_name or "",
+                'ubic_region': state_name or "",
+                'ubic_municipio': city_name or (str(city_raw) if city_raw is not None else ""),
                 'ubic_lugar': location.place_name or "",
                 'ubic_area': _format_area_with_unit(location.area, location.area_unit),
                 'ubic_altitud': _format_altitude_with_unit(location.altitude, location.altitude_unit),
@@ -260,6 +274,7 @@ def generate_excel_report(queryset, user_data_map: Dict[int, Dict[str, Any]], us
         "Cliente (Documento)",
         "Maquinaria",
         "Operario (Nombre)",
+        "Ubic. País",
         "Ubic. Región",
         "Ubic. Municipio", 
         "Ubic. Lugar",
@@ -276,7 +291,7 @@ def generate_excel_report(queryset, user_data_map: Dict[int, Dict[str, Any]], us
     field_mapping = [
         'codigo_seguimiento', 'estado_solicitud', 'fecha_registro', 'fecha_programada',
         'fecha_realizacion', 'cliente_nombre', 'cliente_tipo_documento', 'cliente_documento',
-        'maquinaria', 'operario', 'ubic_region', 'ubic_municipio', 'ubic_lugar',
+        'maquinaria', 'operario', 'ubic_pais', 'ubic_region', 'ubic_municipio', 'ubic_lugar',
         'ubic_area', 'ubic_altitud', 'monto_a_pagar', 'cantidad_pagada', 'estado_pago',
         'modalidad_pago', 'observacion'
     ]
@@ -344,6 +359,7 @@ def generate_csv_report(queryset, user_data_map: Dict[int, Dict[str, Any]], user
         "Cliente (Documento)",
         "Maquinaria",
         "Operario (Nombre)",
+        "Ubic. País",
         "Ubic. Región",
         "Ubic. Municipio", 
         "Ubic. Lugar",
@@ -360,7 +376,7 @@ def generate_csv_report(queryset, user_data_map: Dict[int, Dict[str, Any]], user
     field_mapping = [
         'codigo_seguimiento', 'estado_solicitud', 'fecha_registro', 'fecha_programada',
         'fecha_realizacion', 'cliente_nombre', 'cliente_tipo_documento', 'cliente_documento',
-        'maquinaria', 'operario', 'ubic_region', 'ubic_municipio', 'ubic_lugar',
+        'maquinaria', 'operario', 'ubic_pais', 'ubic_region', 'ubic_municipio', 'ubic_lugar',
         'ubic_area', 'ubic_altitud', 'monto_a_pagar', 'cantidad_pagada', 'estado_pago',
         'modalidad_pago', 'observacion'
     ]
