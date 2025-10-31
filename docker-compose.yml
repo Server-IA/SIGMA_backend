@@ -13,6 +13,7 @@ services:
       AUDIT_URL: ${AUDIT_URL}
       AUDIT_TOKEN: ${AUDIT_TOKEN}
       AUDIT_HTTP_TIMEOUT: "1.5"
+      X_CSCAPI_KEY: ${X_CSCAPI_KEY}
 
   cron:
     build: .
@@ -25,6 +26,7 @@ services:
       AUDIT_URL: ${AUDIT_URL}
       AUDIT_TOKEN: ${AUDIT_TOKEN}
       AUDIT_HTTP_TIMEOUT: "1.5"
+      X_CSCAPI_KEY: ${X_CSCAPI_KEY}
     depends_on:
       - web
 
