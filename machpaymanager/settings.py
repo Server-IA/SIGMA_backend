@@ -1,7 +1,6 @@
 from pathlib import Path
 from dotenv import load_dotenv
 import os
-import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -183,24 +182,9 @@ LOGGING = {
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'stream': sys.stdout,
         },
     },
-    'root': {
-        'handlers': ['console'],
-        'level': 'DEBUG',  # Puedes cambiar a INFO si quieres menos detalle
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': True,
-        },
-        'django.request': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
-            'propagate': False,
-        },
+    'loggers': {       
         'maintenance': {
             'handlers': ['console'],
             'level': 'INFO',
