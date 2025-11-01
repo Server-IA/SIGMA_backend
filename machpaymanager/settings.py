@@ -182,9 +182,24 @@ LOGGING = {
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
+            'stream': sys.stdout,
         },
     },
+    'root': {
+        'handlers': ['console'],
+        'level': 'DEBUG',  # Puedes cambiar a INFO si quieres menos detalle
+    },
     'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
         'maintenance': {
             'handlers': ['console'],
             'level': 'INFO',
