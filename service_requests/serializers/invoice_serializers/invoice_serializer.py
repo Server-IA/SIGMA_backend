@@ -45,6 +45,18 @@ class InvoiceDetailSerializer(serializers.ModelSerializer):
         `get_api_response` en lugar del JSON completo.
         """
         data = super().to_representation(instance)
+
+        # Remover payload técnico de Factus en el detalle de las líneas
+        try:
+            lines = data.get('lines', [])
+            if isinstance(lines, list):
+                for item in lines:
+                    if isinstance(item, dict):
+                        item.pop('factus_payload', None)
+        except Exception:
+            # En caso de cualquier problema al manipular las líneas, continuar sin romper respuesta
+            pass
+
         return data
 
     def get_api_response(self, obj):

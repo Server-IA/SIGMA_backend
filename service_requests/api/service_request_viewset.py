@@ -21,6 +21,7 @@ from machinery.models.machinery import Machinery
 from users.models import User
 from service_requests.serializers.service_request_serializers.service_request_detail_serializer import ServiceRequestDetailSerializer
 from service_requests.serializers.service_request_serializers.list_service_request_serializer import ServiceRequestListSerializer
+from service_requests.serializers.service_request_serializers.list_service_monitoring_request_serializer import ServiceRequestMonitoringListSerializer
 from service_requests.serializers.service_request_serializers.pre_request_update_serializer import PreRequestUpdateSerializer
 from service_requests.serializers.service_request_serializers.service_request_report_serializer import ServiceRequestReportSerializer
 from service_requests.utils.audit_helpers import (
@@ -163,6 +164,50 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                 "success": False,
                 "message": "Ocurrió un error al listar las solicitudes",
                 "error": str(e),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=["get"], url_path="monitoring-list")
+    def monitoring_list(self, request):
+        """
+        Lista las solicitudes de servicio para monitoreo (requiere permiso ID 170).
+        Solo incluye solicitudes con estado ID 20, 21 o 22.
+        """
+        try:
+            # Verificación de autenticación
+            if not request.user.is_authenticated:
+                return Response({
+                    "message": "Usuario no autenticado"
+                }, status=status.HTTP_401_UNAUTHORIZED)
+
+            # Verificación de permiso específico para monitoreo
+            if not self.check_permission(request, 170):
+                return Response({
+                    "message": "No tiene permisos para ver el monitoreo de solicitudes"
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            # Filtramos por los estados 20, 21 y 22
+            qs = ServiceRequest.objects.filter(
+                request_status_id__in=[20, 21, 22]
+            ).select_related('request_location')
+
+            # Usar el serializador específico para monitoreo
+            serializer = ServiceRequestMonitoringListSerializer(
+                qs, 
+                many=True, 
+                context={"request": request}
+            )
+            
+            return Response({
+                "status": True,
+                "data": serializer.data
+            })
+
+        except Exception as e:
+            logger.error(f"Error en monitoring_list: {str(e)}", exc_info=True)
+            return Response({
+                "status": False,
+                "message": "Error al obtener el listado de monitoreo",
+                "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=["get"], url_path="list-by-customer")

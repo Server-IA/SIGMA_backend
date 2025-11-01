@@ -1,25 +1,21 @@
 from rest_framework import serializers
 import os
 import requests
-import logging
 
 from service_requests.models import ServiceRequest
 
 
-class ServiceRequestListSerializer(serializers.ModelSerializer):
+class ServiceRequestMonitoringListSerializer(serializers.ModelSerializer):
     code = serializers.CharField(source="id_request", read_only=True)
     customer_id = serializers.IntegerField(source="customer.id_customer", read_only=True)
     legal_entity_name = serializers.CharField(source="customer.legal_entity_name", read_only=True)
     customer_name = serializers.SerializerMethodField()
     request_status_name = serializers.SerializerMethodField()
     request_status_id = serializers.IntegerField(source="request_status.id_statues", read_only=True)
-    payment_status_name = serializers.SerializerMethodField()
-    payment_status_id = serializers.SerializerMethodField()
     scheduled_date = serializers.DateField(source="scheduled_start_date", read_only=True)
     completion_date = serializers.SerializerMethodField()
-    invoice_id = serializers.SerializerMethodField()
-    invoice_status_id = serializers.SerializerMethodField()
-    invoice_status_name = serializers.SerializerMethodField()
+    city_id = serializers.IntegerField(source="request_location.city_id", read_only=True)
+    place_name = serializers.CharField(source="request_location.place_name", read_only=True)
 
     class Meta:
         model = ServiceRequest
@@ -30,14 +26,16 @@ class ServiceRequestListSerializer(serializers.ModelSerializer):
             "customer_name",
             "request_status_id",
             "request_status_name",
-            "payment_status_id",
-            "payment_status_name",
             "scheduled_date",
             "completion_date",
-            "invoice_id",
-            "invoice_status_id",
-            "invoice_status_name",
+            "city_id",
+            "place_name"
         ]
+
+    def get_queryset(self):
+        return super().get_queryset().filter(
+            request_status_id__in=[20, 21, 22]
+        ).select_related('request_location')
 
     def get_customer_name(self, obj):
         try:
@@ -94,18 +92,6 @@ class ServiceRequestListSerializer(serializers.ModelSerializer):
         except Exception:
             return None
 
-    def get_payment_status_name(self, obj):
-        try:
-            return obj.payment_status.name if obj.payment_status else None
-        except Exception:
-            return None
-
-    def get_payment_status_id(self, obj):
-        try:
-            return getattr(obj.payment_status, 'id_statues', None) if obj.payment_status else None
-        except Exception:
-            return None
-
     def get_completion_date(self, obj):
         try:
             # Mostrar completion_date solo si el estado es 22
@@ -113,39 +99,5 @@ class ServiceRequestListSerializer(serializers.ModelSerializer):
                 if obj.completion_cancellation_datetime:
                     return obj.completion_cancellation_datetime.date()
             return None
-        except Exception:
-            return None
-
-    def get_invoice_id(self, obj):
-        """
-        Retorna el ID de la primera factura asociada a esta solicitud.
-        Retorna None si no hay facturas asociadas.
-        """
-        try:
-            # Buscar cualquier factura asociada (sin filtrar por estado)
-            invoice = obj.invoices.first()
-            return invoice.id_invoice if invoice else None
-        except Exception:
-            return None
-
-    def get_invoice_status_id(self, obj):
-        """
-        Retorna el ID del estado de la primera factura asociada.
-        Retorna None si no hay facturas asociadas.
-        """
-        try:
-            invoice = obj.invoices.first()
-            return invoice.status_id if invoice else None
-        except Exception:
-            return None
-
-    def get_invoice_status_name(self, obj):
-        """
-        Retorna el nombre del estado de la primera factura asociada.
-        Retorna None si no hay facturas asociadas.
-        """
-        try:
-            invoice = obj.invoices.first()
-            return invoice.status.name if invoice and invoice.status else None
         except Exception:
             return None
