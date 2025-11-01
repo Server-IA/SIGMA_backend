@@ -52,12 +52,12 @@ import logging
 logger = logging.getLogger(__name__)
 COLOMBIA_TIMEZONE = pytz.timezone("America/Bogota")
 
-PERM_INVOICE_LIST = 156 # request.list_invoices
-PERM_INVOICE_RETRIEVE = 157 # request.view_invoice_detail
-PERM_INVOICE_CREATE_EDIT = 158 # request.crud_invoice
-PERM_INVOICE_LINES_CRUD = 159 # request.crud_invoice_lines
-PERM_INVOICE_GENERATE = 160 # request.generate_invoice
-PERM_INVOICE_DOWNLOAD = 161 # request.download_invoice
+PERM_INVOICE_LIST = 156 # request.list_invoices 156
+PERM_INVOICE_RETRIEVE = 157 # request.view_invoice_detail 157
+PERM_INVOICE_CREATE_EDIT = 158 # request.crud_invoice 158
+PERM_INVOICE_LINES_CRUD = 159 # request.crud_invoice_lines 159
+PERM_INVOICE_GENERATE = 160 # request.generate_invoice 160
+PERM_INVOICE_DOWNLOAD = 161 # request.download_invoice 161
 
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet para gestión de Facturas Electrónicas."""
@@ -67,14 +67,12 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     ENVIADA = 25
     VALIDADA = 26
     RECHAZADA = 27
-    ANULADA = 28
     
     VALID_STATUS_TRANSITIONS = {
-        BORRADOR: [ENVIADA, ANULADA],
+        BORRADOR: [ENVIADA],
         ENVIADA: [VALIDADA, RECHAZADA],
-        VALIDADA: [ANULADA],
-        RECHAZADA: [BORRADOR, ANULADA],
-        ANULADA: []
+        VALIDADA: [],
+        RECHAZADA: [BORRADOR]
     }
     
     queryset = Invoice.objects.all()
@@ -183,10 +181,10 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         invoice_id = pk or kwargs.get('id_invoice')
         invoice = get_object_or_404(Invoice, id_invoice=invoice_id)
         
-        allowed = [self.BORRADOR, self.RECHAZADA, self.ANULADA]
+        allowed = [self.BORRADOR, self.RECHAZADA]
         if invoice.status_id not in allowed:
             return Response(
-                {"status": False, "detail": "Solo se pueden eliminar facturas en estado BORRADOR, RECHAZADA o ANULADA."},
+                {"status": False, "detail": "Solo se pueden eliminar facturas en estado BORRADOR o RECHAZADA."},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -239,7 +237,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            if Invoice.objects.filter(service_request=service_request_obj).exclude(status_id__in=[27, 28]).exists():
+            if Invoice.objects.filter(service_request=service_request_obj).exclude(status_id=27).exists():
                 return Response(
                     {"success": False, "message": f"Ya existe una factura en trámite para la solicitud '{service_request_code}'."},
                     status=status.HTTP_400_BAD_REQUEST
