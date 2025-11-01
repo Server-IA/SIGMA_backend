@@ -497,44 +497,14 @@ class CustomerViewSet(viewsets.ViewSet):
                 "data": None
             }, status=status.HTTP_200_OK)
 
-        except IntegrityError:
-            # Soft delete: inactivar por referencias existentes
-            try:
-                customer.customer_statues = Statues.objects.get(pk=2)
-                customer.save(update_fields=['customer_statues'])
-
-                # Intento de inactivar usuario asociado en microservicio de usuarios (placeholder)
-                if getattr(customer, 'id_user_id', None):
-                    # No hay campo de estado en users.User en este servicio. Aquí se podría llamar al microservicio externo.
-                    logger.info("Cliente %s con usuario asociado %s: marcar como inactivo en microservicio de usuarios (pendiente de implementación)", customer.id_customer, customer.id_user_id)
-
-                # Auditoría - inactivación lógica
-                try:
-                    actor_id, actor_name, actor_role_name = get_actor_info(request.user)
-                    AuditClient(request).update(
-                        object_id=str(before.get("id_customer") or customer.id_customer),
-                        before=before,
-                        actor_id=actor_id,
-                        actor_name=actor_name,
-                        actor_role=actor_role_name,
-                        permission_id=permission_id_delete,
-                        module="requests",
-                        submodule="customers",
-                    )
-                except Exception as e:
-                    logger.warning("El servicio de auditoría ha fallado en soft_delete_customer: %s", e)
-
-                return Response({
-                    "success": False,
-                    "code": 409,
-                    "message": "El cliente tiene historial asociado. Se ha inactivado lógicamente.",
-                    "errors": {"detail": ["No se permite eliminación definitiva por integridad de datos."]}
-                }, status=status.HTTP_409_CONFLICT)
-
-            except Statues.DoesNotExist:
-                return Response({"success": False, "message": "Estado inactivo no configurado."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            except Exception as e:
-                return Response({"success": False, "message": "Error al inactivar el cliente.", "error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except IntegrityError as e:
+            logger.error(f"Error de integridad al eliminar cliente: {str(e)}", exc_info=True)
+            return Response({
+                "success": False,
+                "code": 409,
+                "message": "No se puede eliminar el cliente porque tiene referencias asociadas.",
+                "errors": {"detail": [str(e)]}
+            }, status=status.HTTP_409_CONFLICT)
 
         except Exception as e:
             return Response({"success": False, "message": "Error al eliminar el cliente.", "error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
