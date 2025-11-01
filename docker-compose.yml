@@ -16,8 +16,6 @@ services:
       AUDIT_TOKEN: ${AUDIT_TOKEN}
       AUDIT_HTTP_TIMEOUT: "1.5"
       X_CSCAPI_KEY: ${X_CSCAPI_KEY}
-    networks:
-      - shared_net
 
   cron:
     build: .
@@ -33,8 +31,6 @@ services:
       X_CSCAPI_KEY: ${X_CSCAPI_KEY}
     depends_on:
       - web
-    networks:
-      - shared_net
 
 volumes:
   machpay_postgres_data:
