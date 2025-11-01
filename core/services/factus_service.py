@@ -217,3 +217,75 @@ class FactusService:
         except Exception as e:
             logger.error(f"Factus MU validate error: {e}")
             return False
+
+    # ------------------------------
+    # Catálogos: Tributos
+    # ------------------------------
+    def _get_tributes(self, name: str = ""):
+        """Obtiene el catálogo de tributos desde Factus.
+        
+        Args:
+            name: Filtro opcional por nombre del tributo
+            
+        Returns:
+            Lista de tributos con su información
+        """
+        if not self.token:
+            raise FactusServiceError("No se pudo obtener el token de Factus.")
+
+        url = f"{self.BASE_URL}/v1/tributes/products"
+        params = {}
+        if name:
+            params['name'] = name
+            
+        headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json'}
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+            response.raise_for_status()
+            payload = response.json() if response.content else None
+            if not payload or 'data' not in payload:
+                raise FactusServiceError("Respuesta inesperada al consultar tributos.")
+            return payload['data']
+        except requests.RequestException as e:
+            logger.error(f"Factus Tributes Error: {e}")
+            raise FactusServiceError("Error al consultar tributos en Factus.")
+
+    def get_tribute_info(self, tribute_id: int):
+        """Obtiene la información de un tributo específico por su ID.
+        
+        Args:
+            tribute_id: ID del tributo a consultar
+            
+        Returns:
+            dict con información del tributo (id, name, description, etc.) o None si no existe
+        """
+        try:
+            # Obtener todos los tributos y buscar el específico
+            tributes = self._get_tributes()
+            for tribute in tributes:
+                if tribute.get('id') == tribute_id:
+                    return tribute
+            return None
+        except Exception as e:
+            logger.error(f"Error obteniendo info de tributo {tribute_id}: {e}")
+            return None
+
+    def get_tribute_tax_type(self, tribute_id: int) -> str:
+        """Obtiene el tipo de impuesto (tax type) basado en el tribute_id.
+        
+        Args:
+            tribute_id: ID del tributo
+            
+        Returns:
+            str: Nombre del tipo de impuesto (ej: 'IVA', 'INC', etc.) o 'IVA' por defecto
+        """
+        try:
+            tribute_info = self.get_tribute_info(tribute_id)
+            if tribute_info:
+                # Usar el campo 'name' como tax_type
+                # Ejemplos: 'IVA', 'INC', 'Bolsas', etc.
+                return tribute_info.get('name', 'IVA')
+            return 'IVA'  # Default si no se encuentra
+        except Exception as e:
+            logger.error(f"Error obteniendo tax_type para tribute {tribute_id}: {e}")
+            return 'IVA'  # Default en caso de error

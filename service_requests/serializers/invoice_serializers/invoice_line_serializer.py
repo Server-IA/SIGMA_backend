@@ -201,6 +201,16 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
         if 'tribute_id' not in validated_data:
             validated_data['tribute_id'] = 1
         
+        # Obtener dinámicamente el tax_per_line_type desde Factus según el tribute_id
+        tribute_id = validated_data.get('tribute_id', 1)
+        try:
+            from core.services.factus_service import FactusService
+            tax_type = FactusService().get_tribute_tax_type(tribute_id)
+            validated_data['tax_per_line_type'] = tax_type
+        except Exception as e:
+            # En caso de error, usar 'IVA' por defecto
+            validated_data['tax_per_line_type'] = 'IVA'
+        
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
@@ -211,6 +221,17 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
         validated_data['code_reference'] = instance.code_reference
         if 'tribute_id' not in validated_data:
             validated_data['tribute_id'] = instance.tribute_id
+        
+        # Si se actualiza el tribute_id, actualizar también el tax_per_line_type
+        tribute_id = validated_data.get('tribute_id', instance.tribute_id)
+        try:
+            from core.services.factus_service import FactusService
+            tax_type = FactusService().get_tribute_tax_type(tribute_id)
+            validated_data['tax_per_line_type'] = tax_type
+        except Exception as e:
+            # En caso de error, mantener el valor actual o usar 'IVA' por defecto
+            if not instance.tax_per_line_type:
+                validated_data['tax_per_line_type'] = 'IVA'
         
         return super().update(instance, validated_data)
 
