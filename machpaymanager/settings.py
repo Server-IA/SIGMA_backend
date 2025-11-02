@@ -179,16 +179,64 @@ CRONJOBS = [
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
         },
     },
     'loggers': {
-        'maintenance': {
+        # Root logger
+        '': {
             'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
+        },
+        # Django logger
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Application loggers
+        'maintenance': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+        'machinery': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+        'monitoring': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+        'parameterization': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+        'payroll': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+        'service_requests': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+        'users': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+        # Billing/Invoice specific logger
+        'factus': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
         },
     },
 }
