@@ -187,14 +187,18 @@ class FactusService:
         url = f"{self.BASE_URL}/v1/measurement-units"
         headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json'}
         try:
+            logger.info(f"[FACTUS] Solicitando catálogo de unidades de medida: {url}")
             response = requests.get(url, headers=headers, timeout=20)
+            logger.info(f"[FACTUS] Respuesta measurement-units: status={response.status_code}")
             response.raise_for_status()
             payload = response.json() if response.content else None
             if not payload or 'data' not in payload:
+                logger.error(f"[FACTUS] Respuesta inesperada: {payload}")
                 raise FactusServiceError("Respuesta inesperada al consultar unidades de medida.")
+            logger.info(f"[FACTUS] Unidades obtenidas: {len(payload['data'])} items")
             return payload['data']
         except requests.RequestException as e:
-            logger.error(f"Factus Measurement Units Error: {e}")
+            logger.error(f"[FACTUS] Measurement Units Error: {e}", exc_info=True)
             raise FactusServiceError("Error al consultar unidades de medida en Factus.")
 
     def get_measurement_unit_ids(self, refresh: bool = True):
@@ -210,12 +214,19 @@ class FactusService:
         """Valida que el ID de unidad de medida exista en Factus."""
         try:
             unit_int = int(unit_id)
+            logger.info(f"[FACTUS] Validando unidad de medida: {unit_int}")
             valid_ids = self.get_measurement_unit_ids(refresh=True)
             is_valid = unit_int in valid_ids
-            logger.info(f"Factus MU validate: unit={unit_int} valid={is_valid} total_ids={len(valid_ids)}")
+            logger.info(f"[FACTUS] Resultado validación: unit={unit_int} valid={is_valid} total_ids={len(valid_ids)}")
+            
+            # Debug: Si no es válido, mostrar algunos IDs disponibles
+            if not is_valid:
+                sample_ids = sorted(list(valid_ids))[:10]
+                logger.warning(f"[FACTUS] Unit {unit_int} no válido. Ejemplos de IDs válidos: {sample_ids}")
+            
             return is_valid
         except Exception as e:
-            logger.error(f"Factus MU validate error: {e}")
+            logger.error(f"[FACTUS] Error validando unidad {unit_id}: {e}", exc_info=True)
             return False
 
     # ------------------------------
