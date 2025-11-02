@@ -187,14 +187,18 @@ class FactusService:
         url = f"{self.BASE_URL}/v1/measurement-units"
         headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json'}
         try:
+            logger.info(f"[FACTUS] Solicitando catálogo de unidades de medida: {url}")
             response = requests.get(url, headers=headers, timeout=20)
+            logger.info(f"[FACTUS] Respuesta measurement-units: status={response.status_code}")
             response.raise_for_status()
             payload = response.json() if response.content else None
             if not payload or 'data' not in payload:
+                logger.error(f"[FACTUS] Respuesta inesperada: {payload}")
                 raise FactusServiceError("Respuesta inesperada al consultar unidades de medida.")
+            logger.info(f"[FACTUS] Unidades obtenidas: {len(payload['data'])} items")
             return payload['data']
         except requests.RequestException as e:
-            logger.error(f"Factus Measurement Units Error: {e}")
+            logger.error(f"[FACTUS] Measurement Units Error: {e}", exc_info=True)
             raise FactusServiceError("Error al consultar unidades de medida en Factus.")
 
     def get_measurement_unit_ids(self, refresh: bool = True):
@@ -210,10 +214,89 @@ class FactusService:
         """Valida que el ID de unidad de medida exista en Factus."""
         try:
             unit_int = int(unit_id)
+            logger.info(f"[FACTUS] Validando unidad de medida: {unit_int}")
             valid_ids = self.get_measurement_unit_ids(refresh=True)
             is_valid = unit_int in valid_ids
-            logger.info(f"Factus MU validate: unit={unit_int} valid={is_valid} total_ids={len(valid_ids)}")
+            logger.info(f"[FACTUS] Resultado validación: unit={unit_int} valid={is_valid} total_ids={len(valid_ids)}")
+            
+            # Debug: Si no es válido, mostrar algunos IDs disponibles
+            if not is_valid:
+                sample_ids = sorted(list(valid_ids))[:10]
+                logger.warning(f"[FACTUS] Unit {unit_int} no válido. Ejemplos de IDs válidos: {sample_ids}")
+            
             return is_valid
         except Exception as e:
-            logger.error(f"Factus MU validate error: {e}")
+            logger.error(f"[FACTUS] Error validando unidad {unit_id}: {e}", exc_info=True)
             return False
+
+    # ------------------------------
+    # Catálogos: Tributos
+    # ------------------------------
+    def _get_tributes(self, name: str = ""):
+        """Obtiene el catálogo de tributos desde Factus.
+        
+        Args:
+            name: Filtro opcional por nombre del tributo
+            
+        Returns:
+            Lista de tributos con su información
+        """
+        if not self.token:
+            raise FactusServiceError("No se pudo obtener el token de Factus.")
+
+        url = f"{self.BASE_URL}/v1/tributes/products"
+        params = {}
+        if name:
+            params['name'] = name
+            
+        headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json'}
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+            response.raise_for_status()
+            payload = response.json() if response.content else None
+            if not payload or 'data' not in payload:
+                raise FactusServiceError("Respuesta inesperada al consultar tributos.")
+            return payload['data']
+        except requests.RequestException as e:
+            logger.error(f"Factus Tributes Error: {e}")
+            raise FactusServiceError("Error al consultar tributos en Factus.")
+
+    def get_tribute_info(self, tribute_id: int):
+        """Obtiene la información de un tributo específico por su ID.
+        
+        Args:
+            tribute_id: ID del tributo a consultar
+            
+        Returns:
+            dict con información del tributo (id, name, description, etc.) o None si no existe
+        """
+        try:
+            # Obtener todos los tributos y buscar el específico
+            tributes = self._get_tributes()
+            for tribute in tributes:
+                if tribute.get('id') == tribute_id:
+                    return tribute
+            return None
+        except Exception as e:
+            logger.error(f"Error obteniendo info de tributo {tribute_id}: {e}")
+            return None
+
+    def get_tribute_tax_type(self, tribute_id: int) -> str:
+        """Obtiene el tipo de impuesto (tax type) basado en el tribute_id.
+        
+        Args:
+            tribute_id: ID del tributo
+            
+        Returns:
+            str: Nombre del tipo de impuesto (ej: 'IVA', 'INC', etc.) o 'IVA' por defecto
+        """
+        try:
+            tribute_info = self.get_tribute_info(tribute_id)
+            if tribute_info:
+                # Usar el campo 'name' como tax_type
+                # Ejemplos: 'IVA', 'INC', 'Bolsas', etc.
+                return tribute_info.get('name', 'IVA')
+            return 'IVA'  # Default si no se encuentra
+        except Exception as e:
+            logger.error(f"Error obteniendo tax_type para tribute {tribute_id}: {e}")
+            return 'IVA'  # Default en caso de error

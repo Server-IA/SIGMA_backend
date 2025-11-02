@@ -119,17 +119,27 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
                     "units_measurement_id": "La unidad de medida debe ser un número entero."
                 })
 
-            # Consultar catálogo en Factus
+            # Consultar catálogo en Factus con manejo robusto de errores
             exists = False
             try:
                 from core.services.factus_service import FactusService
-                exists = FactusService().validate_measurement_unit(unit_int)
-            except Exception:
+                factus = FactusService()
+                exists = factus.validate_measurement_unit(unit_int)
+                
+                # Log para debugging
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"[VALIDATION] units_measurement_id={unit_int} exists={exists} in Factus")
+                
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"[VALIDATION] Error validating units_measurement_id={unit_int}: {e}", exc_info=True)
                 exists = False
 
             if not exists:
                 raise serializers.ValidationError({
-                    "units_measurement_id": "La unidad de medida no existe en Factus."
+                    "units_measurement_id": f"La unidad de medida {unit_int} no existe en Factus."
                 })
 
         # Validar estructura de retenciones si vienen
@@ -165,7 +175,7 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
             # Sustituimos por la versión normalizada (floats)
             data['withholding_taxes'] = cleaned_list
         
-        # Validar tribute_id si viene
+        # Validar tribute_id usando el endpoint tributes-items (solo IVA=1 e INC=4)
         tribute_val = data.get('tribute_id', None)
         if tribute_val is not None:
             try:
@@ -175,11 +185,11 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
                     "tribute_id": "El campo tribute_id debe ser un número entero válido."
                 })
 
-            # Lista de tributos válidos que usa el frontend (IDs conocidos)
-            VALID_TRIBUTE_IDS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17}
+            # Validar contra tributos permitidos: solo IVA (1) e INC (4)
+            VALID_TRIBUTE_IDS = {1, 4}
             if tribute_int not in VALID_TRIBUTE_IDS:
                 raise serializers.ValidationError({
-                    "tribute_id": "El tributo especificado no es válido."
+                    "tribute_id": f"El tributo no es válido. Solo se permiten los tributos IVA (1) e INC (4)."
                 })
 
             data['tribute_id'] = tribute_int
@@ -201,6 +211,16 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
         if 'tribute_id' not in validated_data:
             validated_data['tribute_id'] = 1
         
+        # Obtener dinámicamente el tax_per_line_type desde Factus según el tribute_id
+        tribute_id = validated_data.get('tribute_id', 1)
+        try:
+            from core.services.factus_service import FactusService
+            tax_type = FactusService().get_tribute_tax_type(tribute_id)
+            validated_data['tax_per_line_type'] = tax_type
+        except Exception as e:
+            # En caso de error, usar 'IVA' por defecto
+            validated_data['tax_per_line_type'] = 'IVA'
+        
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
@@ -211,6 +231,17 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
         validated_data['code_reference'] = instance.code_reference
         if 'tribute_id' not in validated_data:
             validated_data['tribute_id'] = instance.tribute_id
+        
+        # Si se actualiza el tribute_id, actualizar también el tax_per_line_type
+        tribute_id = validated_data.get('tribute_id', instance.tribute_id)
+        try:
+            from core.services.factus_service import FactusService
+            tax_type = FactusService().get_tribute_tax_type(tribute_id)
+            validated_data['tax_per_line_type'] = tax_type
+        except Exception as e:
+            # En caso de error, mantener el valor actual o usar 'IVA' por defecto
+            if not instance.tax_per_line_type:
+                validated_data['tax_per_line_type'] = 'IVA'
         
         return super().update(instance, validated_data)
 
