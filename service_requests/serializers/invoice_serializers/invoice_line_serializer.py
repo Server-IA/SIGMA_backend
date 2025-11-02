@@ -165,7 +165,7 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
             # Sustituimos por la versión normalizada (floats)
             data['withholding_taxes'] = cleaned_list
         
-        # Validar tribute_id si viene
+        # Validar tribute_id usando el endpoint tributes-items (solo IVA=1 e INC=4)
         tribute_val = data.get('tribute_id', None)
         if tribute_val is not None:
             try:
@@ -175,11 +175,11 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
                     "tribute_id": "El campo tribute_id debe ser un número entero válido."
                 })
 
-            # Lista de tributos válidos que usa el frontend (IDs conocidos)
-            VALID_TRIBUTE_IDS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17}
+            # Validar contra tributos permitidos: solo IVA (1) e INC (4)
+            VALID_TRIBUTE_IDS = {1, 4}
             if tribute_int not in VALID_TRIBUTE_IDS:
                 raise serializers.ValidationError({
-                    "tribute_id": "El tributo especificado no es válido."
+                    "tribute_id": f"El tributo no es válido. Solo se permiten los tributos IVA (1) e INC (4)."
                 })
 
             data['tribute_id'] = tribute_int

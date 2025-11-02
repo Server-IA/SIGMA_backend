@@ -14,6 +14,7 @@ import base64
 import os
 import time
 import threading
+import json
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -52,12 +53,12 @@ import logging
 logger = logging.getLogger(__name__)
 COLOMBIA_TIMEZONE = pytz.timezone("America/Bogota")
 
-PERM_INVOICE_LIST = 156 # request.list_invoices 156
-PERM_INVOICE_RETRIEVE = 157 # request.view_invoice_detail 157
-PERM_INVOICE_CREATE_EDIT = 158 # request.crud_invoice 158
-PERM_INVOICE_LINES_CRUD = 159 # request.crud_invoice_lines 159
-PERM_INVOICE_GENERATE = 160 # request.generate_invoice 160
-PERM_INVOICE_DOWNLOAD = 161 # request.download_invoice 161
+PERM_INVOICE_LIST = 20 # request.list_invoices 156
+PERM_INVOICE_RETRIEVE = 20 # request.view_invoice_detail 157
+PERM_INVOICE_CREATE_EDIT = 20 # request.crud_invoice 158
+PERM_INVOICE_LINES_CRUD = 20 # request.crud_invoice_lines 159
+PERM_INVOICE_GENERATE = 20 # request.generate_invoice 160
+PERM_INVOICE_DOWNLOAD = 20 # request.download_invoice 161
 
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet para gestión de Facturas Electrónicas."""
@@ -199,6 +200,49 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         }, status=status.HTTP_200_OK)
     
     # Endpoints personalizados
+
+    @action(detail=False, methods=['get'], url_path='tributes-items')
+    def tributes_items(self, request):
+        """GET /invoices/tributes-items/ - Retorna solo los tributos IVA (id=1) e INC (id=4)."""
+        # Permisos: mismo permiso que crear/editar factura
+        if not self.check_permission(request, PERM_INVOICE_CREATE_EDIT):
+            return Response(
+                {"success": False, "message": "No tiene permisos para consultar tributos."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        static_fallback = [
+            {"id": 1, "code": "01", "name": "IVA", "description": "Impuesto sobre las Ventas"},
+            {"id": 4, "code": "04", "name": "INC", "description": "Impuesto Nacional al Consumo"},
+        ]
+
+        try:
+            factus = FactusService()
+            tributes = factus._get_tributes()  # Lista completa desde Factus
+            filtered = [t for t in tributes if int(t.get('id', 0)) in (1, 4)]
+
+            def map_tribute(t):
+                tid = int(t.get('id'))
+                return {
+                    "id": tid,
+                    "code": t.get('code') or ("01" if tid == 1 else "04"),
+                    "name": t.get('name') or ("IVA" if tid == 1 else "INC"),
+                    "description": t.get('description') or (
+                        "Impuesto sobre las Ventas" if tid == 1 else "Impuesto Nacional al Consumo"
+                    ),
+                }
+
+            data = [map_tribute(t) for t in filtered]
+            if not data:
+                data = static_fallback
+
+            return Response({"success": True, "tributes": data}, status=status.HTTP_200_OK)
+        except FactusServiceError as e:
+            logger.warning(f"Fallo consultando tributos en Factus, usando fallback: {e}")
+            return Response({"success": True, "tributes": static_fallback}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error inesperado en tributes_iva_inc: {e}", exc_info=True)
+            return Response({"success": False, "message": "Error interno al consultar tributos."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'], url_path='create-draft')
     def create_draft(self, request):
@@ -419,32 +463,24 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 'id_invoice': invoice.id_invoice
             }, status=status.HTTP_200_OK)
         
-        # PUT/PATCH
+        # PUT/PATCH con validación centralizada en el serializer
         allowed = {'quantity', 'units_measurement_id', 'percentage_taxes_per_line', 'discount_percentage', 'tribute_id'}
         update_data = {k: v for k, v in request.data.items() if k in allowed}
-        
+
         if not update_data:
             return Response(
                 {"success": False, "message": "No se proporcionaron campos válidos."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        if 'units_measurement_id' in update_data:
-            try:
-                if not FactusService().validate_measurement_unit(update_data['units_measurement_id']):
-                    return Response(
-                        {"success": False, "message": "Unidad de medida no válida en Factus."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            except Exception:
-                return Response(
-                    {"success": False, "message": "Error validando unidad de medida en Factus."},
-                    status=status.HTTP_502_BAD_GATEWAY
-                )
-        
-        for field, value in update_data.items():
-            setattr(line, field, value)
-        line.save()
+
+        serializer = InvoiceLineSerializer(instance=line, data=update_data, partial=True)
+        if not serializer.is_valid():
+            return Response(
+                {"success": False, "errors": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        line = serializer.save()
         
         try:
             recalculate_invoice_totals(invoice)
