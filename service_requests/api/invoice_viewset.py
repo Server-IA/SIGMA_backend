@@ -243,6 +243,72 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         except Exception as e:
             logger.error(f"Error inesperado en tributes_iva_inc: {e}", exc_info=True)
             return Response({"success": False, "message": "Error interno al consultar tributos."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='debug-measurement-units')
+    def debug_measurement_units(self, request):
+        """GET /invoices/debug-measurement-units/ - [DEBUG] Lista todas las unidades de medida disponibles en Factus."""
+        if not self.check_permission(request, PERM_INVOICE_CREATE_EDIT):
+            return Response(
+                {"success": False, "message": "No tiene permisos."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            factus = FactusService()
+            units_data = factus._get_measurement_units()  # Obtiene el catálogo completo
+            
+            # Extraer solo IDs y nombres para facilitar búsqueda
+            units_list = [
+                {"id": item.get('id'), "name": item.get('name', 'N/A')}
+                for item in units_data
+            ]
+            
+            return Response({
+                "success": True,
+                "total": len(units_list),
+                "environment": factus.BASE_URL,
+                "units": units_list
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo unidades de medida: {e}", exc_info=True)
+            return Response({
+                "success": False,
+                "message": f"Error consultando Factus: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        static_fallback = [
+            {"id": 1, "code": "01", "name": "IVA", "description": "Impuesto sobre las Ventas"},
+            {"id": 4, "code": "04", "name": "INC", "description": "Impuesto Nacional al Consumo"},
+        ]
+
+        try:
+            factus = FactusService()
+            tributes = factus._get_tributes()  # Lista completa desde Factus
+            filtered = [t for t in tributes if int(t.get('id', 0)) in (1, 4)]
+
+            def map_tribute(t):
+                tid = int(t.get('id'))
+                return {
+                    "id": tid,
+                    "code": t.get('code') or ("01" if tid == 1 else "04"),
+                    "name": t.get('name') or ("IVA" if tid == 1 else "INC"),
+                    "description": t.get('description') or (
+                        "Impuesto sobre las Ventas" if tid == 1 else "Impuesto Nacional al Consumo"
+                    ),
+                }
+
+            data = [map_tribute(t) for t in filtered]
+            if not data:
+                data = static_fallback
+
+            return Response({"success": True, "tributes": data}, status=status.HTTP_200_OK)
+        except FactusServiceError as e:
+            logger.warning(f"Fallo consultando tributos en Factus, usando fallback: {e}")
+            return Response({"success": True, "tributes": static_fallback}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error inesperado en tributes_iva_inc: {e}", exc_info=True)
+            return Response({"success": False, "message": "Error interno al consultar tributos."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'], url_path='create-draft')
     def create_draft(self, request):

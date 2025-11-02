@@ -119,17 +119,27 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
                     "units_measurement_id": "La unidad de medida debe ser un número entero."
                 })
 
-            # Consultar catálogo en Factus
+            # Consultar catálogo en Factus con manejo robusto de errores
             exists = False
             try:
                 from core.services.factus_service import FactusService
-                exists = FactusService().validate_measurement_unit(unit_int)
-            except Exception:
+                factus = FactusService()
+                exists = factus.validate_measurement_unit(unit_int)
+                
+                # Log para debugging
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"[VALIDATION] units_measurement_id={unit_int} exists={exists} in Factus")
+                
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"[VALIDATION] Error validating units_measurement_id={unit_int}: {e}", exc_info=True)
                 exists = False
 
             if not exists:
                 raise serializers.ValidationError({
-                    "units_measurement_id": "La unidad de medida no existe en Factus."
+                    "units_measurement_id": f"La unidad de medida {unit_int} no existe en Factus."
                 })
 
         # Validar estructura de retenciones si vienen
