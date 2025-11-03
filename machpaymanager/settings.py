@@ -173,9 +173,9 @@ CRONJOBS = [
     ('10 0 * * *', 'maintenance.cron.generate_automatic_maintenance_requests_job', '>> /proc/1/fd/1 2>&1'),
     # ('*/1 * * * *', 'maintenance.cron.test_job', '>> /proc/1/fd/1 2>&1')
     ('0 * * * *', 'maintenance.cron.start_pending_requests_job', '>> /proc/1/fd/1 2>&1'),
-    # Diario: sincronizar clientes ↔ usuarios a las 5 AM
-    ('0 5 * * *', 'service_requests.cron.sync_customers_users_job', '>> /proc/1/fd/1 2>&1')
     # iniciar solicitudes pendientes cada hora
+    ('0 5 * * *', 'service_requests.cron.sync_customers_users_job', '>> /proc/1/fd/1 2>&1')
+    # Diario: sincronizar clientes ↔ usuarios a las 5 AM
 ]
 
 LOGGING = {
