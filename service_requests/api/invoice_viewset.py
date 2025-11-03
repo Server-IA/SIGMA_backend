@@ -671,36 +671,8 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         try:
             with transaction.atomic():
                 recalculate_invoice_totals(invoice)
-                
-                # LIMPIEZA PREVENTIVA (GLOBAL CUENTA): eliminar última factura status=0 del cliente API
-                try:
-                    factus_service = FactusService()
-                    acc_cleanup = factus_service.cleanup_last_pending_for_account()
-                    if acc_cleanup.get('found'):
-                        if acc_cleanup.get('deleted'):
-                            logger.info(f"[GENERATE_FE] Limpiada factura status=0 previa: ref={acc_cleanup.get('reference_code')} id={acc_cleanup.get('bill_id')}")
-                        else:
-                            logger.warning(f"[GENERATE_FE] Pendiente no eliminada: {acc_cleanup.get('message')}")
-                    
-                    # LIMPIEZA ESPECÍFICA POR reference_code (por si acaso)
-                    cleanup_result = factus_service.check_and_cleanup_rejected_invoice(invoice.reference_code)
-                    
-                    if cleanup_result.get('had_rejected'):
-                        if cleanup_result.get('deleted'):
-                            logger.info(f"[GENERATE_FE] Factura rechazada previa eliminada: {invoice.reference_code}")
-                            logger.info(f"[GENERATE_FE] Errores previos: {cleanup_result.get('errors')}")
-                        else:
-                            logger.warning(f"[GENERATE_FE] No se pudo eliminar factura rechazada: {cleanup_result.get('message')}")
-                    else:
-                        logger.info(f"[GENERATE_FE] No hay facturas rechazadas previas, procediendo con generación")
-                        
-                except Exception as e:
-                    # No bloquear el flujo si la limpieza falla por cualquier motivo (incluye atributos faltantes)
-                    logger.error(f"[GENERATE_FE] Error en limpieza preventiva: {e}", exc_info=True)
-                    # No bloquear el flujo si la limpieza falla, continuar con la generación
-                
-                invoice_payload = build_factus_payload(invoice, request=request)
-                factus_response = factus_service.generate_invoice(invoice_payload)
+                invoice_payload = build_factus_payload(invoice)
+                factus_response = FactusService().generate_invoice(invoice_payload)
                 
                 logger.info(f"Respuesta Factus para factura {invoice.id_invoice}: {factus_response}")
                 
