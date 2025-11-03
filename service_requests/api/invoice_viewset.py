@@ -53,12 +53,12 @@ import logging
 logger = logging.getLogger(__name__)
 COLOMBIA_TIMEZONE = pytz.timezone("America/Bogota")
 
-PERM_INVOICE_LIST = 20 # request.list_invoices 156
-PERM_INVOICE_RETRIEVE = 20 # request.view_invoice_detail 157
-PERM_INVOICE_CREATE_EDIT = 20 # request.crud_invoice 158
-PERM_INVOICE_LINES_CRUD = 20 # request.crud_invoice_lines 159
-PERM_INVOICE_GENERATE = 20 # request.generate_invoice 160
-PERM_INVOICE_DOWNLOAD = 20 # request.download_invoice 161
+PERM_INVOICE_LIST = 156 # request.list_invoices 156
+PERM_INVOICE_RETRIEVE = 157 # request.view_invoice_detail 157
+PERM_INVOICE_CREATE_EDIT = 158 # request.crud_invoice 158
+PERM_INVOICE_LINES_CRUD = 159 # request.crud_invoice_lines 159
+PERM_INVOICE_GENERATE = 160 # request.generate_invoice 160
+PERM_INVOICE_DOWNLOAD = 161 # request.download_invoice 161
 
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet para gestión de Facturas Electrónicas."""
