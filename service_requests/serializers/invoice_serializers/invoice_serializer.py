@@ -32,6 +32,8 @@ class InvoiceDetailSerializer(serializers.ModelSerializer):
     tax_regime_name = serializers.CharField(source='tax_regime.name', read_only=True) 
     status = serializers.SerializerMethodField(read_only=True)
     api_response = serializers.SerializerMethodField(read_only=True)
+    # Dígito de verificación calculado para el NIT del cliente
+    customer_dv = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Invoice
@@ -95,6 +97,30 @@ class InvoiceDetailSerializer(serializers.ModelSerializer):
             data['id_statues'] = getattr(st, 'id', None)
         data['name'] = getattr(st, 'name', '')
         return data
+
+    def get_customer_dv(self, obj):
+        """Calcula y devuelve el DV del NIT del cliente si es aplicable.
+
+        Retorna un entero (0-9) o None si el documento no es numérico o no está disponible.
+        """
+        try:
+            customer = getattr(obj, 'customer', None)
+            # Solo aplica para documentos tipo NIT
+            doc_name = ''
+            try:
+                doc_name = (getattr(customer.type_document_id, 'name', None) or '').strip()
+            except Exception:
+                doc_name = ''
+            is_nit_doc = isinstance(doc_name, str) and 'NIT' in doc_name.upper()
+            if not is_nit_doc:
+                return None
+            nit = str(getattr(customer, 'document_number', '') or '').strip()
+            if not nit.isdigit():
+                return None
+            from service_requests.utils.invoice_generator_utils import _compute_dv_for_nit
+            return _compute_dv_for_nit(nit)
+        except Exception:
+            return None
 
 # ----------------------------------------------------------------------
 # 4. SERIALIZER DE CREACIÓN/ACTUALIZACIÓN DE BORRADOR 

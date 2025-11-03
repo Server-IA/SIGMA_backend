@@ -3,7 +3,8 @@
 import uuid
 import logging
 from django.db import transaction
-from django.apps import apps 
+from django.apps import apps
+import logging
 from ..models.invoice import Invoice
 from decimal import Decimal
 from ..models.invoice_line import InvoiceLine
@@ -57,6 +58,39 @@ def recalculate_invoice_totals(invoice: Invoice):
             )
     
     return invoice
+
+logger = logging.getLogger(__name__)
+
+
+def _compute_dv_for_nit(nit: str) -> int:
+    """Calcula el dígito de verificación (DV) para un NIT colombiano.
+
+    Implementa el algoritmo DIAN usando los pesos oficiales.
+    Retorna el DV como string (0-9). Lanza ValueError si el NIT no es numérico.
+    """
+    if nit is None:
+        raise ValueError("NIT no puede ser None para cálculo de DV")
+    nit_digits = ''.join(str(nit).strip().split())
+    if not nit_digits.isdigit():
+        raise ValueError("NIT debe ser numérico para cálculo de DV")
+
+    # Pesos DIAN aplicados de derecha a izquierda
+    weights_right = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71]
+    # Alinear desde el final del NIT con el inicio de la lista (3,7,13,...)
+    total = 0
+    nit_reversed = nit_digits[::-1]
+    for i, ch in enumerate(nit_reversed):
+        if i >= len(weights_right):
+            # Si el NIT tiene más de 15 dígitos, continuar sin peso adicional (no usual)
+            w = 0
+        else:
+            w = weights_right[i]
+        total += int(ch) * w
+
+    remainder = total % 11
+    dv = remainder if remainder in (0, 1) else 11 - remainder
+    return int(dv)
+
 
 def build_factus_payload(invoice: Invoice):
     """
@@ -136,6 +170,37 @@ def build_factus_payload(invoice: Invoice):
 
     payment_method_code = str(getattr(invoice, 'payment_method_id', None) or '10')
 
+    # Determinar DV confiable SOLO para NIT: si falta o es distinto al calculado, usar el calculado
+    dv_final = None  # tipo int cuando disponible
+    # Detectar si el tipo de documento del cliente corresponde a NIT
+    doc_name = None
+    try:
+        doc_name = (getattr(customer.type_document_id, 'name', None) or '').strip()
+    except Exception:
+        doc_name = ''
+    is_nit_doc = isinstance(doc_name, str) and 'NIT' in doc_name.upper()
+    try:
+        if is_nit_doc:
+            dv_calculated = _compute_dv_for_nit(str(customer.document_number))  # int
+            provided_raw = getattr(customer, 'check_digit', None)
+            provided_dv = int(str(provided_raw)) if (provided_raw is not None and str(provided_raw).isdigit()) else None
+            if provided_dv is not None and provided_dv == dv_calculated:
+                dv_final = provided_dv
+            else:
+                dv_final = dv_calculated
+                logger.info(
+                    f"[DV] Usando DV calculado={dv_final} (suministrado={provided_dv}). Cliente id={customer.pk}"
+                )
+    except Exception as e:
+        # Si no se puede calcular, dejar el suministrado si es numérico; si no, None
+        if is_nit_doc:
+            provided = getattr(customer, 'check_digit', None)
+            if provided is not None and str(provided).isdigit():
+                dv_final = int(str(provided))
+            else:
+                dv_final = None
+            logger.warning(f"[DV] No fue posible calcular DV para NIT '{customer.document_number}': {e}")
+
     payload = {
         "document": "01",
         "numbering_range_id": 8, 
@@ -152,7 +217,8 @@ def build_factus_payload(invoice: Invoice):
         },
         "customer": {
             "identification": str(customer.document_number),
-            "dv": str(customer.check_digit),
+            # Incluir 'dv' solo cuando es NIT y hay valor numérico
+            **({"dv": dv_final} if (is_nit_doc and dv_final is not None) else {}),
             "company": customer.legal_entity_name if is_legal else '',
             "trade_name": customer.bussiness_name or '',
             "names": customer_names,
