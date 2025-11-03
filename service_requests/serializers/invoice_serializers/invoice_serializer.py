@@ -39,24 +39,8 @@ class InvoiceDetailSerializer(serializers.ModelSerializer):
         depth = 1
 
     def to_representation(self, instance):
-        """Remover campos sensibles/no deseados de la representación final.
-
-        Nota: `api_response` se expone en forma reducida a través de
-        `get_api_response` en lugar del JSON completo.
-        """
+        """Personaliza la representación del detalle de factura."""
         data = super().to_representation(instance)
-
-        # Remover payload técnico de Factus en el detalle de las líneas
-        try:
-            lines = data.get('lines', [])
-            if isinstance(lines, list):
-                for item in lines:
-                    if isinstance(item, dict):
-                        item.pop('factus_payload', None)
-        except Exception:
-            # En caso de cualquier problema al manipular las líneas, continuar sin romper respuesta
-            pass
-
         return data
 
     def get_api_response(self, obj):
