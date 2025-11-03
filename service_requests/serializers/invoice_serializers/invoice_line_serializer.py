@@ -52,6 +52,9 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
 
     withholding_total_amount = serializers.SerializerMethodField(read_only=True)
 
+    # Campo calculado para Factus (read-only)
+    factus_payload = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = InvoiceLine
         fields = (
@@ -73,6 +76,7 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
             'code_reference',
             'tribute_id',
             'invoice',
+            'factus_payload',
         )
         read_only_fields = [
             'price_unit',
@@ -243,6 +247,41 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
                 validated_data['tax_per_line_type'] = 'IVA'
         
         return super().update(instance, validated_data)
+
+    def get_factus_payload(self, obj):
+        """
+        Genera el payload para Factus según la documentación.
+        """
+        # Normalizar retenciones (puede ser None)
+        wt_list = obj.withholding_taxes or []
+        normalized_wt = []
+        for item in wt_list:
+            code = str(item.get('code')) if isinstance(item, dict) else None
+            rate = item.get('withholding_tax_rate') if isinstance(item, dict) else None
+            if code and rate is not None:
+                try:
+                    rate_val = float(rate)
+                except (TypeError, ValueError):
+                    continue
+                normalized_wt.append({
+                    "code": code,
+                    "withholding_tax_rate": rate_val,
+                })
+
+        return {
+            "code_reference": str(obj.code_reference),
+            "name": obj.service_name,
+            "quantity": float(obj.quantity),
+            "discount_rate": float(obj.discount_percentage),
+            "price": float(obj.price_unit),
+            "tax_rate": str(obj.percentage_taxes_per_line),
+            "unit_measure_id": obj.units_measurement_id,
+            "standard_code_id": STANDARD_CODE_ID,
+            "is_excluded": 0 if not obj.service_item.is_vat_exempt else 1,
+            # Enviar el tribute_id que venga en la línea (por defecto 1)
+            "tribute_id": int(obj.tribute_id) if obj.tribute_id is not None else 1,
+            "withholding_taxes": normalized_wt,
+        }
 
     def get_discount_amount(self, obj):
         """
