@@ -127,6 +127,12 @@ class TelemetryProcessor:
     def get_active_requests(self, target_date: date = None) -> Dict[str, ServiceRequest]:
         """
         Obtiene las solicitudes activas para una fecha específica.
+        
+        NUEVA LÓGICA:
+        - Si la fecha está DENTRO del rango [scheduled_start_date, scheduled_end_date]: 
+          valida estados 20 y 21
+        - Si la fecha está FUERA del rango: solo valida estado 21
+        
         Cachea el resultado para evitar consultas repetidas en el mismo día.
         
         Args:
@@ -144,21 +150,40 @@ class TelemetryProcessor:
             return self._active_requests_cache
         
         try:
-            # Estados activos según el serializer: 20, 21, 22
-            active_statuses = [20, 21, 22]
+            from django.db.models import Q
             
-            requests = ServiceRequest.objects.filter(
-                request_status_id__in=active_statuses,
+            # 1. Solicitudes DENTRO del rango con estados 20 y 21
+            # Fecha dentro del rango: scheduled_start_date <= target_date <= scheduled_end_date
+            requests_in_range = ServiceRequest.objects.filter(
+                request_status_id__in=[20, 21],
                 scheduled_start_date__lte=target_date,
                 scheduled_end_date__gte=target_date
             ).select_related('request_location')
             
+            # 2. Solicitudes FUERA del rango solo con estado 21
+            # Fuera del rango significa:
+            # - target_date < scheduled_start_date (antes del inicio)
+            # - target_date > scheduled_end_date (después del fin)
+            requests_out_range = ServiceRequest.objects.filter(
+                Q(request_status_id=21) & 
+                (Q(scheduled_start_date__gt=target_date) | Q(scheduled_end_date__lt=target_date))
+            ).select_related('request_location')
+            
+            # Combinar ambos querysets (usar union para evitar duplicados)
+            all_requests = requests_in_range.union(requests_out_range)
+            
             self._active_requests_cache = {
-                req.id_request: req for req in requests
+                req.id_request: req for req in all_requests
             }
             self._cache_date = target_date
             
-            logger.info(f"Cache actualizado: {len(self._active_requests_cache)} solicitudes activas para {target_date}")
+            in_range_count = len(list(requests_in_range))
+            out_range_count = len(list(requests_out_range))
+            
+            logger.info(
+                f"Cache actualizado: {len(self._active_requests_cache)} solicitudes activas para {target_date} "
+                f"(Dentro rango [20,21]: {in_range_count}, Fuera rango [21]: {out_range_count})"
+            )
             
             return self._active_requests_cache
             
