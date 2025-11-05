@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     DEVICE_IMEI_LIST: Optional[str] = None
     ALLOW_GENERATE_IMEI: bool = False
     
+    # WebSocket Password Configuration
+    WEBSOCKET_PASSWORD: str
+    
     model_config = ConfigDict(
         env_file=".env",
         case_sensitive=True
