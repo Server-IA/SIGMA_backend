@@ -432,17 +432,80 @@ class TelemetryProcessor:
         except Parameters.DoesNotExist:
             return None
     
+    def filter_packet_by_device_parameters(self, packet: Dict, device_parameters: Optional[List[Parameters]]) -> Dict:
+        """
+        Filtra el paquete eliminando parámetros no configurados para el dispositivo.
+        Solo se aplica al paquete procesado que se enviará por WebSocket.
+        
+        Args:
+            packet: Paquete completo de telemetría (con alertas ya agregadas)
+            device_parameters: Lista de parámetros permitidos para el dispositivo
+            
+        Returns:
+            Paquete filtrado con solo parámetros configurados
+        """
+        if not device_parameters:
+            # Si no hay parámetros configurados, devolver todo (compatibilidad hacia atrás)
+            return packet
+        
+        # Crear conjunto de AVL IDs permitidos
+        allowed_avl_ids = {p.avl_id_parameter for p in device_parameters if p.avl_id_parameter}
+        
+        # Mapeo de campo a AVL ID
+        field_to_avl = {
+            'ignition_status': 239,
+            'movement_status': 240,
+            'speed': 24,
+            'gsm_signal': 21,
+            'rpm': 36,
+            'engine_temp': 32,
+            'engine_load': 31,
+            'oil_level': 1159,
+            'fuel_level': 48,
+            'fuel_used_gps': 12,
+            'instant_consumption': 60,
+            'odometer_total': 16,
+            'odometer_trip': 199,
+            'event_type': 253,
+            'event_g_value': 254,
+            'gps_location': 387,
+            'obd_faults': 281,
+        }
+        
+        # Crear copia del paquete para no modificar el original
+        filtered_packet = packet.copy()
+        
+        # Filtrar datos dentro del paquete
+        if 'data' in filtered_packet and isinstance(filtered_packet['data'], dict):
+            filtered_data = filtered_packet['data'].copy()
+            
+            # Filtrar parámetros no configurados
+            for field_name, avl_id in field_to_avl.items():
+                if avl_id not in allowed_avl_ids:
+                    # Eliminar parámetro no configurado
+                    if field_name in filtered_data:
+                        del filtered_data[field_name]
+                        logger.debug(
+                            f"Parámetro {field_name} (AVL_ID {avl_id}) filtrado del WebSocket "
+                            f"(no configurado para el dispositivo)"
+                        )
+            
+            filtered_packet['data'] = filtered_data
+        
+        return filtered_packet
+    
     def store_telemetry_data(
         self,
         device: TelemetryDevices,
         active_request: ServiceRequest,
         telemetry_data: Dict,
         timestamp: datetime,
-        parameter_alerts: Dict[str, Tuple[bool, Optional[str]]]
+        parameter_alerts: Dict[str, Tuple[bool, Optional[str]]],
+        allowed_parameters: Optional[List[Parameters]] = None
     ) -> int:
         """
         Almacena los datos de telemetría en la tabla 'data'
-        Crea un registro por cada parámetro que tenga valor
+        Crea un registro por cada parámetro que tenga valor y esté configurado para el dispositivo
         
         Args:
             device: Instancia de TelemetryDevices
@@ -450,6 +513,7 @@ class TelemetryProcessor:
             telemetry_data: Diccionario con los datos de telemetría
             timestamp: Timestamp de la telemetría
             parameter_alerts: Diccionario {param_name: (is_alert, reason)}
+            allowed_parameters: Lista de parámetros permitidos para este dispositivo (opcional)
             
         Returns:
             Número de registros creados
@@ -457,6 +521,11 @@ class TelemetryProcessor:
         records_created = 0
         
         try:
+            # Crear conjunto de AVL IDs permitidos para validación rápida
+            allowed_avl_ids = set()
+            if allowed_parameters:
+                allowed_avl_ids = {p.avl_id_parameter for p in allowed_parameters if p.avl_id_parameter}
+            
             # Parámetros numéricos que se almacenan en 'data'
             numeric_fields = {
                 'ignition_status': 239,
@@ -481,6 +550,14 @@ class TelemetryProcessor:
                 value = telemetry_data.get(field_name)
                 if value is not None:
                     try:
+                        # VALIDACIÓN: Verificar si el parámetro está configurado para este dispositivo
+                        if allowed_parameters and avl_id not in allowed_avl_ids:
+                            logger.debug(
+                                f"Parámetro {field_name} (AVL_ID {avl_id}) no está configurado "
+                                f"para el dispositivo {device.name} (IMEI {device.IMEI}). Omitido."
+                            )
+                            continue
+                        
                         parameter = self.get_parameter_by_avl_id(avl_id)
                         if not parameter:
                             logger.warning(f"Parámetro con AVL_ID {avl_id} ({field_name}) no encontrado en la base de datos")
@@ -515,21 +592,29 @@ class TelemetryProcessor:
             gps_location = telemetry_data.get('gps_location')
             if gps_location:
                 try:
-                    match = re.match(r'\+([+-]?\d+\.?\d*)([+-]?\d+\.?\d*)/', gps_location)
-                    if match:
-                        lat_value = float(match.group(1))
-                        parameter = self.get_parameter_by_avl_id(387)  # GPS location (AVL_ID 387)
-                        if parameter:
-                            Data.objects.create(
-                                data=lat_value,  # Guardamos latitud
-                                id_parameter=parameter,
-                                registered_at=timestamp,
-                                id_device=device,
-                                id_request=active_request,
-                                alert=False,
-                                obd_fault=None
-                            )
-                            records_created += 1
+                    # VALIDACIÓN: Verificar si GPS está configurado para este dispositivo
+                    gps_avl_id = 387  # GPS location (AVL_ID 387)
+                    if allowed_parameters and gps_avl_id not in allowed_avl_ids:
+                        logger.debug(
+                            f"Parámetro GPS (AVL_ID {gps_avl_id}) no está configurado "
+                            f"para el dispositivo {device.name} (IMEI {device.IMEI}). Omitido."
+                        )
+                    else:
+                        match = re.match(r'\+([+-]?\d+\.?\d*)([+-]?\d+\.?\d*)/', gps_location)
+                        if match:
+                            lat_value = float(match.group(1))
+                            parameter = self.get_parameter_by_avl_id(gps_avl_id)
+                            if parameter:
+                                Data.objects.create(
+                                    data=lat_value,  # Guardamos latitud
+                                    id_parameter=parameter,
+                                    registered_at=timestamp,
+                                    id_device=device,
+                                    id_request=active_request,
+                                    alert=False,
+                                    obd_fault=None
+                                )
+                                records_created += 1
                 except Exception as e:
                     logger.warning(f"Error procesando GPS: {str(e)}")
             
@@ -537,27 +622,35 @@ class TelemetryProcessor:
             # Buscar parámetro OBD (AVL_ID 281 según documentación)
             obd_faults = telemetry_data.get('obd_faults', [])
             if obd_faults:
-                obd_parameter = self.get_parameter_by_avl_id(281)  # OBD Faults
-                for fault_code in obd_faults:
-                    try:
-                        code_upper = fault_code.upper()
-                        # Guardar cada falla OBD en 'data' con el código en obd_fault
-                        # Si existe parámetro OBD, usarlo; si no, usar un parámetro genérico o el primero disponible
-                        if obd_parameter:
-                            Data.objects.create(
-                                data=1.0,  # Valor indicador (1 = falla presente)
-                                id_parameter=obd_parameter,
-                                registered_at=timestamp,
-                                id_device=device,
-                                id_request=active_request,
-                                alert=True,  # Las fallas OBD siempre son alertas
-                                obd_fault=code_upper
-                            )
-                            records_created += 1
-                        else:
-                            logger.warning(f"Parámetro OBD (AVL_ID 281) no encontrado. Falla {code_upper} no guardada en 'data'")
-                    except Exception as e:
-                        logger.error(f"Error guardando falla OBD {fault_code} en 'data': {str(e)}")
+                obd_avl_id = 281  # OBD Faults
+                # VALIDACIÓN: Verificar si OBD está configurado para este dispositivo
+                if allowed_parameters and obd_avl_id not in allowed_avl_ids:
+                    logger.debug(
+                        f"Parámetro OBD (AVL_ID {obd_avl_id}) no está configurado "
+                        f"para el dispositivo {device.name} (IMEI {device.IMEI}). Fallas OBD omitidas."
+                    )
+                else:
+                    obd_parameter = self.get_parameter_by_avl_id(obd_avl_id)
+                    for fault_code in obd_faults:
+                        try:
+                            code_upper = fault_code.upper()
+                            # Guardar cada falla OBD en 'data' con el código en obd_fault
+                            # Si existe parámetro OBD, usarlo; si no, usar un parámetro genérico o el primero disponible
+                            if obd_parameter:
+                                Data.objects.create(
+                                    data=1.0,  # Valor indicador (1 = falla presente)
+                                    id_parameter=obd_parameter,
+                                    registered_at=timestamp,
+                                    id_device=device,
+                                    id_request=active_request,
+                                    alert=True,  # Las fallas OBD siempre son alertas
+                                    obd_fault=code_upper
+                                )
+                                records_created += 1
+                            else:
+                                logger.warning(f"Parámetro OBD (AVL_ID {obd_avl_id}) no encontrado. Falla {code_upper} no guardada en 'data'")
+                        except Exception as e:
+                            logger.error(f"Error guardando falla OBD {fault_code} en 'data': {str(e)}")
             
             logger.debug(f"Almacenados {records_created} registros en tabla 'data'")
             return records_created
@@ -640,6 +733,11 @@ class TelemetryProcessor:
             # 6. Validar umbrales y alertas para cada parámetro
             parameter_alerts = {}  # {param_name: (is_alert, reason)}
             
+            # Crear conjunto de nombres de parámetros permitidos para validación rápida
+            allowed_parameter_names = set()
+            if device_parameters:
+                allowed_parameter_names = {p.parameter_name for p in device_parameters if p.parameter_name}
+            
             # Verificar umbrales para parámetros numéricos
             threshold_checks = [
                 ('speed', data.get('speed')),
@@ -652,21 +750,50 @@ class TelemetryProcessor:
             total_alerts = 0
             for param_name, value in threshold_checks:
                 if value is not None:
+                    # VALIDACIÓN: Solo verificar umbrales si el parámetro está configurado para el dispositivo
+                    if device_parameters and param_name not in allowed_parameter_names:
+                        logger.debug(
+                            f"Parámetro {param_name} no está configurado para el dispositivo "
+                            f"{device.name} (IMEI {device.IMEI}). Umbrales omitidos."
+                        )
+                        continue
+                    
                     is_alert, reason = self.check_thresholds(machinery, param_name, float(value))
                     parameter_alerts[param_name] = (is_alert, reason)
                     if is_alert:
                         total_alerts += 1
             
             # Alertas para eventos: una sola alerta para event_type (que incluye event_g_value si existe)
+            # VALIDACIÓN: Solo procesar eventos si event_type está configurado para el dispositivo
+            event_type_avl_id = 253
+            event_g_value_avl_id = 254
+            
             if data.get('event_type') is not None:
-                event_g_value = data.get('event_g_value')
-                if event_g_value is not None:
-                    alert_reason = f"Evento detectado (Tipo: {data.get('event_type')}, Valor G: {event_g_value})"
+                # Verificar si event_type está configurado
+                if device_parameters:
+                    event_type_allowed = any(p.avl_id_parameter == event_type_avl_id for p in device_parameters)
+                    if not event_type_allowed:
+                        logger.debug(
+                            f"Parámetro event_type (AVL_ID {event_type_avl_id}) no está configurado "
+                            f"para el dispositivo {device.name} (IMEI {device.IMEI}). Evento omitido."
+                        )
+                    else:
+                        event_g_value = data.get('event_g_value')
+                        if event_g_value is not None:
+                            alert_reason = f"Evento detectado (Tipo: {data.get('event_type')}, Valor G: {event_g_value})"
+                        else:
+                            alert_reason = f"Evento detectado (Tipo: {data.get('event_type')})"
+                        parameter_alerts['event_type'] = (True, alert_reason)
+                        total_alerts += 1
                 else:
-                    alert_reason = f"Evento detectado (Tipo: {data.get('event_type')})"
-                parameter_alerts['event_type'] = (True, alert_reason)
-                total_alerts += 1
-                # event_g_value NO genera alerta separada, es parte de la alerta del evento
+                    # Si no hay parámetros configurados, procesar normalmente (compatibilidad hacia atrás)
+                    event_g_value = data.get('event_g_value')
+                    if event_g_value is not None:
+                        alert_reason = f"Evento detectado (Tipo: {data.get('event_type')}, Valor G: {event_g_value})"
+                    else:
+                        alert_reason = f"Evento detectado (Tipo: {data.get('event_type')})"
+                    parameter_alerts['event_type'] = (True, alert_reason)
+                    total_alerts += 1
             
             # 7. Procesar fallas OBD
             obd_faults = data.get('obd_faults', [])
@@ -674,12 +801,14 @@ class TelemetryProcessor:
                 self.process_obd_faults(machinery, obd_faults, timestamp)
             
             # 8. Almacenar datos en tabla 'data' (un registro por parámetro)
+            # Pasar los parámetros permitidos para validación
             records_created = self.store_telemetry_data(
                 device=device,
                 active_request=active_request,
                 telemetry_data=data,
                 timestamp=timestamp,
-                parameter_alerts=parameter_alerts
+                parameter_alerts=parameter_alerts,
+                allowed_parameters=device_parameters
             )
             
             # 9. Agregar alertas al paquete original para incluir en WebSocket
@@ -695,6 +824,9 @@ class TelemetryProcessor:
             # Agregar alertas al paquete
             packet['alerts'] = alerts_list if alerts_list else None
             
+            # Filtrar parámetros no configurados antes de enviar por WebSocket
+            filtered_packet = self.filter_packet_by_device_parameters(packet, device_parameters)
+            
             logger.info(
                 f"Paquete procesado: IMEI {imei}, "
                 f"Estado logístico: {logistic_status}, "
@@ -702,7 +834,7 @@ class TelemetryProcessor:
                 f"Alertas: {total_alerts}"
             )
             
-            return packet  # Retornar paquete con alertas agregadas
+            return filtered_packet  # Retornar paquete filtrado con alertas agregadas
             
         except Exception as e:
             logger.error(f"Error procesando paquete: {str(e)}", exc_info=True)
