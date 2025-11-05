@@ -74,6 +74,31 @@
             margin-bottom: 20px;
         }
         
+        .password-input {
+            margin-bottom: 15px;
+        }
+        
+        .password-input label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: bold;
+        }
+        
+        .password-input input {
+            width: 100%;
+            max-width: 400px;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .password-input input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
         .data-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -134,6 +159,16 @@
         
         <div id="status" class="status disconnected">
             ● Desconectado
+        </div>
+        
+        <div class="password-input">
+            <label for="passwordInput">🔑 Contraseña WebSocket:</label>
+            <input 
+                type="password" 
+                id="passwordInput" 
+                placeholder="Ingresa la contraseña para conectarte"
+                value="telemetry_password_2024"
+            />
         </div>
         
         <div class="controls">
@@ -197,88 +232,116 @@
                     <div class="value" style="font-size: 14px;">${data.timestamp}</div>
                 </div>
                 
+                ${data.data.speed !== undefined ? `
                 <div class="data-card">
                     <h3>🚀 Velocidad</h3>
                     <div class="value">${data.data.speed}</div>
                     <div class="unit">km/h</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.ignition_status !== undefined ? `
                 <div class="data-card">
                     <h3>🔋 Estado Ignición</h3>
                     <div class="value">${data.data.ignition_status ? 'ON' : 'OFF'}</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.movement_status !== undefined ? `
                 <div class="data-card">
                     <h3>🚦 Movimiento</h3>
                     <div class="value">${data.data.movement_status ? 'SI' : 'NO'}</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.rpm !== undefined ? `
                 <div class="data-card">
                     <h3>🔧 RPM</h3>
                     <div class="value">${data.data.rpm}</div>
                     <div class="unit">rpm</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.engine_temp !== undefined ? `
                 <div class="data-card">
                     <h3>🌡️ Temperatura Motor</h3>
                     <div class="value">${data.data.engine_temp}</div>
                     <div class="unit">°C</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.engine_load !== undefined ? `
                 <div class="data-card">
                     <h3>⚡ Carga Motor</h3>
                     <div class="value">${data.data.engine_load}</div>
                     <div class="unit">%</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.fuel_level !== undefined ? `
                 <div class="data-card">
                     <h3>⛽ Combustible</h3>
                     <div class="value">${data.data.fuel_level}</div>
                     <div class="unit">%</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.oil_level !== undefined ? `
                 <div class="data-card">
                     <h3>🛢️ Aceite</h3>
                     <div class="value">${data.data.oil_level}</div>
                     <div class="unit">%</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.gsm_signal !== undefined ? `
                 <div class="data-card">
                     <h3>📶 Señal GSM</h3>
                     <div class="value">${data.data.gsm_signal}</div>
                     <div class="unit">/ 5</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.gps_location !== undefined ? `
                 <div class="data-card">
                     <h3>📍 Ubicación GPS</h3>
                     <div class="value" style="font-size: 14px;">${data.data.gps_location}</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.instant_consumption !== undefined ? `
                 <div class="data-card">
                     <h3>⛽ Consumo Instantáneo</h3>
                     <div class="value">${data.data.instant_consumption}</div>
                     <div class="unit">L/h</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.fuel_used_gps !== undefined ? `
                 <div class="data-card">
                     <h3>📊 Combustible Usado</h3>
                     <div class="value">${data.data.fuel_used_gps}</div>
                     <div class="unit">L</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.odometer_total !== undefined ? `
                 <div class="data-card">
                     <h3>📏 Odómetro Total</h3>
                     <div class="value">${data.data.odometer_total}</div>
                     <div class="unit">m</div>
                 </div>
+                ` : ''}
                 
+                ${data.data.odometer_trip !== undefined ? `
                 <div class="data-card">
                     <h3>🚙 Odómetro Viaje</h3>
                     <div class="value">${data.data.odometer_trip}</div>
                     <div class="unit">m</div>
                 </div>
+                ` : ''}
                 
-                ${data.data.obd_faults.length > 0 ? `
+                ${data.data.obd_faults && data.data.obd_faults.length > 0 ? `
                 <div class="data-card" style="border-left-color: #c00;">
                     <h3>⚠️ Fallas OBD</h3>
                     <div class="value" style="font-size: 14px;">${data.data.obd_faults.join(', ')}</div>
@@ -315,10 +378,21 @@
         }
         
         function connect() {
+            const passwordInput = document.getElementById('passwordInput');
+            const password = passwordInput.value.trim();
+            
+            if (!password) {
+                addLog('⚠️ Por favor ingresa la contraseña');
+                passwordInput.focus();
+                return;
+            }
+            
             addLog('🔌 Conectando al WebSocket...');
             
             try {
-                ws = new WebSocket('ws://localhost:8003/ws/telemetria');
+                // Construir URL con contraseña como query parameter
+                const wsUrl = `ws://localhost:8003/ws/telemetria?password=${encodeURIComponent(password)}`;
+                ws = new WebSocket(wsUrl);
                 
                 ws.onopen = () => {
                     addLog('✅ Conectado exitosamente');
@@ -331,7 +405,7 @@
                     const timestamp = data.timestamp || 'N/A';
                     const alertsCount = data.alerts ? data.alerts.length : 0;
                     const alertsMsg = alertsCount > 0 ? `, ${alertsCount} alerta(s)` : '';
-                    addLog(`📊 Datos recibidos - IMEI: ${imei}, TS: ${timestamp}, Velocidad: ${data.data.speed} km/h${alertsMsg}`);
+                    addLog(`📊 Datos recibidos - IMEI: ${imei}, TS: ${timestamp}, Velocidad: ${data.data?.speed || 'N/A'} km/h${alertsMsg}`);
                     updateDataGrid(data);
                 };
                 
@@ -339,8 +413,12 @@
                     addLog(`❌ Error en WebSocket: ${error}`);
                 };
                 
-                ws.onclose = () => {
-                    addLog('🔌 Conexión cerrada');
+                ws.onclose = (event) => {
+                    if (event.code === 4001) {
+                        addLog('❌ Conexión rechazada: Contraseña incorrecta');
+                    } else {
+                        addLog(`🔌 Conexión cerrada (Código: ${event.code})`);
+                    }
                     updateStatus(false);
                 };
                 
