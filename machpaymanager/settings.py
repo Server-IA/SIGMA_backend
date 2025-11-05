@@ -171,7 +171,7 @@ CRONJOBS = [
     ('10 0 * * *', 'maintenance.cron.set_inoperative_on_expired_contract_job', '>> /proc/1/fd/1 2>&1'),
     # Diario: generar solicitudes automáticas de mantenimiento por horas de uso
     ('10 0 * * *', 'maintenance.cron.generate_automatic_maintenance_requests_job', '>> /proc/1/fd/1 2>&1'),
-    # ('*/1 * * * *', 'maintenance.cron.test_job', '>> /proc/1/fd/1 2>&1')
+    ('*/1 * * * *', 'maintenance.cron.test_job', '>> /proc/1/fd/1 2>&1')
     ('0 * * * *', 'maintenance.cron.start_pending_requests_job', '>> /proc/1/fd/1 2>&1'),
     # iniciar solicitudes pendientes cada hora
     ('0 5 * * *', 'service_requests.cron.sync_customers_users_job', '>> /proc/1/fd/1 2>&1')
