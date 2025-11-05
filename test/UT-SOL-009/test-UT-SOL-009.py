@@ -3,7 +3,7 @@ Pruebas Unitarias UT-SOL-009 - PARTE 1 (Casos 1-18)
 Endpoint: /invoices/ (Facturación Electrónica)
 Módulo: Gestión de Solicitudes - Facturación
 
-Este archivo contiene los primeros 18 casos de prueba para validar:
+Este archivo contiene todos los casos casos de prueba para validar:
 - Control de acceso y permisos (158, 159, 160)
 - Creación de borradores de factura
 - Validaciones de entrada (observación, payment_method, estados)
