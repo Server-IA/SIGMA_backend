@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import re
 from datetime import datetime, timezone, date, timedelta
 from typing import Dict, Optional, List, Tuple, Any
@@ -80,11 +81,23 @@ class TelemetryProcessor:
         Inicializa el procesador
         
         Args:
-            simulator_url: URL del WebSocket del simulador
+            simulator_url: URL del WebSocket del simulador (sin parámetros)
         """
-        self.simulator_url = simulator_url
+        # Obtener contraseña desde variable de entorno
+        websocket_password = os.getenv("WEBSOCKET_PASSWORD")
+        
+        if not websocket_password:
+            raise ValueError("WEBSOCKET_PASSWORD no está configurada en las variables de entorno")
+        
+        # Agregar parámetros processor=true y password
+        if "?" in simulator_url:
+            self.simulator_url = f"{simulator_url}&processor=true&password={websocket_password}"
+        else:
+            self.simulator_url = f"{simulator_url}?processor=true&password={websocket_password}"
+        
         # URL del endpoint HTTP del simulador para reenviar paquetes procesados
-        self.simulator_http_url = simulator_url.replace("ws://", "http://").replace("/ws/telemetria", "")
+        base_url = simulator_url.replace("ws://", "http://").replace("/ws/telemetria", "")
+        self.simulator_http_url = base_url
         self.is_running = False
         # Refresco de solicitudes activas cada N paquetes
         self._active_requests_refresh_every = 4

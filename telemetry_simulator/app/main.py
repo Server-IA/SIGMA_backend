@@ -2,7 +2,7 @@
 Main FastAPI application for Telemetry Simulator
 """
 import logging
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, Query
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -119,12 +119,26 @@ async def broadcast_processed_packet(packet: dict):
 
 
 @app.websocket("/ws/telemetria")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket, 
+    processor: bool = Query(False),
+    password: str = Query(..., description="Contraseña requerida para conectarse al WebSocket")
+):
     """
     WebSocket endpoint for telemetry data streaming
     
-    Connects to ws://localhost:8000/ws/telemetria
-    Receives JSON data every 30 seconds with simulated telemetry values
+    Args:
+        processor: Si es True, marca la conexión como procesador (recibe datos sin procesar)
+                   Si es False, es un cliente normal (solo recibe datos procesados)
+        password: Contraseña requerida para conectarse al WebSocket (variable de entorno WEBSOCKET_PASSWORD)
+    
+    Cliente normal:
+        Connects to: ws://localhost:8003/ws/telemetria?password=telemetry_password_2024
+        Receives: Solo datos procesados con alertas (cada 30 segundos aprox)
+    
+    Procesador:
+        Connects to: ws://localhost:8003/ws/telemetria?processor=true&password=telemetry_password_2024
+        Receives: Datos sin procesar para procesar y generar alertas
     
     Returns:
         - JSON with timestamp and telemetry data including:
@@ -133,8 +147,16 @@ async def websocket_endpoint(websocket: WebSocket):
             - Oil level, fuel level, fuel consumption
             - OBD faults, odometer readings
             - Event types and G-values
+            - alerts (solo en datos procesados)
     """
-    await websocket_telemetry_endpoint(websocket)
+    # Validar contraseña antes de aceptar la conexión
+    if password != settings.WEBSOCKET_PASSWORD:
+        logger.warning(f"Intento de conexión con contraseña incorrecta")
+        await websocket.close(code=4001, reason="Contraseña incorrecta")
+        return
+    
+    # Contraseña válida, proceder con la conexión
+    await websocket_telemetry_endpoint(websocket, is_processor=processor)
 
 
 @app.on_event("startup")
