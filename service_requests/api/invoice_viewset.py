@@ -14,6 +14,7 @@ import base64
 import os
 import time
 import threading
+import json
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -199,6 +200,115 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         }, status=status.HTTP_200_OK)
     
     # Endpoints personalizados
+
+    @action(detail=False, methods=['get'], url_path='tributes-items')
+    def tributes_items(self, request):
+        """GET /invoices/tributes-items/ - Retorna solo los tributos IVA (id=1) e INC (id=4)."""
+        # Permisos: mismo permiso que crear/editar factura
+        if not self.check_permission(request, PERM_INVOICE_CREATE_EDIT):
+            return Response(
+                {"success": False, "message": "No tiene permisos para consultar tributos."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        static_fallback = [
+            {"id": 1, "code": "01", "name": "IVA", "description": "Impuesto sobre las Ventas"},
+            {"id": 4, "code": "04", "name": "INC", "description": "Impuesto Nacional al Consumo"},
+        ]
+
+        try:
+            factus = FactusService()
+            tributes = factus._get_tributes()  # Lista completa desde Factus
+            filtered = [t for t in tributes if int(t.get('id', 0)) in (1, 4)]
+
+            def map_tribute(t):
+                tid = int(t.get('id'))
+                return {
+                    "id": tid,
+                    "code": t.get('code') or ("01" if tid == 1 else "04"),
+                    "name": t.get('name') or ("IVA" if tid == 1 else "INC"),
+                    "description": t.get('description') or (
+                        "Impuesto sobre las Ventas" if tid == 1 else "Impuesto Nacional al Consumo"
+                    ),
+                }
+
+            data = [map_tribute(t) for t in filtered]
+            if not data:
+                data = static_fallback
+
+            return Response({"success": True, "tributes": data}, status=status.HTTP_200_OK)
+        except FactusServiceError as e:
+            logger.warning(f"Fallo consultando tributos en Factus, usando fallback: {e}")
+            return Response({"success": True, "tributes": static_fallback}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error inesperado en tributes_iva_inc: {e}", exc_info=True)
+            return Response({"success": False, "message": "Error interno al consultar tributos."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='debug-measurement-units')
+    def debug_measurement_units(self, request):
+        """GET /invoices/debug-measurement-units/ - [DEBUG] Lista todas las unidades de medida disponibles en Factus."""
+        if not self.check_permission(request, PERM_INVOICE_CREATE_EDIT):
+            return Response(
+                {"success": False, "message": "No tiene permisos."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            factus = FactusService()
+            units_data = factus._get_measurement_units()  # Obtiene el catálogo completo
+            
+            # Extraer solo IDs y nombres para facilitar búsqueda
+            units_list = [
+                {"id": item.get('id'), "name": item.get('name', 'N/A')}
+                for item in units_data
+            ]
+            
+            return Response({
+                "success": True,
+                "total": len(units_list),
+                "environment": factus.BASE_URL,
+                "units": units_list
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo unidades de medida: {e}", exc_info=True)
+            return Response({
+                "success": False,
+                "message": f"Error consultando Factus: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        static_fallback = [
+            {"id": 1, "code": "01", "name": "IVA", "description": "Impuesto sobre las Ventas"},
+            {"id": 4, "code": "04", "name": "INC", "description": "Impuesto Nacional al Consumo"},
+        ]
+
+        try:
+            factus = FactusService()
+            tributes = factus._get_tributes()  # Lista completa desde Factus
+            filtered = [t for t in tributes if int(t.get('id', 0)) in (1, 4)]
+
+            def map_tribute(t):
+                tid = int(t.get('id'))
+                return {
+                    "id": tid,
+                    "code": t.get('code') or ("01" if tid == 1 else "04"),
+                    "name": t.get('name') or ("IVA" if tid == 1 else "INC"),
+                    "description": t.get('description') or (
+                        "Impuesto sobre las Ventas" if tid == 1 else "Impuesto Nacional al Consumo"
+                    ),
+                }
+
+            data = [map_tribute(t) for t in filtered]
+            if not data:
+                data = static_fallback
+
+            return Response({"success": True, "tributes": data}, status=status.HTTP_200_OK)
+        except FactusServiceError as e:
+            logger.warning(f"Fallo consultando tributos en Factus, usando fallback: {e}")
+            return Response({"success": True, "tributes": static_fallback}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error inesperado en tributes_iva_inc: {e}", exc_info=True)
+            return Response({"success": False, "message": "Error interno al consultar tributos."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'], url_path='create-draft')
     def create_draft(self, request):
@@ -419,32 +529,24 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 'id_invoice': invoice.id_invoice
             }, status=status.HTTP_200_OK)
         
-        # PUT/PATCH
+        # PUT/PATCH con validación centralizada en el serializer
         allowed = {'quantity', 'units_measurement_id', 'percentage_taxes_per_line', 'discount_percentage', 'tribute_id'}
         update_data = {k: v for k, v in request.data.items() if k in allowed}
-        
+
         if not update_data:
             return Response(
                 {"success": False, "message": "No se proporcionaron campos válidos."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        if 'units_measurement_id' in update_data:
-            try:
-                if not FactusService().validate_measurement_unit(update_data['units_measurement_id']):
-                    return Response(
-                        {"success": False, "message": "Unidad de medida no válida en Factus."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            except Exception:
-                return Response(
-                    {"success": False, "message": "Error validando unidad de medida en Factus."},
-                    status=status.HTTP_502_BAD_GATEWAY
-                )
-        
-        for field, value in update_data.items():
-            setattr(line, field, value)
-        line.save()
+
+        serializer = InvoiceLineSerializer(instance=line, data=update_data, partial=True)
+        if not serializer.is_valid():
+            return Response(
+                {"success": False, "errors": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        line = serializer.save()
         
         try:
             recalculate_invoice_totals(invoice)
@@ -569,8 +671,36 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         try:
             with transaction.atomic():
                 recalculate_invoice_totals(invoice)
-                invoice_payload = build_factus_payload(invoice)
-                factus_response = FactusService().generate_invoice(invoice_payload)
+                
+                # LIMPIEZA PREVENTIVA (GLOBAL CUENTA): eliminar última factura status=0 del cliente API
+                try:
+                    factus_service = FactusService()
+                    acc_cleanup = factus_service.cleanup_last_pending_for_account()
+                    if acc_cleanup.get('found'):
+                        if acc_cleanup.get('deleted'):
+                            logger.info(f"[GENERATE_FE] Limpiada factura status=0 previa: ref={acc_cleanup.get('reference_code')} id={acc_cleanup.get('bill_id')}")
+                        else:
+                            logger.warning(f"[GENERATE_FE] Pendiente no eliminada: {acc_cleanup.get('message')}")
+                    
+                    # LIMPIEZA ESPECÍFICA POR reference_code (por si acaso)
+                    cleanup_result = factus_service.check_and_cleanup_rejected_invoice(invoice.reference_code)
+                    
+                    if cleanup_result.get('had_rejected'):
+                        if cleanup_result.get('deleted'):
+                            logger.info(f"[GENERATE_FE] Factura rechazada previa eliminada: {invoice.reference_code}")
+                            logger.info(f"[GENERATE_FE] Errores previos: {cleanup_result.get('errors')}")
+                        else:
+                            logger.warning(f"[GENERATE_FE] No se pudo eliminar factura rechazada: {cleanup_result.get('message')}")
+                    else:
+                        logger.info(f"[GENERATE_FE] No hay facturas rechazadas previas, procediendo con generación")
+                        
+                except Exception as e:
+                    # No bloquear el flujo si la limpieza falla por cualquier motivo (incluye atributos faltantes)
+                    logger.error(f"[GENERATE_FE] Error en limpieza preventiva: {e}", exc_info=True)
+                    # No bloquear el flujo si la limpieza falla, continuar con la generación
+                
+                invoice_payload = build_factus_payload(invoice, request=request)
+                factus_response = factus_service.generate_invoice(invoice_payload)
                 
                 logger.info(f"Respuesta Factus para factura {invoice.id_invoice}: {factus_response}")
                 
