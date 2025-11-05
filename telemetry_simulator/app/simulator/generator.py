@@ -3,7 +3,8 @@ Telemetry data generator with coherent value relationships
 """
 import random
 import math
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import List, Tuple
 from app.models.telemetry_data import TelemetryData
 from app.config import settings
@@ -372,12 +373,13 @@ class TelemetryGenerator:
     
     def _get_current_timestamp(self) -> str:
         """
-        Get current timestamp in ISO 8601 UTC format with microseconds
+        Get current timestamp in ISO 8601 local (America/Bogota) with microseconds
         
         Returns:
-            str: ISO 8601 timestamp (e.g., "2025-10-27T13:30:00.123456Z")
+            str: ISO 8601 timestamp with offset (e.g., "2025-10-27T08:30:00.123456-05:00")
         """
-        return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        local_tz = ZoneInfo("America/Bogota")
+        return datetime.now(local_tz).isoformat(timespec="microseconds")
     
     def generate_response(self) -> dict:
         """
