@@ -24,7 +24,9 @@ from machinery.models import (
     ToleranceThresholds,
     TelemetryDeviceParameter,
     OBD_Faults,
-    OBDFaultMachinery
+    OBDFaultMachinery,
+    EventTypes,
+    EventTypeMachinery
 )
 from service_requests.models import ServiceRequest, RequestLocation, RequestMachineryUser
 from monitoring.models import Data
@@ -84,6 +86,9 @@ class TelemetryProcessor:
         # URL del endpoint HTTP del simulador para reenviar paquetes procesados
         self.simulator_http_url = simulator_url.replace("ws://", "http://").replace("/ws/telemetria", "")
         self.is_running = False
+        # Refresco de solicitudes activas cada N paquetes
+        self._active_requests_refresh_every = 4
+        self._packets_since_refresh = 0
         
     def validate_tables_exist(self) -> bool:
         """
@@ -144,45 +149,54 @@ class TelemetryProcessor:
         if target_date is None:
             target_date = django_timezone.now().date()
         
-        # Verificar si el cache es válido
+        # Verificar si el cache es válido y si corresponde refrescar por contador
         if (self._active_requests_cache is not None and 
             self._cache_date == target_date):
-            return self._active_requests_cache
+            if self._packets_since_refresh < self._active_requests_refresh_every:
+                self._packets_since_refresh += 1
+                return self._active_requests_cache
+            # Si alcanzó el umbral, se refresca más abajo
         
         try:
             from django.db.models import Q
-            
-            # 1. Solicitudes DENTRO del rango con estados 20 y 21
-            # Fecha dentro del rango: scheduled_start_date <= target_date <= scheduled_end_date
-            requests_in_range = ServiceRequest.objects.filter(
-                request_status_id__in=[20, 21],
+
+            # 1A. Estado 21 dentro del rango completo
+            requests_21_in_range = ServiceRequest.objects.filter(
+                request_status_id=21,
                 scheduled_start_date__lte=target_date,
                 scheduled_end_date__gte=target_date
             ).select_related('request_location')
-            
-            # 2. Solicitudes FUERA del rango solo con estado 21
-            # Fuera del rango significa:
-            # - target_date < scheduled_start_date (antes del inicio)
-            # - target_date > scheduled_end_date (después del fin)
+
+            # 1B. Estado 20 solo válido el día de inicio
+            requests_20_start_day = ServiceRequest.objects.filter(
+                request_status_id=20,
+                scheduled_start_date=target_date
+            ).select_related('request_location')
+
+            # Combinar válidos "en rango" según regla: 21 todo el rango; 20 solo día de inicio
+            requests_in_range = requests_21_in_range.union(requests_20_start_day)
+
+            # 2. Fuera del rango solo estado 21
             requests_out_range = ServiceRequest.objects.filter(
-                Q(request_status_id=21) & 
+                Q(request_status_id=21) &
                 (Q(scheduled_start_date__gt=target_date) | Q(scheduled_end_date__lt=target_date))
             ).select_related('request_location')
-            
-            # Combinar ambos querysets (usar union para evitar duplicados)
+
+            # Combinar ambos conjuntos evitando duplicados
             all_requests = requests_in_range.union(requests_out_range)
             
             self._active_requests_cache = {
                 req.id_request: req for req in all_requests
             }
             self._cache_date = target_date
+            self._packets_since_refresh = 0
             
             in_range_count = len(list(requests_in_range))
             out_range_count = len(list(requests_out_range))
             
             logger.info(
                 f"Cache actualizado: {len(self._active_requests_cache)} solicitudes activas para {target_date} "
-                f"(Dentro rango [20,21]: {in_range_count}, Fuera rango [21]: {out_range_count})"
+                f"(Dentro: 21 en rango + 20 solo día inicio -> {in_range_count}, Fuera: 21 -> {out_range_count})"
             )
             
             return self._active_requests_cache
@@ -395,6 +409,55 @@ class TelemetryProcessor:
         except Exception as e:
             logger.error(f"Error verificando umbrales: {str(e)}")
             return (False, None)
+
+    def _get_event_type_config(self, machinery: Machinery) -> Dict[int, Dict[str, Optional[float]]]:
+        """
+        Retorna la configuración de tipos de evento por maquinaria:
+        {id_event_type: {"alert_enabled": bool, "threshold": float|None}}
+        """
+        cfg: Dict[int, Dict[str, Optional[float]]] = {}
+        try:
+            rows = EventTypeMachinery.objects.filter(id_machinery=machinery)
+            for row in rows:
+                if row.id_event_type_id is not None:
+                    cfg[int(row.id_event_type_id)] = {
+                        "alert_enabled": bool(row.alert_enabled),
+                        "threshold": row.threshold,
+                    }
+        except Exception as e:
+            logger.error(f"Error obteniendo configuración de eventos: {str(e)}")
+        return cfg
+
+    def _get_obd_whitelist(self, machinery: Machinery) -> Dict[str, bool]:
+        """
+        Retorna whitelist de fallas OBD por maquinaria: {CODE: alert_enabled_bool}
+        """
+        wl: Dict[str, bool] = {}
+        try:
+            qs = OBDFaultMachinery.objects.filter(id_machinery=machinery).select_related('id_obd_fault')
+            for row in qs:
+                code = (row.id_obd_fault.code or "").upper()
+                if code:
+                    wl[code] = bool(row.alert_enabled)
+        except Exception as e:
+            logger.error(f"Error obteniendo whitelist OBD: {str(e)}")
+        return wl
+
+    def _event_permitted(
+        self,
+        event_type: Optional[int],
+        g_value: Optional[float],
+        cfg: Dict[int, Dict[str, Optional[float]]]
+    ) -> bool:
+        if event_type is None:
+            return False
+        c = cfg.get(int(event_type))
+        if not c or not c.get("alert_enabled", False):
+            return False
+        thr = c.get("threshold")
+        if thr is None:
+            return True
+        return g_value is not None and float(g_value) >= float(thr)
     
     def process_obd_faults(
         self,
@@ -414,31 +477,19 @@ class TelemetryProcessor:
             return
         
         try:
+            whitelist = self._get_obd_whitelist(machinery)
             for code in fault_codes:
-                code_upper = code.upper()
-                
-                # Buscar o crear el código OBD
-                obd_fault, created = OBD_Faults.objects.get_or_create(
+                code_upper = (code or "").upper()
+                # Solo procesar si está listado y habilitado
+                if not code_upper or not whitelist.get(code_upper, False):
+                    continue
+
+                # Asegurar existencia del código en catálogo (no crea relación maquinaria)
+                OBD_Faults.objects.get_or_create(
                     code=code_upper,
                     defaults={'description': f'Falla OBD {code_upper}'}
                 )
-                
-                # Verificar si ya existe una relación activa
-                obd_machinery, created = OBDFaultMachinery.objects.get_or_create(
-                    id_machinery=machinery,
-                    id_obd_fault=obd_fault,
-                    defaults={
-                        'alert_enabled': True,
-                        'id_maintenance': None
-                    }
-                )
-                
-                if created:
-                    logger.info(
-                        f"Nueva falla OBD registrada: {code_upper} "
-                        f"para maquinaria {machinery.id_machinery}"
-                    )
-                    
+
         except Exception as e:
             logger.error(f"Error procesando fallas OBD: {str(e)}")
     
@@ -521,6 +572,7 @@ class TelemetryProcessor:
     
     def store_telemetry_data(
         self,
+        machinery: Machinery,
         device: TelemetryDevices,
         active_request: ServiceRequest,
         telemetry_data: Dict,
@@ -533,6 +585,7 @@ class TelemetryProcessor:
         Crea un registro por cada parámetro que tenga valor y esté configurado para el dispositivo
         
         Args:
+            machinery: Instancia de Machinery
             device: Instancia de TelemetryDevices
             active_request: Solicitud activa asociada (OBLIGATORIO)
             telemetry_data: Diccionario con los datos de telemetría
@@ -655,20 +708,22 @@ class TelemetryProcessor:
                         f"para el dispositivo {device.name} (IMEI {device.IMEI}). Fallas OBD omitidas."
                     )
                 else:
+                    # Aplicar whitelist por maquinaria antes de guardar
+                    whitelist = self._get_obd_whitelist(machinery)
                     obd_parameter = self.get_parameter_by_avl_id(obd_avl_id)
                     for fault_code in obd_faults:
                         try:
-                            code_upper = fault_code.upper()
-                            # Guardar cada falla OBD en 'data' con el código en obd_fault
-                            # Si existe parámetro OBD, usarlo; si no, usar un parámetro genérico o el primero disponible
+                            code_upper = (fault_code or "").upper()
+                            if not code_upper or not whitelist.get(code_upper, False):
+                                continue
                             if obd_parameter:
                                 Data.objects.create(
-                                    data=1.0,  # Valor indicador (1 = falla presente)
+                                    data=None,
                                     id_parameter=obd_parameter,
                                     registered_at=timestamp,
                                     id_device=device,
                                     id_request=active_request,
-                                    alert=True,  # Las fallas OBD siempre son alertas
+                                    alert=True,
                                     obd_fault=code_upper
                                 )
                                 records_created += 1
@@ -788,37 +843,26 @@ class TelemetryProcessor:
                     if is_alert:
                         total_alerts += 1
             
-            # Alertas para eventos: una sola alerta para event_type (que incluye event_g_value si existe)
-            # VALIDACIÓN: Solo procesar eventos si event_type está configurado para el dispositivo
+            # Alertas de eventos controladas por event_type_machinery
             event_type_avl_id = 253
             event_g_value_avl_id = 254
-            
-            if data.get('event_type') is not None:
-                # Verificar si event_type está configurado
-                if device_parameters:
-                    event_type_allowed = any(p.avl_id_parameter == event_type_avl_id for p in device_parameters)
-                    if not event_type_allowed:
-                        logger.debug(
-                            f"Parámetro event_type (AVL_ID {event_type_avl_id}) no está configurado "
-                            f"para el dispositivo {device.name} (IMEI {device.IMEI}). Evento omitido."
-                        )
-                    else:
-                        event_g_value = data.get('event_g_value')
-                        if event_g_value is not None:
-                            alert_reason = f"Evento detectado (Tipo: {data.get('event_type')}, Valor G: {event_g_value})"
-                        else:
-                            alert_reason = f"Evento detectado (Tipo: {data.get('event_type')})"
-                        parameter_alerts['event_type'] = (True, alert_reason)
-                        total_alerts += 1
+
+            event_cfg = self._get_event_type_config(machinery)
+            event_type = data.get('event_type')
+            event_g_value = data.get('event_g_value')
+
+            # Respetar configuración por dispositivo (si existe)
+            device_allows_event = True
+            if device_parameters:
+                device_allows_event = any(p.avl_id_parameter == event_type_avl_id for p in device_parameters)
+
+            if device_allows_event and self._event_permitted(event_type, event_g_value, event_cfg):
+                if event_g_value is not None:
+                    alert_reason = f"Evento detectado (Tipo: {event_type}, Valor G: {event_g_value})"
                 else:
-                    # Si no hay parámetros configurados, procesar normalmente (compatibilidad hacia atrás)
-                    event_g_value = data.get('event_g_value')
-                    if event_g_value is not None:
-                        alert_reason = f"Evento detectado (Tipo: {data.get('event_type')}, Valor G: {event_g_value})"
-                    else:
-                        alert_reason = f"Evento detectado (Tipo: {data.get('event_type')})"
-                    parameter_alerts['event_type'] = (True, alert_reason)
-                    total_alerts += 1
+                    alert_reason = f"Evento detectado (Tipo: {event_type})"
+                parameter_alerts['event_type'] = (True, alert_reason)
+                total_alerts += 1
             
             # 7. Procesar fallas OBD
             obd_faults = data.get('obd_faults', [])
@@ -828,6 +872,7 @@ class TelemetryProcessor:
             # 8. Almacenar datos en tabla 'data' (un registro por parámetro)
             # Pasar los parámetros permitidos para validación
             records_created = self.store_telemetry_data(
+                machinery=machinery,
                 device=device,
                 active_request=active_request,
                 telemetry_data=data,
