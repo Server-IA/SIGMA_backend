@@ -231,6 +231,7 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
                     obd_fault_name = None
             
             parameters_data[param_id]['data_points'].append({
+                'id': data.id_data,
                 'data': data.data,
                 'registered_at': data.registered_at,
                 'obd_fault': data.obd_fault,
