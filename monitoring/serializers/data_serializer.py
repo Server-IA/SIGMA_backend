@@ -118,12 +118,7 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
         start_date: Fecha de inicio para filtrar los datos (opcional)
         end_date: Fecha de fin para filtrar los datos (opcional)
     """
-    # Get all machinery assigned to this request with their users
-    request_machinery = RequestMachineryUser.objects.filter(request_id=request_id).select_related(
-        'machinery',
-        'user',
-        'machinery__id_device'
-    )
+    from django.db.models import Max
     
     # Convertir fechas de string a datetime si vienen como parámetros
     if isinstance(start_date, str):
@@ -133,18 +128,45 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
         from django.utils.dateparse import parse_datetime
         end_date = parse_datetime(end_date)
     
+    # Obtener todos los datos de la solicitud agrupados por maquinaria
+    data_query = Data.objects.filter(
+        id_request=request_id
+    )
+    
+    # Aplicar filtros de fecha si están presentes
+    if start_date:
+        data_query = data_query.filter(registered_at__gte=start_date)
+    if end_date:
+        data_query = data_query.filter(registered_at__lte=end_date)
+    
+    # Obtener el último registro por maquinaria para tener la información más reciente
+    latest_data = data_query.values('id_machinery').annotate(
+        latest_registered=Max('registered_at')
+    )
+    
+    # Obtener los datos completos de los registros más recientes
+    latest_records = []
+    for item in latest_data:
+        latest_record = data_query.filter(
+            id_machinery=item['id_machinery'],
+            registered_at=item['latest_registered']
+        ).select_related('id_machinery', 'id_device').first()
+        if latest_record:
+            latest_records.append(latest_record)
+    
     result = []
     
-    for rm in request_machinery:
-        machinery = rm.machinery
-        if not machinery.id_device:
-            continue
-            
-        # Build base query for data points
-        data_points_query = Data.objects.filter(
-            id_device=machinery.id_device,
-            id_request=request_id
-        )
+    for record in latest_records:
+        machinery = record.id_machinery
+        
+        # Obtener datos para esta maquinaria
+        data_points_query = data_query.filter(
+            id_machinery=machinery.id_machinery,
+            id_device=record.id_device  # Usar el dispositivo del registro más reciente
+        ).select_related('id_parameter', 'id_machinery', 'id_device')
+        
+        # Ordenar por fecha
+        data_points = data_points_query.order_by('registered_at')
         
         # Aplicar filtros de fecha si están presentes
         if start_date:
@@ -235,12 +257,15 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
                 
             parameters_list.append(param_data)
         
+        # Obtener el ID de usuario del registro más reciente
+        user_id = record.id_user.id_user if hasattr(record, 'id_user') and record.id_user is not None else None
+        
         machine_data = {
             'machinery_name': machinery.machinery_name,
             'serial_number': machinery.serial_number,
-            'id_user': rm.user.id_user,
-            'id_device': machinery.id_device.id_device,
-            'imei': machinery.id_device.IMEI,
+            'id_user': user_id,
+            'id_device': record.id_device.id_device,
+            'imei': record.id_device.IMEI,
             'operating_time_hours': operating_time_hours,
             'parameters': parameters_list
         }
