@@ -159,6 +159,7 @@ class MachineryUserSerializer(serializers.Serializer):
         allow_null=True
     )
     humidity_level = serializers.FloatField(required=False, allow_null=True)
+    implement_width = serializers.FloatField(required=False, allow_null=True)
     implementation = serializers.PrimaryKeyRelatedField(
         queryset=Implementation.objects.all(),
         required=False,
@@ -175,6 +176,15 @@ class MachineryUserSerializer(serializers.Serializer):
         """
         if value is not None and not (0 <= value <= 50):
             raise serializers.ValidationError("El nivel de humedad debe estar entre 0 y 50%.")
+        return value
+
+    def validate_implement_width(self, value):
+        """
+        Valida que el ancho del implemento esté entre 0.5 y 5.0 metros.
+        Solo se aplica si el valor no es None.
+        """
+        if value is not None and not (0.5 <= value <= 5.0):
+            raise serializers.ValidationError("El ancho del implemento debe estar entre 0.5 y 5.0 metros.")
         return value
 
     def validate_depth(self, value):
@@ -215,7 +225,7 @@ class MachineryUserSerializer(serializers.Serializer):
         """
         soil_fields = [
             'soil_type', 'texture', 'humidity_level', 
-            'implementation', 'depth', 'slope', 'work_duration'
+            'implementation', 'depth', 'slope', 'work_duration', 'implement_width'
         ]
         
         # Verificar si algún campo relacionado con el suelo está presente
@@ -544,6 +554,7 @@ class PreRequestUpdateSerializer(serializers.ModelSerializer):
                     implementation=item.get('implementation'),
                     depth=item.get('depth'),
                     slope=item.get('slope'),
+                    implement_width=item.get('implement_width'),
                     work_duration=item.get('work_duration')
                 )
         

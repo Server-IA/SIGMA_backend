@@ -9,6 +9,7 @@ class RequestMachineryUser(models.Model):
     texture = models.ForeignKey('service_requests.Texture', on_delete=models.PROTECT, null=True, blank=True, related_name='machinery_texture_assignments')
     humidity_level = models.FloatField(null=True, blank=True)
     implementation = models.ForeignKey('service_requests.Implementation', on_delete=models.PROTECT, null=True, blank=True, related_name='machinery_implementation')
+    implement_width = models.FloatField(null=True, blank=True, verbose_name='implement_width')
     depth = models.FloatField(null=True, blank=True, verbose_name='depth')
     slope = models.FloatField(null=True, blank=True, verbose_name='slope')
     work_duration = models.FloatField(null=True, blank=True, verbose_name='work_duration')
