@@ -6,6 +6,7 @@ import json
 import logging
 from datetime import datetime
 from typing import List
+import asyncio
 from fastapi import WebSocket, WebSocketDisconnect
 from app.simulator.generator import TelemetryGenerator
 
@@ -22,6 +23,8 @@ class ConnectionManager:
         self.generator = TelemetryGenerator()
         self.is_running = False
         self.broadcast_task = None
+        # Consumidores SSE: una cola por cliente SSE
+        self._sse_consumers: List[asyncio.Queue] = []
     
     async def connect(self, websocket: WebSocket, is_processor: bool = False):
         """Accept new WebSocket connection
@@ -94,6 +97,39 @@ class ConnectionManager:
         self.is_running = False
         logger.info("Solicitud de detener generación de datos")
     
+    def register_sse_consumer(self, queue: asyncio.Queue):
+        """Registrar un consumidor SSE (cola) y devolver función para desuscribir"""
+        self._sse_consumers.append(queue)
+
+        def _unsubscribe():
+            try:
+                self._sse_consumers.remove(queue)
+            except ValueError:
+                pass
+
+        return _unsubscribe
+
+    async def _broadcast_sse(self, packet: dict):
+        """Enviar paquete procesado a todos los consumidores SSE"""
+        if not self._sse_consumers:
+            return
+
+        dead_consumers: List[asyncio.Queue] = []
+        for consumer in list(self._sse_consumers):
+            try:
+                try:
+                    consumer.put_nowait(packet)
+                except asyncio.QueueFull:
+                    await consumer.put(packet)
+            except Exception:
+                dead_consumers.append(consumer)
+
+        for c in dead_consumers:
+            try:
+                self._sse_consumers.remove(c)
+            except ValueError:
+                pass
+
     async def _send_to_processors(self, message: str):
         """Send message only to processor connections"""
         if not self.processor_connections:
@@ -143,10 +179,14 @@ class ConnectionManager:
             message = json.dumps(packet, default=str)
             # Enviar solo a clientes normales (no a procesadores)
             await self._broadcast(message)
+            # Enviar a consumidores SSE
+            await self._broadcast_sse(packet)
             
             alerts_count = len(packet.get('alerts', [])) if packet.get('alerts') else 0
             imei = packet.get('imei', 'UNKNOWN')
-            logger.info(f"Enviando paquete procesado a {len(self.active_connections)} cliente(s) - IMEI: {imei}, Alertas: {alerts_count}")
+            logger.info(
+                f"Enviando paquete procesado a WS:{len(self.active_connections)} cliente(s) y SSE:{len(self._sse_consumers)} consumidor(es) - IMEI: {imei}, Alertas: {alerts_count}"
+            )
         except Exception as e:
             logger.error(f"Error reenviando paquete procesado: {str(e)}")
 
