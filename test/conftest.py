@@ -1,85 +1,250 @@
-import json
-import os
+"""
+Configuración global de pytest para todos los tests.
+
+Este archivo contiene fixtures y configuraciones compartidas por todos los tests
+del proyecto.
+"""
 import pytest
+from django.utils import timezone
 
 
-# Configurar Django antes de importar cualquier cosa que dependa de settings
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "machpaymanager.settings")
+def seed_ws_demo_data():
+    """
+    Seed minimal data to enable TelemetryProcessor processed flow for WS tests.
+    
+    Esta función crea:
+    - Usuario de prueba
+    - Estados necesarios (1, 20, 21)
+    - Tipos y categorías
+    - Marcas y modelos
+    - Dispositivo telemetría con IMEI=357894561234567
+    - Maquinaria vinculada al dispositivo
+    - Cliente y solicitud de servicio activa
+    - Ubicación y asignación de maquinaria
+    
+    Returns:
+        dict: Diccionario con los objetos creados (user, device, machinery, customer, service_request)
+    """
+    from users.models import User
+    from parameterization.models import (
+        Statues, StatuesCategory, Types, TypesCategory,
+        Brands, BrandsCategory, Models
+    )
+    from machinery.models import TelemetryDevices, Machinery
+    from service_requests.models import (
+        ServiceRequest, Customer, PersonType, TaxRegime,
+        RequestLocation, RequestMachineryUser
+    )
 
-if not os.environ.get("FIREBASE_CREDENTIALS"):
-    fake_credentials = {
-        "type": "service_account",
-        "project_id": "local-test",
-        "private_key_id": "dummy-key-id",
-        "private_key": "-----BEGIN PRIVATE KEY-----\nFAKEKEY\n-----END PRIVATE KEY-----\n",
-        "client_email": "firebase-adminsdk@test.local",
-        "client_id": "1234567890",
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk@test.local",
-        "universe_domain": "googleapis.com",
+    now = timezone.now()
+
+    # Users
+    user, _ = User.objects.get_or_create(id_user=1)
+
+    # Status categories and statuses
+    sc, _ = StatuesCategory.objects.get_or_create(
+        id_statues_categories=1,
+        defaults=dict(
+            name="General",
+            description="Estados generales",
+            modification_date=now,
+            creation_date=now,
+            id_responsible_user=user,
+        ),
+    )
+
+    def ensure_status(pk: int, name: str):
+        Statues.objects.get_or_create(
+            id_statues=pk,
+            defaults=dict(
+                name=name,
+                description=name,
+                id_statues_categories=sc,
+                modification_date=now,
+                creation_date=now,
+                id_responsible_user=user,
+            ),
+        )
+
+    ensure_status(1, "Activo")
+    ensure_status(20, "Solicitud Inicio (día de inicio)")
+    ensure_status(21, "Solicitud Activa")
+
+    # Types
+    tc, _ = TypesCategory.objects.get_or_create(
+        id_types_categories=1,
+        defaults=dict(
+            name="Maquinaria",
+            description="Tipos de maquinaria",
+            creation_date=now,
+            modification_date=now,
+            id_responsible_user=user,
+        ),
+    )
+    t_active = Statues.objects.get(id_statues=1)
+    t1, _ = Types.objects.get_or_create(
+        id_types=1,
+        defaults=dict(
+            name="TipoPrimario",
+            description="",
+            id_types_categories=tc,
+            creation_date=now,
+            modification_date=now,
+            id_responsible_user=user,
+            id_statues=t_active,
+        ),
+    )
+    t2, _ = Types.objects.get_or_create(
+        id_types=2,
+        defaults=dict(
+            name="TipoSecundario",
+            description="",
+            id_types_categories=tc,
+            creation_date=now,
+            modification_date=now,
+            id_responsible_user=user,
+            id_statues=t_active,
+        ),
+    )
+
+    # Brands/Models (minimal)
+    bc, _ = BrandsCategory.objects.get_or_create(
+        id_brands_categories=1,
+        defaults=dict(
+            name="General",
+            description="",
+            modification_date=now,
+            creation_date=now,
+            id_responsible_user=user,
+        ),
+    )
+    brand, _ = Brands.objects.get_or_create(
+        id_brands=1,
+        defaults=dict(
+            name="DemoBrand",
+            description="",
+            id_brands_categories=bc,
+            modification_date=now,
+            creation_date=now,
+            id_responsible_user=user,
+            id_statues=t_active,
+        ),
+    )
+    model, _ = Models.objects.get_or_create(
+        id_model=1,
+        defaults=dict(
+            id_brand=brand,
+            name="DemoModel",
+            description="",
+            modification_date=now,
+            creation_date=now,
+            id_responsible_user=user,
+        ),
+    )
+
+    # Device
+    imei = 357894561234567
+    device, _ = TelemetryDevices.objects.get_or_create(
+        IMEI=imei,
+        defaults=dict(
+            name="SIM Device",
+            id_statues=t_active,
+            id_responsible_user=user,
+        ),
+    )
+
+    # Machinery
+    machinery, _ = Machinery.objects.get_or_create(
+        serial_number="SER1",
+        defaults=dict(
+            machinery_name="Demo Machine",
+            manufacturing_year=2024,
+            machinery_type=t1,
+            id_model=model,
+            tariff_subheading="",
+            machinery_secondary_type=t2,
+            id_country="CO",
+            id_department="Cundinamarca",
+            id_city=11001,
+            image_path="",
+            id_device=device,
+            justification="test seed",
+            machinery_operational_status=t_active,
+            id_responsible_user=user,
+        ),
+    )
+    # Ensure device link if machinery existed
+    if machinery.id_device_id != device.id_device:
+        machinery.id_device = device
+        machinery.save(update_fields=["id_device"])
+
+    # Customer dependencies
+    pt, _ = PersonType.objects.get_or_create(name="Juridica")
+    tr, _ = TaxRegime.objects.get_or_create(code="GEN", defaults=dict(name="General"))
+    customer_status = t_active
+    customer, _ = Customer.objects.get_or_create(
+        legal_entity_name="Acme Corp",
+        id_municipality=11001,
+        tax_regime=tr,
+        customer_statues=customer_status,
+        id_responsible_user=user,
+        defaults=dict(
+            person_type=pt,
+        ),
+    )
+
+    # Service request (active status 21, includes today)
+    today = timezone.now().date()
+    sr, _ = ServiceRequest.objects.get_or_create(
+        id_request="REQ-WS-001",
+        defaults=dict(
+            customer=customer,
+            request_detail="WS Demo Request",
+            scheduled_start_date=today,
+            scheduled_end_date=today,
+            request_status=Statues.objects.get(id_statues=21),
+            id_responsible_user=user,
+        ),
+    )
+
+    # Location (optional but useful)
+    RequestLocation.objects.get_or_create(
+        request=sr,
+        defaults=dict(
+            country="CO",
+            department="Cundinamarca",
+            city_id=11001,
+            place_name="Centro",
+            latitude=4.60971,
+            longitude=-74.08175,
+        ),
+    )
+
+    # Link machinery to request
+    RequestMachineryUser.objects.get_or_create(
+        request=sr,
+        machinery=machinery,
+        user=user,
+    )
+
+    return {
+        "user": user,
+        "device": device,
+        "machinery": machinery,
+        "customer": customer,
+        "service_request": sr,
     }
-    os.environ["FIREBASE_CREDENTIALS"] = json.dumps(fake_credentials).replace("\n", "\\\\n")
-
-os.environ.setdefault("FIREBASE_STORAGE_BUCKET", "test-bucket.appspot.com")
-
-import django  # noqa: E402
-from django.conf import settings  # noqa: E402
-from django.test.utils import get_runner, setup_test_environment, teardown_test_environment  # noqa: E402
-
-# Asegurar que Django quede configurado antes de que los tests importen DRF/APIClient
-django.setup()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def django_env_and_db(request):
+@pytest.fixture(scope="session")
+def ws_demo_data(django_db_setup, django_db_blocker):
     """
-    Inicializa Django y crea la base de datos de pruebas usando el TestRunner de Django.
-    Esto permite ejecutar pruebas con pytest sin depender de pytest-django.
+    Fixture de sesión que crea datos de prueba para tests WebSocket.
+    
+    Uso:
+        def test_something(ws_demo_data):
+            # Los datos ya están en la BD
+            assert ws_demo_data["device"].IMEI == 357894561234567
     """
-    env_configured = False
-    try:
-        setup_test_environment()
-        env_configured = True
-    except RuntimeError:
-        # Ya existe un entorno de prueba activo; reutilizarlo.
-        env_configured = False
-
-    for db_alias, db_config in settings.DATABASES.items():
-        host = db_config.get("HOST")
-        
-        # Si está dentro de Docker (hay archivo /.dockerenv), usar 'db'; sino usar 'localhost'
-        is_docker = os.path.isfile("/.dockerenv")
-        
-        if not host or host in {"db", "postgres", "postgres-db", "database"}:
-            default_host = "db" if is_docker else "localhost"
-            db_config["HOST"] = os.environ.get("PYTEST_DB_HOST", default_host)
-
-        port_override = os.environ.get("PYTEST_DB_PORT")
-        if port_override:
-            db_config["PORT"] = port_override
-        elif not db_config.get("PORT") or str(db_config.get("PORT")) == "5432":
-            # En Docker el puerto es 5432, fuera es 5436
-            db_config["PORT"] = "5432" if is_docker else "5436"
-
-    TestRunner = get_runner(settings)
-    test_runner = TestRunner()
-    django_db_blocker = None
-    try:
-        django_db_blocker = request.getfixturevalue("django_db_blocker")
-        django_db_blocker.unblock()
-    except pytest.FixtureLookupError:
-        django_db_blocker = None
-
-    old_config = test_runner.setup_databases()
-
-    def fin():
-        test_runner.teardown_databases(old_config)
-        if env_configured:
-            teardown_test_environment()
-        if django_db_blocker is not None:
-            django_db_blocker.restore()
-
-    request.addfinalizer(fin)
-    return old_config
+    with django_db_blocker.unblock():
+        return seed_ws_demo_data()
