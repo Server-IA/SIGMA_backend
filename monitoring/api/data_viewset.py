@@ -38,7 +38,7 @@ class DataViewSet(viewsets.ViewSet):
     def by_request(self, request, pk=None):
         """
         Obtiene los datos de telemetría para una solicitud específica.
-        Requiere el permiso con ID 171.
+        Requiere el permiso con ID 172.
         
         Parámetros opcionales:
         - start_date: Fecha de inicio en formato ISO 8601 (ej: 2025-01-01T00:00:00)
@@ -73,10 +73,10 @@ class DataViewSet(viewsets.ViewSet):
             
             # Verificar permiso
             logger.debug("Verificando permisos...")
-            if not self.check_permission(request, 171):
+            if not self.check_permission(request, 172):
                 logger.warning(f"Acceso denegado para el usuario: {request.user}")
                 return Response(
-                    {"detail": "No tiene permiso para acceder a este recurso"}, 
+                    {"detail": "No tiene permiso para acceder al historial de los datos de la solicitud"}, 
                     status=status.HTTP_403_FORBIDDEN
                 )
                 
