@@ -39,9 +39,37 @@ class DataViewSet(viewsets.ViewSet):
         """
         Obtiene los datos de telemetría para una solicitud específica.
         Requiere el permiso con ID 171.
+        
+        Parámetros opcionales:
+        - start_date: Fecha de inicio en formato ISO 8601 (ej: 2025-01-01T00:00:00)
+        - end_date: Fecha de fin en formato ISO 8601 (ej: 2025-01-31T23:59:59)
         """
         try:
             logger.info(f"Iniciando solicitud de datos para request_id: {pk}")
+            
+            # Obtener parámetros de fecha
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+            
+            logger.debug(f"Filtros - start_date: {start_date}, end_date: {end_date}")
+            
+            # Validar que end_date no sea anterior a start_date
+            if start_date and end_date:
+                from django.utils.dateparse import parse_datetime
+                try:
+                    start = parse_datetime(start_date)
+                    end = parse_datetime(end_date)
+                    if start and end and end < start:
+                        return Response(
+                            {"detail": "La fecha de fin no puede ser anterior a la fecha de inicio"},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Error al analizar fechas: {str(e)}")
+                    return Response(
+                        {"detail": "Formato de fecha inválido. Use el formato ISO 8601 (ej: 2025-01-01T00:00:00)"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             
             # Verificar permiso
             logger.debug("Verificando permisos...")
@@ -64,13 +92,28 @@ class DataViewSet(viewsets.ViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            # Obtener los datos de la maquinaria
+            # Obtener los datos de la maquinaria con los filtros de fecha
             logger.debug("Obteniendo datos de maquinaria...")
-            machinery_data = get_machinery_data(pk)
+            machinery_data = get_machinery_data(
+                pk, 
+                request=request,
+                start_date=start_date,
+                end_date=end_date
+            )
+            
             logger.debug(f"Datos de maquinaria obtenidos: {len(machinery_data)} registros")
             
             # Serializar y retornar los datos
-            serializer = DataSerializer(machinery_data, many=True)
+            serializer = DataSerializer(
+                machinery_data, 
+                many=True,
+                context={
+                    'request': request,
+                    'start_date': start_date,
+                    'end_date': end_date
+                }
+            )
+            
             logger.info("Solicitud completada exitosamente")
             return Response(serializer.data)
             
