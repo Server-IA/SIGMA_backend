@@ -446,6 +446,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                             texture=item.get('texture'),
                             humidity_level=item.get('humidity_level'),
                             implementation=item.get('implementation'),
+                            implement_width=item.get('implement_width'),
                             depth=item.get('depth'),
                             slope=item.get('slope'),
                             work_duration=item.get('work_duration')
@@ -691,7 +692,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                                 continue
                             for field in [
                                 'machinery_id', 'user_id', 'soil_type_id', 'texture_id', 
-                                'humidity_level', 'implementation_id', 'depth', 'slope', 'work_duration'
+                                'humidity_level', 'implementation_id', 'implement_width', 'depth', 'slope', 'work_duration'
                             ]:
                                 if field in mu:
                                     diff_changes[f'machinery_{idx}_{field}'] = {
@@ -1120,7 +1121,7 @@ class ServiceRequestViewSet(viewsets.ViewSet):
                                 continue
                             for field in [
                                 'machinery_id', 'user_id', 'soil_type_id', 'texture_id', 
-                                'humidity_level', 'implementation_id', 'depth', 'slope', 'work_duration'
+                                'humidity_level', 'implementation_id','implement_width','depth', 'slope', 'work_duration'
                             ]:
                                 if field in mu:
                                     diff_changes[f'machinery_{idx}_{field}'] = {
