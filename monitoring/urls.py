@@ -8,6 +8,5 @@ router.register(r'data', DataViewSet, basename='data')
 
 
 urlpatterns = [
-    path('health/', health_check, name='health_check'),
     path('', include(router.urls))
 ]
