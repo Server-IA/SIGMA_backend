@@ -28,6 +28,9 @@ services:
       AUDIT_HTTP_TIMEOUT: "1.5"
       X_CSCAPI_KEY: ${X_CSCAPI_KEY}
       WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     depends_on:
       - simulator
     networks:
