@@ -11,9 +11,6 @@ services:
       AUDIT_TOKEN: ${AUDIT_TOKEN}
       AUDIT_HTTP_TIMEOUT: "1.5"
       X_CSCAPI_KEY: ${X_CSCAPI_KEY}
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
     networks:
       - shared_net
 
