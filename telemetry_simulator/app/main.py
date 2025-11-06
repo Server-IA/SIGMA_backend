@@ -3,6 +3,9 @@ Main FastAPI application for Telemetry Simulator
 """
 import logging
 from fastapi import FastAPI, WebSocket, Query
+from fastapi.responses import StreamingResponse
+import asyncio
+import json
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -157,6 +160,46 @@ async def websocket_endpoint(
     
     # Contraseña válida, proceder con la conexión
     await websocket_telemetry_endpoint(websocket, is_processor=processor)
+
+
+@app.get("/api/telemetria/stream")
+async def telemetry_stream(
+    password: str = Query(..., description="Contraseña requerida para conectarse al stream")
+):
+    """
+    Server-Sent Events (SSE) endpoint para streaming de telemetría procesada.
+
+    Uso:
+        GET /api/telemetria/stream?password=...
+    """
+    # Validar contraseña antes de iniciar el stream
+    if password != settings.WEBSOCKET_PASSWORD:
+        return {"error": "Contraseña incorrecta"}
+
+    # Crear cola por cliente y registrar consumidor SSE
+    queue: asyncio.Queue = asyncio.Queue(maxsize=10)
+    unsubscribe = manager.register_sse_consumer(queue)
+
+    async def event_generator():
+        try:
+            while True:
+                packet = await queue.get()
+                yield f"data: {json.dumps(packet, default=str)}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            # Asegurar desuscripción
+            unsubscribe()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.on_event("startup")

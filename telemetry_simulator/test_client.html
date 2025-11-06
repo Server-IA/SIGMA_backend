@@ -172,7 +172,8 @@
         </div>
         
         <div class="controls">
-            <button id="connectBtn" onclick="connect()">Conectar</button>
+            <button id="connectBtn" onclick="connect()">Conectar WS</button>
+            <button id="connectSseBtn" onclick="connectSSE()">Conectar SSE</button>
             <button id="disconnectBtn" onclick="disconnect()" disabled>Desconectar</button>
         </div>
         
@@ -186,22 +187,26 @@
 
     <script>
         let ws = null;
+        let es = null; // EventSource para SSE
         let currentData = {};
         
         function updateStatus(connected) {
             const status = document.getElementById('status');
             const connectBtn = document.getElementById('connectBtn');
+            const connectSseBtn = document.getElementById('connectSseBtn');
             const disconnectBtn = document.getElementById('disconnectBtn');
             
             if (connected) {
                 status.className = 'status connected';
                 status.textContent = '● Conectado - Recibiendo datos...';
                 connectBtn.disabled = true;
+                connectSseBtn.disabled = true;
                 disconnectBtn.disabled = false;
             } else {
                 status.className = 'status disconnected';
                 status.textContent = '● Desconectado';
                 connectBtn.disabled = false;
+                connectSseBtn.disabled = false;
                 disconnectBtn.disabled = true;
             }
         }
@@ -431,6 +436,52 @@
             if (ws) {
                 ws.close();
                 addLog('🔌 Desconectando...');
+            }
+            if (es) {
+                es.close();
+                es = null;
+                addLog('🔌 Cerrando SSE...');
+            }
+            updateStatus(false);
+        }
+
+        function connectSSE() {
+            const passwordInput = document.getElementById('passwordInput');
+            const password = passwordInput.value.trim();
+            
+            if (!password) {
+                addLog('⚠️ Por favor ingresa la contraseña');
+                passwordInput.focus();
+                return;
+            }
+            
+            addLog('🔌 Conectando vía SSE...');
+            
+            try {
+                // En local usamos el simulador expuesto en 8003
+                const sseUrl = `http://localhost:8003/api/telemetria/stream?password=${encodeURIComponent(password)}`;
+                es = new EventSource(sseUrl);
+                
+                es.onopen = () => {
+                    addLog('✅ Conectado por SSE');
+                    updateStatus(true);
+                };
+                
+                es.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    const imei = data.imei || 'N/A';
+                    const timestamp = data.timestamp || 'N/A';
+                    const alertsCount = data.alerts ? data.alerts.length : 0;
+                    const alertsMsg = alertsCount > 0 ? `, ${alertsCount} alerta(s)` : '';
+                    addLog(`📊 [SSE] Datos recibidos - IMEI: ${imei}, TS: ${timestamp}, Velocidad: ${data.data?.speed || 'N/A'} km/h${alertsMsg}`);
+                    updateDataGrid(data);
+                };
+                
+                es.onerror = (error) => {
+                    addLog('❌ Error en SSE, se reintentará automáticamente');
+                };
+            } catch (error) {
+                addLog(`❌ Error al conectar SSE: ${error.message}`);
             }
         }
         
