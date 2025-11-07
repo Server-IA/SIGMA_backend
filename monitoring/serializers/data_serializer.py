@@ -18,7 +18,7 @@ class DataSerializer(serializers.Serializer):
     id_user = serializers.IntegerField()
     user_name = serializers.SerializerMethodField()
     id_device = serializers.IntegerField()
-    imei = serializers.CharField()
+    IMEI = serializers.CharField()
     operating_time_hours = serializers.FloatField()
     total_distance_km = serializers.FloatField()
     effective_working_hours = serializers.FloatField()
@@ -152,17 +152,25 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None,
         return []
     
     # Obtener las maquinarias únicas con sus relaciones
+    from django.db.models import F
+    
     machinery_data = data_query.select_related(
         'id_machinery',
-        'id_machinery__id_device',
+        'id_device',  # Relación directa con TelemetryDevices
         'id_user'
+    ).annotate(
+        device_id=F('id_device__id_device'),  # Acceso directo al dispositivo
+        IMEI=F('id_device__IMEI'),           # IMEI directo del dispositivo (mayúsculas para consistencia)
+        machinery_name=F('id_machinery__machinery_name'),
+        serial_number=F('id_machinery__serial_number'),
+        user_id=F('id_user')
     ).values(
         'id_machinery',
-        'id_machinery__machinery_name',
-        'id_machinery__serial_number',
-        'id_machinery__id_device__id_device',
-        'id_machinery__id_device__imei',
-        'id_user__id_user'
+        'machinery_name',
+        'serial_number',
+        'device_id',
+        'IMEI',  # Cambiado a mayúsculas para consistencia con el nombre en el modelo
+        'user_id'
     ).distinct()
     
     # Aplicar filtros de fecha si están presentes
@@ -330,7 +338,7 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None,
             parameters_list.append(param_data)
         
         # Obtener el ID de usuario del registro de datos
-        user_id = record['id_user__id_user']
+        user_id = record['user_id']
         
         # Calcular la distancia total recorrida (parámetro 15)
         total_distance_meters = 0
@@ -381,11 +389,11 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None,
         
         machine_data = {
             'id_machinery': record['id_machinery'],
-            'machinery_name': record['id_machinery__machinery_name'],
-            'serial_number': record['id_machinery__serial_number'],
+            'machinery_name': record['machinery_name'],
+            'serial_number': record['serial_number'],
             'id_user': user_id,
-            'id_device': record['id_machinery__id_device__id_device'],
-            'imei': record['id_machinery__id_device__imei'],
+            'id_device': record['device_id'],
+            'IMEI': record['IMEI'],
             'operating_time_hours': operating_time_hours,
             'effective_working_hours': effective_working_hours,
             'total_distance_km': total_distance_km,
