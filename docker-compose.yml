@@ -35,6 +35,5 @@ services:
     restart: always
 
 networks:
-  app_network:
-    driver: bridge
-    name: app_network
+  shared_net:
+    external: true
