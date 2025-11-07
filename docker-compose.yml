@@ -68,7 +68,7 @@ services:
 
   telemetry_processor:
     build: .
-    container_name: telemetry_processor
+    container_name: telemetry_processor_2
     command: python manage.py process_telemetry
     env_file:
       - .env
