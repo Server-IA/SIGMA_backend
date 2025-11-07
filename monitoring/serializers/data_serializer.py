@@ -1,6 +1,7 @@
 import os
 import logging
 import requests
+from django.db.models import Q
 from rest_framework import serializers
 
 logger = logging.getLogger(__name__)
@@ -11,6 +12,7 @@ from machinery.models.telemetry_devices import TelemetryDevices
 from machinery.models.obd_faults import OBD_Faults
 
 class DataSerializer(serializers.Serializer):
+    id_machinery = serializers.IntegerField()
     machinery_name = serializers.CharField()
     serial_number = serializers.CharField()
     id_user = serializers.IntegerField()
@@ -18,6 +20,8 @@ class DataSerializer(serializers.Serializer):
     id_device = serializers.IntegerField()
     imei = serializers.CharField()
     operating_time_hours = serializers.FloatField()
+    total_distance_km = serializers.FloatField()
+    effective_working_hours = serializers.FloatField()
     parameters = serializers.ListField(child=serializers.DictField())
     
     def _get_external_user(self, user_id: int) -> dict:
@@ -108,15 +112,17 @@ class DataSerializer(serializers.Serializer):
             
         return None
 
-def get_machinery_data(request_id, request=None, start_date=None, end_date=None):
+def get_machinery_data(request_id, request=None, start_date=None, end_date=None, machinery_id=None, operator_id=None):
     """
-    Obtiene los datos de maquinaria para una solicitud específica con filtros de fecha opcionales.
+    Obtiene los datos de maquinaria para una solicitud específica con filtros opcionales.
     
     Args:
         request_id: ID de la solicitud
         request: Objeto request para el contexto de autenticación
         start_date: Fecha de inicio para filtrar los datos (opcional)
         end_date: Fecha de fin para filtrar los datos (opcional)
+        machinery_id: ID de la maquinaria específica a filtrar (opcional)
+        operator_id: ID del operador para filtrar maquinarias (opcional)
     """
     from django.db.models import Max
     
@@ -128,10 +134,36 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
         from django.utils.dateparse import parse_datetime
         end_date = parse_datetime(end_date)
     
-    # Obtener todos los datos de la solicitud agrupados por maquinaria
-    data_query = Data.objects.filter(
-        id_request=request_id
-    )
+    # Obtener todos los datos de la solicitud
+    data_query = Data.objects.filter(id_request=request_id)
+    
+    # Aplicar filtro de maquinaria si se especifica
+    if machinery_id is not None:
+        data_query = data_query.filter(id_machinery=machinery_id)
+    
+    # Aplicar filtro de operador si se especifica
+    if operator_id is not None:
+        data_query = data_query.filter(id_user=operator_id)
+    
+    # Si no hay datos después de aplicar los filtros, retornar lista vacía
+    if not data_query.exists():
+        logger.warning(f"No se encontraron datos para los filtros: request_id={request_id}, "
+                     f"machinery_id={machinery_id}, operator_id={operator_id}")
+        return []
+    
+    # Obtener las maquinarias únicas con sus relaciones
+    machinery_data = data_query.select_related(
+        'id_machinery',
+        'id_machinery__id_device',
+        'id_user'
+    ).values(
+        'id_machinery',
+        'id_machinery__machinery_name',
+        'id_machinery__serial_number',
+        'id_machinery__id_device__id_device',
+        'id_machinery__id_device__imei',
+        'id_user__id_user'
+    ).distinct()
     
     # Aplicar filtros de fecha si están presentes
     if start_date:
@@ -156,13 +188,12 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
     
     result = []
     
-    for record in latest_records:
-        machinery = record.id_machinery
+    for record in machinery_data:
+        machinery = record['id_machinery']
         
         # Obtener datos para esta maquinaria
         data_points_query = data_query.filter(
-            id_machinery=machinery.id_machinery,
-            id_device=record.id_device  # Usar el dispositivo del registro más reciente
+            id_machinery=machinery
         ).select_related('id_parameter', 'id_machinery', 'id_device')
         
         # Ordenar por fecha
@@ -179,6 +210,8 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
         
         # Calculate operating time (time between first and last data point within the filtered range)
         operating_time_hours = 0
+        effective_working_hours = 0
+        
         if data_points.exists():
             first_point = data_points.first()
             last_point = data_points.last()
@@ -193,6 +226,44 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
                 operating_time_hours = round(60 / 3600, 2)  # 1 minuto en horas
             else:
                 operating_time_hours = max(0, round(time_diff.total_seconds() / 3600, 2))
+            
+            # Calcular effective_working_hours (tiempo donde id_parameter=18 y data=2)
+            working_periods = []
+            current_start = None
+            
+            # Obtener los datos del parámetro 18
+            working_data = data_points.filter(id_parameter_id=18).order_by('registered_at')
+            
+            for i, point in enumerate(working_data):
+                # Si encontramos un punto con data=2
+                if point.data == 2:
+                    # Si es el inicio de un nuevo período de trabajo
+                    if current_start is None:
+                        current_start = point.registered_at
+                # Si encontramos un punto que no es 2 y teníamos un período abierto
+                elif current_start is not None:
+                    # Si no es el último punto, usamos el punto anterior
+                    if i > 0 and working_data[i-1].data == 2:
+                        working_periods.append({
+                            'start': current_start,
+                            'end': working_data[i-1].registered_at
+                        })
+                    current_start = None
+            
+            # Cerrar el último período si es necesario
+            if current_start is not None and working_data.last().data == 2:
+                working_periods.append({
+                    'start': current_start,
+                    'end': working_data.last().registered_at
+                })
+            
+            # Sumar la duración de todos los períodos de trabajo
+            for period in working_periods:
+                duration = (period['end'] - period['start']).total_seconds()
+                effective_working_hours += max(0, duration) / 3600  # Convertir a horas
+            
+            # Redondear a 2 decimales
+            effective_working_hours = round(effective_working_hours, 2)
         
         # Organize data by parameter
         parameters_data = {}
@@ -258,16 +329,66 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
                 
             parameters_list.append(param_data)
         
-        # Obtener el ID de usuario del registro más reciente
-        user_id = record.id_user.id_user if hasattr(record, 'id_user') and record.id_user is not None else None
+        # Obtener el ID de usuario del registro de datos
+        user_id = record['id_user__id_user']
+        
+        # Calcular la distancia total recorrida (parámetro 15)
+        total_distance_meters = 0
+        distance_parameter_data = None
+        
+        # Buscar los datos del parámetro de distancia (id_parameter=15)
+        for param_data in parameters_list:
+            if param_data['parameter_id'] == 15:  # ID del parámetro de distancia
+                distance_parameter_data = param_data
+                break
+        
+        if distance_parameter_data and distance_parameter_data['data_points']:
+            # Ordenar los puntos de datos por fecha para asegurar el orden correcto
+            data_points = sorted(distance_parameter_data['data_points'], key=lambda x: x['registered_at'])
+            
+            # Encontrar los segmentos entre ceros
+            segments = []
+            current_segment = []
+            
+            for point in data_points:
+                if point['data'] == 0 and current_segment:
+                    # Si encontramos un 0 y hay un segmento en progreso, lo guardamos
+                    segments.append(current_segment)
+                    current_segment = []
+                elif point['data'] > 0:
+                    # Solo agregar puntos con datos mayores a 0
+                    current_segment.append(point)
+            
+            # Agregar el último segmento si existe
+            if current_segment:
+                segments.append(current_segment)
+            
+            # Calcular la distancia total sumando el valor máximo de cada segmento
+            for i, segment in enumerate(segments, 1):
+                if segment:  # Asegurarse de que el segmento no esté vacío
+                    # Obtener el valor máximo del segmento
+                    max_in_segment = max(segment, key=lambda x: x['data'])
+                    total_distance_meters += max_in_segment['data']
+            
+            # Si no hay segmentos (todos los datos son 0 o no hay datos)
+            if not segments and any(dp['data'] is not None and dp['data'] > 0 for dp in data_points):
+                # Si hay datos pero no segmentos (por ejemplo, un solo valor sin ceros)
+                last_non_zero = next((dp['data'] for dp in reversed(data_points) if dp['data'] is not None and dp['data'] > 0), 0)
+                total_distance_meters = last_non_zero
+        
+        # Convertir a kilómetros
+        total_distance_km = round(total_distance_meters / 1000, 6) if total_distance_meters is not None else 0
         
         machine_data = {
-            'machinery_name': machinery.machinery_name,
-            'serial_number': machinery.serial_number,
+            'id_machinery': record['id_machinery'],
+            'machinery_name': record['id_machinery__machinery_name'],
+            'serial_number': record['id_machinery__serial_number'],
             'id_user': user_id,
-            'id_device': record.id_device.id_device,
-            'imei': record.id_device.IMEI,
+            'id_device': record['id_machinery__id_device__id_device'],
+            'imei': record['id_machinery__id_device__imei'],
             'operating_time_hours': operating_time_hours,
+            'effective_working_hours': effective_working_hours,
+            'total_distance_km': total_distance_km,
             'parameters': parameters_list
         }
         
