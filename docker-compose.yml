@@ -14,8 +14,6 @@ services:
       AUDIT_TOKEN: ${AUDIT_TOKEN}
       AUDIT_HTTP_TIMEOUT: "1.5"
       X_CSCAPI_KEY: ${X_CSCAPI_KEY}
-    networks:
-      - shared_net
 
   simulator:
     build: ./telemetry_simulator
@@ -27,8 +25,6 @@ services:
       ALLOW_GENERATE_IMEI: ${ALLOW_GENERATE_IMEI:-true}
       WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log
-    networks:
-      - shared_net
     restart: always
 
   telemetry_processor:
@@ -46,12 +42,6 @@ services:
       WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
     depends_on:
       - simulator
-    networks:
-      - shared_net
     restart: always
 
-volumes:
-  machpay_postgres_data:
 
-networks:
-  shared_net:
