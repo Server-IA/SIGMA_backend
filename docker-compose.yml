@@ -56,5 +56,9 @@ services:
     depends_on:
       - simulator
     restart: always
+    
+  volumes:
+    machpay_postgres_data:
+
 
 
