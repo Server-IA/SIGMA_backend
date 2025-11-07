@@ -54,7 +54,7 @@ services:
 
   simulator:
     build: ./telemetry_simulator
-    container_name: telemetry_simulator
+    container_name: telemetry_simulator_2
     ports:
       - "8003:8000"
     environment:
