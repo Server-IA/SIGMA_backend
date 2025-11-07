@@ -7,13 +7,16 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: postgres
-    # ports:
-    #  - "5436:5432"
     volumes:
       - machpay_postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - default
+      - machpay_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       
   simulator:
     build: ./telemetry_simulator
@@ -26,7 +29,18 @@ services:
       WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
       DATABASE_HOST: db
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log
+    networks:
+      - machpay_network
+    depends_on:
+      db:
+        condition: service_healthy
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   telemetry_processor:
     build: .
@@ -42,13 +56,20 @@ services:
       X_CSCAPI_KEY: ${X_CSCAPI_KEY}
       WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
       DATABASE_HOST: db
+      SIMULATOR_WS_URL: ws://simulator:8000/ws/telemetria
+    networks:
+      - machpay_network
     depends_on:
-      - simulator
+      simulator:
+        condition: service_healthy
+      db:
+        condition: service_healthy
     restart: always
 
 networks:
-  default:
+  machpay_network:
     driver: bridge
+    name: machpay_network
 
 volumes:
   machpay_postgres_data:
