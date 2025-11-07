@@ -49,3 +49,6 @@ services:
 networks:
   default:
     driver: bridge
+
+volumes:
+  machpay_postgres_data:
