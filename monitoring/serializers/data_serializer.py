@@ -18,6 +18,8 @@ class DataSerializer(serializers.Serializer):
     id_device = serializers.IntegerField()
     imei = serializers.CharField()
     operating_time_hours = serializers.FloatField()
+    total_distance_km = serializers.FloatField()
+    effective_working_hours = serializers.FloatField()
     parameters = serializers.ListField(child=serializers.DictField())
     
     def _get_external_user(self, user_id: int) -> dict:
@@ -179,6 +181,8 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
         
         # Calculate operating time (time between first and last data point within the filtered range)
         operating_time_hours = 0
+        effective_working_hours = 0
+        
         if data_points.exists():
             first_point = data_points.first()
             last_point = data_points.last()
@@ -193,6 +197,44 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
                 operating_time_hours = round(60 / 3600, 2)  # 1 minuto en horas
             else:
                 operating_time_hours = max(0, round(time_diff.total_seconds() / 3600, 2))
+            
+            # Calcular effective_working_hours (tiempo donde id_parameter=18 y data=2)
+            working_periods = []
+            current_start = None
+            
+            # Obtener los datos del parámetro 18
+            working_data = data_points.filter(id_parameter_id=18).order_by('registered_at')
+            
+            for i, point in enumerate(working_data):
+                # Si encontramos un punto con data=2
+                if point.data == 2:
+                    # Si es el inicio de un nuevo período de trabajo
+                    if current_start is None:
+                        current_start = point.registered_at
+                # Si encontramos un punto que no es 2 y teníamos un período abierto
+                elif current_start is not None:
+                    # Si no es el último punto, usamos el punto anterior
+                    if i > 0 and working_data[i-1].data == 2:
+                        working_periods.append({
+                            'start': current_start,
+                            'end': working_data[i-1].registered_at
+                        })
+                    current_start = None
+            
+            # Cerrar el último período si es necesario
+            if current_start is not None and working_data.last().data == 2:
+                working_periods.append({
+                    'start': current_start,
+                    'end': working_data.last().registered_at
+                })
+            
+            # Sumar la duración de todos los períodos de trabajo
+            for period in working_periods:
+                duration = (period['end'] - period['start']).total_seconds()
+                effective_working_hours += max(0, duration) / 3600  # Convertir a horas
+            
+            # Redondear a 2 decimales
+            effective_working_hours = round(effective_working_hours, 2)
         
         # Organize data by parameter
         parameters_data = {}
@@ -261,6 +303,53 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
         # Obtener el ID de usuario del registro más reciente
         user_id = record.id_user.id_user if hasattr(record, 'id_user') and record.id_user is not None else None
         
+        # Calcular la distancia total recorrida (parámetro 15)
+        total_distance_meters = 0
+        distance_parameter_data = None
+        
+        # Buscar los datos del parámetro de distancia (id_parameter=15)
+        for param_data in parameters_list:
+            if param_data['parameter_id'] == 15:  # ID del parámetro de distancia
+                distance_parameter_data = param_data
+                break
+        
+        if distance_parameter_data and distance_parameter_data['data_points']:
+            # Ordenar los puntos de datos por fecha para asegurar el orden correcto
+            data_points = sorted(distance_parameter_data['data_points'], key=lambda x: x['registered_at'])
+            
+            # Encontrar los segmentos entre ceros
+            segments = []
+            current_segment = []
+            
+            for point in data_points:
+                if point['data'] == 0 and current_segment:
+                    # Si encontramos un 0 y hay un segmento en progreso, lo guardamos
+                    segments.append(current_segment)
+                    current_segment = []
+                elif point['data'] > 0:
+                    # Solo agregar puntos con datos mayores a 0
+                    current_segment.append(point)
+            
+            # Agregar el último segmento si existe
+            if current_segment:
+                segments.append(current_segment)
+            
+            # Calcular la distancia total sumando el valor máximo de cada segmento
+            for i, segment in enumerate(segments, 1):
+                if segment:  # Asegurarse de que el segmento no esté vacío
+                    # Obtener el valor máximo del segmento
+                    max_in_segment = max(segment, key=lambda x: x['data'])
+                    total_distance_meters += max_in_segment['data']
+            
+            # Si no hay segmentos (todos los datos son 0 o no hay datos)
+            if not segments and any(dp['data'] is not None and dp['data'] > 0 for dp in data_points):
+                # Si hay datos pero no segmentos (por ejemplo, un solo valor sin ceros)
+                last_non_zero = next((dp['data'] for dp in reversed(data_points) if dp['data'] is not None and dp['data'] > 0), 0)
+                total_distance_meters = last_non_zero
+        
+        # Convertir a kilómetros
+        total_distance_km = round(total_distance_meters / 1000, 6) if total_distance_meters is not None else 0
+        
         machine_data = {
             'machinery_name': machinery.machinery_name,
             'serial_number': machinery.serial_number,
@@ -268,6 +357,8 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None)
             'id_device': record.id_device.id_device,
             'imei': record.id_device.IMEI,
             'operating_time_hours': operating_time_hours,
+            'effective_working_hours': effective_working_hours,
+            'total_distance_km': total_distance_km,
             'parameters': parameters_list
         }
         
