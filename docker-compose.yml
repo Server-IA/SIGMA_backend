@@ -9,8 +9,6 @@ services:
       ALLOW_GENERATE_IMEI: ${ALLOW_GENERATE_IMEI:-true}
       WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log
-    networks:
-      - shared_net
     restart: always
 
   telemetry_processor:
@@ -28,10 +26,8 @@ services:
       WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
     depends_on:
       - simulator
-    networks:
-      - shared_net
     restart: always
 
 networks:
-  shared_net:
+  default:
     driver: bridge
