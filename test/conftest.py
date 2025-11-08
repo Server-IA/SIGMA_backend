@@ -69,6 +69,7 @@ def seed_ws_demo_data():
     ensure_status(1, "Activo")
     ensure_status(20, "Solicitud Inicio (día de inicio)")
     ensure_status(21, "Solicitud Activa")
+    ensure_status(22, "Finalizada")
 
     # Types
     tc, _ = TypesCategory.objects.get_or_create(

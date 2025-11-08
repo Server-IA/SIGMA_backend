@@ -75,6 +75,19 @@ class TelemetryProcessor:
         253: 'event_type',  # Tipo Evento
         254: 'event_g_value',  # Valor G Evento
     }
+
+    # Algunos dispositivos usan AVL IDs alternativos para los mismos parámetros.
+    # Agregar alias para soportar múltiples variantes (p. ej. 85 -> RPM, 115 -> engine_temp, 89 -> fuel_level, 87 -> odometer_total)
+    # Esto permite que el procesador reconozca parámetros aun cuando el catálogo use IDs distintos.
+    PARAMETER_MAPPING.update({
+        85: 'rpm',               # Alternativa para RPM
+        115: 'engine_temp',      # Alternativa para temperatura del motor
+        89: 'fuel_level',        # Alternativa para nivel de combustible
+        87: 'odometer_total',    # Alternativa para odómetro total
+        32: 'engine_temp',       # (reiterado para claridad)
+        48: 'fuel_level',        # (reiterado para claridad)
+        16: 'odometer_total',    # (reiterado para claridad)
+    })
     
     def __init__(self, simulator_url: str = "ws://simulator:8000/ws/telemetria"):
         """
