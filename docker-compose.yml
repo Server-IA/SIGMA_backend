@@ -10,9 +10,7 @@ services:
       WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log
     networks:
-      app_network:
-        aliases:
-          - simulator
+      - shared_net
     restart: always
 
   telemetry_processor:
@@ -31,10 +29,9 @@ services:
     depends_on:
       - simulator
     networks:
-      - app_network
+      - shared_net
     restart: always
 
 networks:
-  app_network:
-    driver: bridge
-    name: app_network
+  shared_net:
+    external: true
