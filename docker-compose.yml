@@ -3,7 +3,6 @@ services:
     build: ./telemetry_simulator
     container_name: telemetry_simulator
     ports:
-      - "8003:8003"
       - "8003:8000"
     environment:
       DEVICE_IMEI: ${DEVICE_IMEI:-357894561234567}
