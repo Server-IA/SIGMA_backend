@@ -12,6 +12,7 @@ services:
       AUDIT_URL: ${AUDIT_URL}
       AUDIT_TOKEN: ${AUDIT_TOKEN}
       AUDIT_HTTP_TIMEOUT: "1.5"
+      X_CSCAPI_KEY: ${X_CSCAPI_KEY}
     depends_on:
       - db
     networks:
@@ -38,11 +39,50 @@ services:
     container_name: django_cron
     command: bash -c "python manage.py crontab remove || true; python manage.py crontab add; cron -f"
     # SOLUCIÓN: Agregar las mismas variables de entorno que el contenedor web
+    environment:
+      SERVICE_NAME: machpayroll
+      AUDIT_URL: ${AUDIT_URL}
+      AUDIT_TOKEN: ${AUDIT_TOKEN}
+      AUDIT_HTTP_TIMEOUT: "1.5"
+      X_CSCAPI_KEY: ${X_CSCAPI_KEY}
     depends_on:
       - db
     networks:
       - shared_net
 
+  simulator:
+    build: ./telemetry_simulator
+    container_name: telemetry_simulator
+    ports:
+      - "8003:8000"
+    environment:
+      DEVICE_IMEI: ${DEVICE_IMEI:-357894561234567}
+      ALLOW_GENERATE_IMEI: ${ALLOW_GENERATE_IMEI:-true}
+      WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log
+    networks:
+      - shared_net
+    restart: always
+
+  telemetry_processor:
+    build: .
+    container_name: telemetry_processor
+    command: python manage.py process_telemetry
+    env_file:
+      - .env
+    environment:
+      SERVICE_NAME: machpayroll
+      AUDIT_URL: ${AUDIT_URL}
+      AUDIT_TOKEN: ${AUDIT_TOKEN}
+      AUDIT_HTTP_TIMEOUT: "1.5"
+      X_CSCAPI_KEY: ${X_CSCAPI_KEY}
+      WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
+    depends_on:
+      - db
+      - simulator
+    networks:
+      - shared_net
+    restart: always
 
 volumes:
   machpay_postgres_data:

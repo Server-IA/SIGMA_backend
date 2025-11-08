@@ -32,7 +32,7 @@ class MachineryToleranceThresholdsCreateSerializer(serializers.Serializer):
 
     Validaciones específicas:
     - alert_enabled es OBLIGATORIO cuando se proporciona el ID principal del modelo
-    - tolerance_thresholds: parámetro ID no puede ser 1, 2, 4, 5, 13, 16, 17
+    - tolerance_thresholds: parámetro ID no puede ser 1, 2, 4, 5, 13, 16, 17, 18
     - event_type_machinery: threshold debe estar en rango del parámetro ID 17
     """
     id_machinery = serializers.PrimaryKeyRelatedField(
@@ -64,8 +64,8 @@ class MachineryToleranceThresholdsCreateSerializer(serializers.Serializer):
         if len(value) == 0:
             raise ValidationError("Debe seleccionar al menos un parámetro.")
 
-        # 2) Validar que no se incluyan parámetros específicos (1, 2, 4, 5, 13, 16, 17)
-        excluded_parameters = [1, 2, 4, 5, 13, 16, 17]
+        # 2) Validar que no se incluyan parámetros específicos (1, 2, 4, 5, 13, 16, 17, 18)
+        excluded_parameters = [1, 2, 4, 5, 13, 16, 17, 18]
         for item in value:
             id_parameter = item.get('id_parameter')
             if id_parameter in excluded_parameters:

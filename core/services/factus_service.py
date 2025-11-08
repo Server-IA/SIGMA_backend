@@ -5,6 +5,7 @@ from django.conf import settings
 import logging
 
 import base64
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,18 @@ class FactusService:
             logger.error(f"Factus Auth Error: {e}")
             raise FactusServiceError("Fallo al autenticar con la API de Factus. Revise credenciales y endpoint.")
 
+    # Utilidad: extraer el consecutivo numérico de 'number' (p.ej., SETP990017969 -> 990017969)
+    def _extract_number_seq(self, bill_number: str) -> int:
+        try:
+            if not bill_number:
+                return -1
+            m = re.search(r"(\d+)$", str(bill_number))
+            if m:
+                return int(m.group(1))
+            return -1
+        except Exception:
+            return -1
+
     def generate_invoice(self, payload: dict):
         """
         Envía el payload de factura al endpoint de validación: /v1/bills/validate.
@@ -76,6 +89,248 @@ class FactusService:
         except requests.RequestException as e:
             logger.error(f"Factus Request Exception: {e}")
             raise FactusServiceError("Error de conexión o timeout al intentar validar la factura.")
+
+    def check_and_cleanup_rejected_invoice(self, reference_code: str) -> dict:
+        """
+        Verifica si existe una factura rechazada (status=0) en Factus con el reference_code dado.
+        Si existe, la elimina automáticamente para evitar conflictos.
+        
+        Returns:
+            dict con keys:
+                - 'had_rejected': bool - Si había una factura rechazada
+                - 'deleted': bool - Si se eliminó exitosamente
+                - 'message': str - Mensaje descriptivo
+                - 'errors': dict - Errores de la factura rechazada (si existía)
+        """
+        if not self.token:
+            raise FactusServiceError("No se pudo obtener el token de Factus.")
+        
+        # 1. Consultar facturas por reference_code
+        url = f"{self.BASE_URL}/v1/bills"
+        params = {
+            'filter[reference_code]': reference_code,
+            'page[size]': 50,
+            'per_page': 50,
+        }
+        headers = {
+            'Authorization': f'Bearer {self.token}',
+            'Accept': 'application/json'
+        }
+        
+        try:
+            logger.info(f"[CLEANUP] Verificando facturas existentes para reference_code: {reference_code}")
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+            response.raise_for_status()
+            
+            payload = response.json() if response.content else {}
+            data = payload.get('data', {})
+            bills = data.get('data', [])
+            
+            if not bills:
+                logger.info(f"[CLEANUP] No hay facturas previas con reference_code: {reference_code}")
+                return {
+                    'had_rejected': False,
+                    'deleted': False,
+                    'message': 'No hay facturas previas con este código de referencia.',
+                    'errors': None
+                }
+            
+            # 2. Buscar la última factura por campo 'number' (consecutivo)
+            bills_sorted = sorted(
+                bills,
+                key=lambda x: (self._extract_number_seq((x or {}).get('number')), (x or {}).get('id', 0)),
+                reverse=True
+            )
+            last_bill = bills_sorted[0]
+            
+            bill_status = last_bill.get('status')
+            bill_id = last_bill.get('id')
+            bill_number = last_bill.get('number')
+            bill_errors = last_bill.get('errors', {})
+            
+            logger.info(f"[CLEANUP] Última factura encontrada: id={bill_id}, number={bill_number}, status={bill_status}")
+            
+            # 3. Si status=0 (rechazada), eliminarla
+            if bill_status == 0:
+                logger.warning(f"[CLEANUP] Factura rechazada detectada (status=0). Errores: {bill_errors}")
+                logger.info(f"[CLEANUP] Eliminando factura rechazada con reference_code: {reference_code}")
+                
+                delete_url = f"{self.BASE_URL}/v1/bills/destroy/reference/{reference_code}"
+                delete_response = requests.delete(delete_url, headers=headers, timeout=20)
+                
+                if delete_response.status_code in [200, 204]:
+                    logger.info(f"[CLEANUP] ✓ Factura rechazada eliminada exitosamente: {reference_code}")
+                    return {
+                        'had_rejected': True,
+                        'deleted': True,
+                        'message': f'Factura rechazada (status=0) eliminada. Errores previos: {list(bill_errors.keys())}',
+                        'errors': bill_errors
+                    }
+                else:
+                    logger.error(f"[CLEANUP] ✗ Error al eliminar por referencia: {delete_response.status_code} - {delete_response.text}")
+                    # Fallback: intentar eliminar por id si la API lo permite
+                    try:
+                        if bill_id:
+                            del_by_id_url = f"{self.BASE_URL}/v1/bills/destroy/{bill_id}"
+                            del_by_id_resp = requests.delete(del_by_id_url, headers=headers, timeout=20)
+                            if del_by_id_resp.status_code in [200, 204]:
+                                logger.info(f"[CLEANUP] ✓ Eliminada por id id={bill_id} tras fallo por referencia")
+                                return {
+                                    'had_rejected': True,
+                                    'deleted': True,
+                                    'message': 'Factura rechazada (status=0) eliminada por id.',
+                                    'errors': bill_errors
+                                }
+                            else:
+                                logger.error(f"[CLEANUP] ✗ Error al eliminar por id: {del_by_id_resp.status_code} - {del_by_id_resp.text}")
+                    except Exception as ex:
+                        logger.error(f"[CLEANUP] Excepción en fallback delete por id: {ex}", exc_info=True)
+                    
+                    return {
+                        'had_rejected': True,
+                        'deleted': False,
+                        'message': f'No se pudo eliminar la factura rechazada (ref/id). HTTP ref={delete_response.status_code}',
+                        'errors': bill_errors
+                    }
+            else:
+                # Status != 0 (probablemente 1 = validada)
+                logger.info(f"[CLEANUP] Última factura tiene status={bill_status}, no requiere limpieza")
+                return {
+                    'had_rejected': False,
+                    'deleted': False,
+                    'message': f'La última factura tiene status={bill_status}, puede proceder.',
+                    'errors': None
+                }
+                
+        except requests.RequestException as e:
+            logger.error(f"[CLEANUP] Error consultando/eliminando facturas: {e}", exc_info=True)
+            raise FactusServiceError(f"Error al verificar facturas previas: {str(e)}")
+
+    def cleanup_last_pending_for_account(self) -> dict:
+        """
+        SANDBOX global cleanup:
+        - Obtiene las facturas más recientes de Factus (sin filtro de status).
+        - Busca la factura con el ID más alto.
+        - Si tiene status=1 (validada), no hace nada y permite continuar.
+        - Si tiene status=0 (rechazada/pendiente), la elimina por reference_code.
+
+        Returns:
+            {
+              'found': bool,           # si se encontró alguna factura status=0
+              'deleted': bool,         # si se eliminó exitosamente
+              'reference_code': str|None,
+              'bill_id': int|None,
+              'message': str,
+              'errors': dict|None,
+            }
+        """
+        if not self.token:
+            raise FactusServiceError("No se pudo obtener el token de Factus.")
+
+        url = f"{self.BASE_URL}/v1/bills"
+        params = {
+            'page[size]': 100,
+            'per_page': 100,
+        }
+        headers = {
+            'Authorization': f'Bearer {self.token}',
+            'Accept': 'application/json'
+        }
+
+        try:
+            logger.info("[CLEANUP-SBX] Buscando factura más reciente (ID más alto)")
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+            response.raise_for_status()
+
+            payload = response.json() if response.content else {}
+            data = payload.get('data', {})
+            bills = data.get('data', [])
+
+            if not bills:
+                logger.info("[CLEANUP-SBX] No hay facturas en el sistema")
+                return {
+                    'found': False,
+                    'deleted': False,
+                    'reference_code': None,
+                    'bill_id': None,
+                    'message': 'No hay facturas en el sistema.',
+                    'errors': None,
+                }
+            
+            # Tomar la factura con el ID más alto (la más reciente)
+            last_bill = max(bills, key=lambda x: x.get('id', 0))
+            bill_id = last_bill.get('id')
+            bill_status = last_bill.get('status')
+            ref = last_bill.get('reference_code')
+            bill_number = last_bill.get('number')
+            errors = last_bill.get('errors', {})
+
+            logger.info(f"[CLEANUP-SBX] Última factura: id={bill_id}, number={bill_number}, status={bill_status}, ref={ref}")
+
+            # Si status=1 (validada), no hacer nada
+            if bill_status == 1:
+                logger.info(f"[CLEANUP-SBX] ✓ Última factura tiene status=1 (validada), puede proceder directamente")
+                return {
+                    'found': False,
+                    'deleted': False,
+                    'reference_code': ref,
+                    'bill_id': bill_id,
+                    'message': f'Última factura tiene status=1, no requiere limpieza.',
+                    'errors': None,
+                }
+            
+            # Si status=0 (rechazada/pendiente), eliminar por reference_code
+            if bill_status == 0:
+                if not ref:
+                    logger.warning(f"[CLEANUP-SBX] Factura {bill_id} con status=0 pero sin reference_code")
+                    return {
+                        'found': True,
+                        'deleted': False,
+                        'reference_code': None,
+                        'bill_id': bill_id,
+                        'message': 'Factura status=0 sin reference_code, no se puede eliminar.',
+                        'errors': errors,
+                    }
+
+                logger.warning(f"[CLEANUP-SBX] Última factura tiene status=0, eliminando por reference_code: {ref}")
+                delete_url = f"{self.BASE_URL}/v1/bills/destroy/reference/{ref}"
+                del_resp = requests.delete(delete_url, headers=headers, timeout=20)
+                
+                if del_resp.status_code in [200, 204]:
+                    logger.info(f"[CLEANUP-SBX] ✓ Eliminada factura status=0: id={bill_id}, ref={ref}, number={bill_number}")
+                    return {
+                        'found': True,
+                        'deleted': True,
+                        'reference_code': ref,
+                        'bill_id': bill_id,
+                        'message': f'Factura status=0 eliminada (id={bill_id}).',
+                        'errors': errors,
+                    }
+                else:
+                    logger.error(f"[CLEANUP-SBX] ✗ Error al eliminar ref={ref}: {del_resp.status_code} {del_resp.text}")
+                    return {
+                        'found': True,
+                        'deleted': False,
+                        'reference_code': ref,
+                        'bill_id': bill_id,
+                        'message': f'No se pudo eliminar factura status=0 (ref={ref}): HTTP {del_resp.status_code}',
+                        'errors': errors,
+                    }
+            
+            # Otros status (no esperados, pero por robustez)
+            logger.info(f"[CLEANUP-SBX] Última factura tiene status={bill_status}, continuando")
+            return {
+                'found': False,
+                'deleted': False,
+                'reference_code': ref,
+                'bill_id': bill_id,
+                'message': f'Última factura tiene status={bill_status}.',
+                'errors': None,
+            }
+
+        except requests.RequestException as e:
+            logger.error(f"[CLEANUP-SBX] Error en consulta/eliminación: {e}", exc_info=True)
+            raise FactusServiceError(f"Error al limpiar pendientes por cuenta: {str(e)}")
 
     def _download_invoice_file(self, identifier: str, file_type: str, base64_keys: list, default_filename_prefix: str):
         """
@@ -187,14 +442,18 @@ class FactusService:
         url = f"{self.BASE_URL}/v1/measurement-units"
         headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json'}
         try:
+            logger.info(f"[FACTUS] Solicitando catálogo de unidades de medida: {url}")
             response = requests.get(url, headers=headers, timeout=20)
+            logger.info(f"[FACTUS] Respuesta measurement-units: status={response.status_code}")
             response.raise_for_status()
             payload = response.json() if response.content else None
             if not payload or 'data' not in payload:
+                logger.error(f"[FACTUS] Respuesta inesperada: {payload}")
                 raise FactusServiceError("Respuesta inesperada al consultar unidades de medida.")
+            logger.info(f"[FACTUS] Unidades obtenidas: {len(payload['data'])} items")
             return payload['data']
         except requests.RequestException as e:
-            logger.error(f"Factus Measurement Units Error: {e}")
+            logger.error(f"[FACTUS] Measurement Units Error: {e}", exc_info=True)
             raise FactusServiceError("Error al consultar unidades de medida en Factus.")
 
     def get_measurement_unit_ids(self, refresh: bool = True):
@@ -210,10 +469,89 @@ class FactusService:
         """Valida que el ID de unidad de medida exista en Factus."""
         try:
             unit_int = int(unit_id)
+            logger.info(f"[FACTUS] Validando unidad de medida: {unit_int}")
             valid_ids = self.get_measurement_unit_ids(refresh=True)
             is_valid = unit_int in valid_ids
-            logger.info(f"Factus MU validate: unit={unit_int} valid={is_valid} total_ids={len(valid_ids)}")
+            logger.info(f"[FACTUS] Resultado validación: unit={unit_int} valid={is_valid} total_ids={len(valid_ids)}")
+            
+            # Debug: Si no es válido, mostrar algunos IDs disponibles
+            if not is_valid:
+                sample_ids = sorted(list(valid_ids))[:10]
+                logger.warning(f"[FACTUS] Unit {unit_int} no válido. Ejemplos de IDs válidos: {sample_ids}")
+            
             return is_valid
         except Exception as e:
-            logger.error(f"Factus MU validate error: {e}")
+            logger.error(f"[FACTUS] Error validando unidad {unit_id}: {e}", exc_info=True)
             return False
+
+    # ------------------------------
+    # Catálogos: Tributos
+    # ------------------------------
+    def _get_tributes(self, name: str = ""):
+        """Obtiene el catálogo de tributos desde Factus.
+        
+        Args:
+            name: Filtro opcional por nombre del tributo
+            
+        Returns:
+            Lista de tributos con su información
+        """
+        if not self.token:
+            raise FactusServiceError("No se pudo obtener el token de Factus.")
+
+        url = f"{self.BASE_URL}/v1/tributes/products"
+        params = {}
+        if name:
+            params['name'] = name
+            
+        headers = {'Authorization': f'Bearer {self.token}', 'Accept': 'application/json'}
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=20)
+            response.raise_for_status()
+            payload = response.json() if response.content else None
+            if not payload or 'data' not in payload:
+                raise FactusServiceError("Respuesta inesperada al consultar tributos.")
+            return payload['data']
+        except requests.RequestException as e:
+            logger.error(f"Factus Tributes Error: {e}")
+            raise FactusServiceError("Error al consultar tributos en Factus.")
+
+    def get_tribute_info(self, tribute_id: int):
+        """Obtiene la información de un tributo específico por su ID.
+        
+        Args:
+            tribute_id: ID del tributo a consultar
+            
+        Returns:
+            dict con información del tributo (id, name, description, etc.) o None si no existe
+        """
+        try:
+            # Obtener todos los tributos y buscar el específico
+            tributes = self._get_tributes()
+            for tribute in tributes:
+                if tribute.get('id') == tribute_id:
+                    return tribute
+            return None
+        except Exception as e:
+            logger.error(f"Error obteniendo info de tributo {tribute_id}: {e}")
+            return None
+
+    def get_tribute_tax_type(self, tribute_id: int) -> str:
+        """Obtiene el tipo de impuesto (tax type) basado en el tribute_id.
+        
+        Args:
+            tribute_id: ID del tributo
+            
+        Returns:
+            str: Nombre del tipo de impuesto (ej: 'IVA', 'INC', etc.) o 'IVA' por defecto
+        """
+        try:
+            tribute_info = self.get_tribute_info(tribute_id)
+            if tribute_info:
+                # Usar el campo 'name' como tax_type
+                # Ejemplos: 'IVA', 'INC', 'Bolsas', etc.
+                return tribute_info.get('name', 'IVA')
+            return 'IVA'  # Default si no se encuentra
+        except Exception as e:
+            logger.error(f"Error obteniendo tax_type para tribute {tribute_id}: {e}")
+            return 'IVA'  # Default en caso de error

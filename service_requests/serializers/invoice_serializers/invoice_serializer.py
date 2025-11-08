@@ -7,6 +7,7 @@ from parameterization.models import Statues
 from django.db import transaction
 from .invoice_line_serializer import InvoiceLineSerializer
 from service_requests.models.invoice_line import InvoiceLine
+from service_requests.serializers.customer_serializers.customer_detail_serializer import CustomerDetailSerializer
 
 # ----------------------------------------------------------------------
 # 2. SERIALIZER DE LECTURA DE LISTA
@@ -27,16 +28,18 @@ class InvoiceListSerializer(serializers.ModelSerializer):
 # ----------------------------------------------------------------------
 class InvoiceDetailSerializer(serializers.ModelSerializer):
     lines = InvoiceLineSerializer(many=True, read_only=True)
+    customer = CustomerDetailSerializer(read_only=True)  # Usar CustomerDetailSerializer con fallback de usuarios
     customer_name = serializers.CharField(source='customer.legal_entity_name', read_only=True)
     service_request_id = serializers.CharField(source='service_request.id_request', read_only=True)
     tax_regime_name = serializers.CharField(source='tax_regime.name', read_only=True) 
     status = serializers.SerializerMethodField(read_only=True)
     api_response = serializers.SerializerMethodField(read_only=True)
+    # Dígito de verificación calculado para el NIT del cliente
+    customer_dv = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Invoice
         fields = '__all__'
-        depth = 1
 
     def to_representation(self, instance):
         """Remover campos sensibles/no deseados de la representación final.
@@ -45,6 +48,18 @@ class InvoiceDetailSerializer(serializers.ModelSerializer):
         `get_api_response` en lugar del JSON completo.
         """
         data = super().to_representation(instance)
+
+        # Remover payload técnico de Factus en el detalle de las líneas
+        try:
+            lines = data.get('lines', [])
+            if isinstance(lines, list):
+                for item in lines:
+                    if isinstance(item, dict):
+                        item.pop('factus_payload', None)
+        except Exception:
+            # En caso de cualquier problema al manipular las líneas, continuar sin romper respuesta
+            pass
+
         return data
 
     def get_api_response(self, obj):
@@ -83,6 +98,30 @@ class InvoiceDetailSerializer(serializers.ModelSerializer):
             data['id_statues'] = getattr(st, 'id', None)
         data['name'] = getattr(st, 'name', '')
         return data
+
+    def get_customer_dv(self, obj):
+        """Calcula y devuelve el DV del NIT del cliente si es aplicable.
+
+        Retorna un entero (0-9) o None si el documento no es numérico o no está disponible.
+        """
+        try:
+            customer = getattr(obj, 'customer', None)
+            # Solo aplica para documentos tipo NIT
+            doc_name = ''
+            try:
+                doc_name = (getattr(customer.type_document_id, 'name', None) or '').strip()
+            except Exception:
+                doc_name = ''
+            is_nit_doc = isinstance(doc_name, str) and 'NIT' in doc_name.upper()
+            if not is_nit_doc:
+                return None
+            nit = str(getattr(customer, 'document_number', '') or '').strip()
+            if not nit.isdigit():
+                return None
+            from service_requests.utils.invoice_generator_utils import _compute_dv_for_nit
+            return _compute_dv_for_nit(nit)
+        except Exception:
+            return None
 
 # ----------------------------------------------------------------------
 # 4. SERIALIZER DE CREACIÓN/ACTUALIZACIÓN DE BORRADOR 

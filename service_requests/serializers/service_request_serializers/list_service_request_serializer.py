@@ -18,6 +18,8 @@ class ServiceRequestListSerializer(serializers.ModelSerializer):
     scheduled_date = serializers.DateField(source="scheduled_start_date", read_only=True)
     completion_date = serializers.SerializerMethodField()
     invoice_id = serializers.SerializerMethodField()
+    invoice_status_id = serializers.SerializerMethodField()
+    invoice_status_name = serializers.SerializerMethodField()
 
     class Meta:
         model = ServiceRequest
@@ -33,6 +35,8 @@ class ServiceRequestListSerializer(serializers.ModelSerializer):
             "scheduled_date",
             "completion_date",
             "invoice_id",
+            "invoice_status_id",
+            "invoice_status_name",
         ]
 
     def get_customer_name(self, obj):
@@ -114,12 +118,34 @@ class ServiceRequestListSerializer(serializers.ModelSerializer):
 
     def get_invoice_id(self, obj):
         """
-        Retorna el ID de la factura validada asociada a esta solicitud.
-        Retorna None si no hay factura validada (status_id = 26).
+        Retorna el ID de la primera factura asociada a esta solicitud.
+        Retorna None si no hay facturas asociadas.
         """
         try:
-            # Buscar factura con estado VALIDADA (26)
-            validated_invoice = obj.invoices.filter(status_id=26).first()
-            return validated_invoice.id_invoice if validated_invoice else None
+            # Buscar cualquier factura asociada (sin filtrar por estado)
+            invoice = obj.invoices.first()
+            return invoice.id_invoice if invoice else None
+        except Exception:
+            return None
+
+    def get_invoice_status_id(self, obj):
+        """
+        Retorna el ID del estado de la primera factura asociada.
+        Retorna None si no hay facturas asociadas.
+        """
+        try:
+            invoice = obj.invoices.first()
+            return invoice.status_id if invoice else None
+        except Exception:
+            return None
+
+    def get_invoice_status_name(self, obj):
+        """
+        Retorna el nombre del estado de la primera factura asociada.
+        Retorna None si no hay facturas asociadas.
+        """
+        try:
+            invoice = obj.invoices.first()
+            return invoice.status.name if invoice and invoice.status else None
         except Exception:
             return None
