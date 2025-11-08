@@ -376,48 +376,57 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                     status=status.HTTP_200_OK
                 )
             
-            # Registrar en auditoría
+            # Registrar en auditoría para cada solicitud creada
             try:
-                actor_id = request.user.id if request.user.is_authenticated else None
-                actor_name = f"{request.user.first_name} {request.user.last_name}" if request.user.is_authenticated else "Sistema"
-                actor_role = request.user.rol if hasattr(request.user, 'rol') else None
-                actor_role_name = actor_role.name if actor_role else "Sistema"
+                # Obtener información del actor para auditoría
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
                 
                 for req in maintenance_requests:
-                    AuditClient(request).create(
-                        object_id=str(req.id_maintenance_request),
-                        actor_id=str(actor_id) if actor_id is not None else None,
-                        actor_name=actor_name,
-                        actor_role=actor_role_name,
-                        module="maintenance",
-                        submodule="maintenance_request",
-                        meta={
-                            "action": "create_from_service",
-                            "service_request_id": pk,
-                            "machinery_id": str(req.id_machinery_id),
-                            "maintenance_type": str(req.maintenance_type_id) if req.maintenance_type_id else None,
-                            "priority": str(req.priority_id) if req.priority_id else None
+                    try:
+                        AuditClient(request).create(
+                            object_id=str(getattr(req, "id_maintenance_request", "")),
+                            after=maintenance_request_snapshot(req),
+                            actor_id=actor_id,
+                            actor_name=actor_name,
+                            actor_role=actor_role_name,
+                            permission_id=119, 
+                            module="maintenance",
+                            submodule="maintenance_request",
+                            meta={
+                                "action": "create_from_service",
+                                "service_request_id": str(pk),
+                                "machinery_id": str(req.id_machinery_id) if req.id_machinery_id else None,
+                                "maintenance_type": str(req.maintenance_type_id) if req.maintenance_type_id else None,
+                                "priority": str(req.priority_id) if req.priority_id else None
+                            }
+                        )
+                    except Exception as audit_error:
+                        logger.warning(f"Error en el registro de auditoría: {str(audit_error)}")
+                
+                return Response(
+                    {
+                        "success": True,
+                        "message": f"Se crearon {len(maintenance_requests)} solicitudes de mantenimiento correctamente",
+                        "data": {
+                            "count": len(maintenance_requests),
+                            "requests": [{
+                                "id": req.id_maintenance_request,
+                                "machinery_id": req.id_machinery_id,
+                                "description": req.description
+                            } for req in maintenance_requests]
                         }
-                    )
+                    },
+                    status=status.HTTP_201_CREATED
+                )
             except Exception as e:
-                logger.warning(f"Error en el registro de auditoría: {str(e)}")
-            
-            return Response(
-                {
-                    "success": True,
-                    "message": f"Se crearon {len(maintenance_requests)} solicitudes de mantenimiento correctamente",
-                    "data": {
-                        "count": len(maintenance_requests),
-                        "requests": [{
-                            "id": req.id_maintenance_request,
-                            "machinery_id": req.id_machinery_id,
-                            "description": req.description
-                        } for req in maintenance_requests]
-                    }
-                },
-                status=status.HTTP_201_CREATED
-            )
-            
+                logger.error(f"Error al obtener información del actor para auditoría: {str(e)}")
+                return Response(
+                    {
+                        "success": True,
+                        "message": f"Se crearon {len(maintenance_requests)} solicitudes de mantenimiento, pero hubo un error al registrar la auditoría"
+                    },
+                    status=status.HTTP_201_CREATED
+                )
         except Exception as e:
             logger.error(f"Error al crear solicitudes de mantenimiento desde servicio: {str(e)}")
             return Response(
