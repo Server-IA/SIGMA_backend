@@ -80,7 +80,7 @@ async def root():
     }
 
 
-@app.get("/telemetry/health")
+@app.get("/health")
 async def health_check():
     """
     Health check endpoint with IMEI configuration status
