@@ -23,8 +23,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . /app/
 
 # Exponer el puerto 8000
-EXPOSE 8010
+EXPOSE 8000
 
 # Comando por defecto: uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8010"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
