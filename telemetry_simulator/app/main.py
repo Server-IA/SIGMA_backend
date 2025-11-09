@@ -53,7 +53,8 @@ app = FastAPI(
     title="Telemetry Simulator",
     description="Servicio de simulación de telemetría vehicular en tiempo real",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    root_path="/telemetry"
 )
 
 # Configure CORS
