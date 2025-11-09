@@ -76,7 +76,7 @@ class TelemetryProcessor:
         254: 'event_g_value',  # Valor G Evento
     }
     
-    def __init__(self, simulator_url: str = "ws://simulator:8000/ws/telemetria"):
+    def __init__(self, simulator_url: str = "ws://simulator:8010/ws/telemetria"):
         """
         Inicializa el procesador
         
