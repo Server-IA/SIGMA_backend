@@ -165,8 +165,23 @@ class DataViewSet(viewsets.ViewSet):
             
             # Si hay filtro de maquinaria, agregar información resumida
             if machinery_id is not None:
-                # Obtener datos de la maquinaria
-                machinery_data = self._get_machinery_summary(machinery_id, start_date, end_date)
+                # Obtener los IDs de solicitudes que cumplen con los filtros de operador
+                request_ids = None
+                if operator_id is not None:
+                    from service_requests.models.request_machinery_user import RequestMachineryUser
+                    request_ids = RequestMachineryUser.objects.filter(
+                        machinery_id=machinery_id,
+                        user_id=operator_id
+                    ).values_list('request_id', flat=True).distinct()
+                    
+                # Obtener datos de la maquinaria, pasando también el operador y los request_ids si están presentes
+                machinery_data = self._get_machinery_summary(
+                    machinery_id, 
+                    start_date, 
+                    end_date,
+                    operator_id=operator_id,
+                    request_ids=request_ids
+                )
                 if machinery_data:
                     response_data = {**machinery_data, **response_data}
             
@@ -301,19 +316,28 @@ class DataViewSet(viewsets.ViewSet):
             )
     
     # Acción para listar (requerida por DRF)
-    def _get_machinery_summary(self, machinery_id, start_date=None, end_date=None):
+    def _get_machinery_summary(self, machinery_id, start_date=None, end_date=None, operator_id=None, request_ids=None):
         """
         Obtiene un resumen de las estadísticas de la maquinaria
         """
         try:
-            # Filtrar por maquinaria y rango de fechas si se proporcionan
+            # Filtrar por maquinaria, operador (si se proporciona) y rango de fechas
             filters = Q(id_machinery=machinery_id)
+            
+            # Si se proporciona operator_id, filtrar por ese operador
+            if operator_id is not None:
+                filters &= Q(id_user=operator_id)
+                
+            # Si se proporcionan request_ids, filtrar por esas solicitudes
+            if request_ids is not None:
+                filters &= Q(id_request__in=request_ids)
+                
             if start_date:
                 filters &= Q(registered_at__date__gte=start_date)
             if end_date:
                 filters &= Q(registered_at__date__lte=end_date)
             
-            # Obtener datos de la maquinaria
+            # Obtener datos de la maquinaria con los filtros aplicados
             data = Data.objects.filter(filters)
             
             # Calcular promedios de velocidad (parámetro 3) y consumo (parámetro 12)
