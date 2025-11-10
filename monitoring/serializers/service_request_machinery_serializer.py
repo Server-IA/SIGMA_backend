@@ -16,6 +16,8 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
     maquinarias = serializers.SerializerMethodField()
     operadores = serializers.SerializerMethodField()
     distancia_recorrida = serializers.SerializerMethodField()
+    velocidad_promedio = serializers.SerializerMethodField()
+    consumo_promedio = serializers.SerializerMethodField()
 
     class Meta:
         model = ServiceRequest
@@ -30,7 +32,9 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             "completion_date",
             "maquinarias",
             "operadores",
-            "distancia_recorrida"
+            "distancia_recorrida",
+            "velocidad_promedio",
+            "consumo_promedio"
         ]
 
     def get_queryset(self):
@@ -243,6 +247,92 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
         except Exception as e:
             print(f"Error en get_distancia_recorrida: {str(e)}")
             return None
+
+    def get_velocidad_promedio(self, obj):
+        try:
+            # Obtener filtros del contexto
+            filters = self.context.get('filters', {})
+            machinery_id = filters.get('machinery_id')
+            operator_id = filters.get('operator_id')
+            
+            # Obtener datos de maquinaria para la solicitud
+            request = self.context.get('request')
+            machinery_data = get_machinery_data(obj.id_request, request=request)
+            
+            # Filtrar por maquinaria/operador si es necesario
+            filtered_data = []
+            for data in machinery_data:
+                # Si hay un filtro de maquinaria, verificar que coincida
+                if machinery_id is not None and data.get('id_machinery') != machinery_id:
+                    continue
+                    
+                # Si hay un filtro de operador, verificar que coincida
+                if operator_id is not None and data.get('id_user') != operator_id:
+                    continue
+                    
+                filtered_data.append(data)
+            
+            # Extraer velocidades promedio de cada máquina
+            speeds = []
+            for data in filtered_data:
+                if 'parameters' in data:
+                    # Buscar el parámetro 3 (velocidad promedio)
+                    for param in data['parameters']:
+                        if param.get('parameter_id') == 3:  # Usar parameter_id en lugar de id_parameter
+                            if 'statistics' in param and param['statistics'] and 'average' in param['statistics']:
+                                speed = round(float(param['statistics']['average']), 2)
+                                speeds.append(f"{speed} km/h")
+                                break
+
+            if speeds:
+                return "; ".join(speeds)
+            return "0 km/h"
+        except Exception as e:
+            print(f"Error en get_velocidad_promedio: {str(e)}")
+            return "0 km/h"
+
+    def get_consumo_promedio(self, obj):
+        """
+        Calcula el consumo promedio (parámetro 12) para cada solicitud.
+        Retorna un string con el valor formateado o "0 L/h" si no hay datos.
+        """
+        try:
+            # Obtener filtros del contexto
+            filters = self.context.get('filters', {})
+            machinery_id = filters.get('machinery_id')
+            operator_id = filters.get('operator_id')
+            
+            # Obtener datos de maquinaria para la solicitud
+            request = self.context.get('request')
+            machinery_data = get_machinery_data(obj.id_request, request=request)
+            
+            # Filtrar por maquinaria/operador si es necesario
+            filtered_data = []
+            for data in machinery_data:
+                if machinery_id is not None and data.get('id_machinery') != machinery_id:
+                    continue
+                if operator_id is not None and data.get('id_user') != operator_id:
+                    continue
+                filtered_data.append(data)
+            
+            # Extraer consumos promedio de cada máquina
+            consumptions = []
+            for data in filtered_data:
+                if 'parameters' in data:
+                    # Buscar el parámetro 12 (consumo promedio)
+                    for param in data['parameters']:
+                        if param.get('parameter_id') == 12:  # ID del parámetro de consumo
+                            if 'statistics' in param and param['statistics'] and 'average' in param['statistics']:
+                                consumption = round(float(param['statistics']['average']), 2)
+                                consumptions.append(f"{consumption} L/h")
+                                break
+            
+            if consumptions:
+                return "; ".join(consumptions)
+            return "0 L/h"
+        except Exception as e:
+            print(f"Error en get_consumo_promedio: {str(e)}")
+            return "0 L/h"
 
     def _get_users_info(self, user_ids):
         """Obtiene información de usuarios desde el servicio externo"""
