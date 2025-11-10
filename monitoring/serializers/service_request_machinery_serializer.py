@@ -18,6 +18,7 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
     distancia_recorrida = serializers.SerializerMethodField()
     velocidad_promedio = serializers.SerializerMethodField()
     consumo_promedio = serializers.SerializerMethodField()
+    effective_working_hours = serializers.SerializerMethodField()
 
     class Meta:
         model = ServiceRequest
@@ -34,7 +35,8 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             "operadores",
             "distancia_recorrida",
             "velocidad_promedio",
-            "consumo_promedio"
+            "consumo_promedio",
+            "effective_working_hours"
         ]
 
     def get_queryset(self):
@@ -333,6 +335,35 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
         except Exception as e:
             print(f"Error en get_consumo_promedio: {str(e)}")
             return "0 L/h"
+            
+    def get_effective_working_hours(self, obj):
+        """
+        Obtiene las horas efectivas de trabajo (parámetro 18) para cada solicitud.
+        Retorna un valor numérico con las horas o 0 si no hay datos.
+        """
+        try:
+            filters = self.context.get('filters', {})
+            machinery_id = filters.get('machinery_id')
+            operator_id = filters.get('operator_id')
+            
+            # Obtener datos de la maquinaria para esta solicitud
+            machinery_data = get_machinery_data(
+                request_id=obj.id_request,
+                request=self.context.get('request'),
+                machinery_id=machinery_id,
+                operator_id=operator_id
+            )
+            
+            # Si hay datos de maquinaria, devolver el effective_working_hours del primer registro
+            if machinery_data and len(machinery_data) > 0:
+                # Redondear a 2 decimales para consistencia
+                return round(machinery_data[0].get('effective_working_hours', 0), 2)
+                
+            return 0.0
+            
+        except Exception as e:
+            print(f"Error en get_effective_working_hours: {str(e)}")
+            return 0.0
 
     def _get_users_info(self, user_ids):
         """Obtiene información de usuarios desde el servicio externo"""

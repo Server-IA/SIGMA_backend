@@ -165,15 +165,10 @@ class DataViewSet(viewsets.ViewSet):
             
             # Si hay filtro de maquinaria, agregar información resumida
             if machinery_id is not None:
-                # Obtener los IDs de solicitudes que cumplen con los filtros de operador
-                request_ids = None
-                if operator_id is not None:
-                    from service_requests.models.request_machinery_user import RequestMachineryUser
-                    request_ids = RequestMachineryUser.objects.filter(
-                        machinery_id=machinery_id,
-                        user_id=operator_id
-                    ).values_list('request_id', flat=True).distinct()
-                    
+                # Si no hay request_ids (no se filtró por operador), obtener todos los request_ids del queryset
+                if request_ids is None:
+                    request_ids = queryset.values_list('id_request', flat=True).distinct()
+                
                 # Obtener datos de la maquinaria, pasando también el operador y los request_ids si están presentes
                 machinery_data = self._get_machinery_summary(
                     machinery_id, 
@@ -327,11 +322,11 @@ class DataViewSet(viewsets.ViewSet):
             # Si se proporciona operator_id, filtrar por ese operador
             if operator_id is not None:
                 filters &= Q(id_user=operator_id)
-                
+            
             # Si se proporcionan request_ids, filtrar por esas solicitudes
-            if request_ids is not None:
+            if request_ids is not None and request_ids.exists():
                 filters &= Q(id_request__in=request_ids)
-                
+            
             if start_date:
                 filters &= Q(registered_at__date__gte=start_date)
             if end_date:
@@ -340,9 +335,95 @@ class DataViewSet(viewsets.ViewSet):
             # Obtener datos de la maquinaria con los filtros aplicados
             data = Data.objects.filter(filters)
             
+            # Si no hay datos, retornar valores por defecto
+            if not data.exists():
+                return {
+                    "operating_time_hours": 0,
+                    "total_distance_km": 0,
+                    "effective_working_hours": 0,
+                    "average_speed": 0,
+                    "average_consumption": 0
+                }
+            
             # Calcular promedios de velocidad (parámetro 3) y consumo (parámetro 12)
-            avg_speed = data.filter(id_parameter=3).aggregate(avg=Avg('data'))['avg'] or 0
-            avg_consumption = data.filter(id_parameter=12).aggregate(avg=Avg('data'))['avg'] or 0
+            # Usando los mismos filtros para todas las métricas
+            avg_speed_data = data.filter(id_parameter=3)
+            avg_speed = avg_speed_data.aggregate(avg=Avg('data'))['avg'] or 0
+            
+            avg_consumption_data = data.filter(id_parameter=12)
+            avg_consumption = avg_consumption_data.aggregate(avg=Avg('data'))['avg'] or 0
+            
+            # Calcular distancia total (parámetro 15) con los mismos filtros
+            distance_data = data.filter(id_parameter=15).order_by('registered_at')
+            total_distance_meters = 0
+            
+            if distance_data.exists():
+                # Obtener todos los puntos de distancia con sus valores y fechas
+                points = list(distance_data.values('data', 'registered_at'))
+                
+                # Encontrar segmentos entre ceros
+                segments = []
+                current_segment = []
+                
+                for point in points:
+                    if point['data'] == 0 and current_segment:
+                        # Si encontramos un 0 y hay un segmento en progreso, lo guardamos
+                        segments.append(current_segment)
+                        current_segment = []
+                    elif point['data'] > 0:
+                        # Solo agregar puntos con datos mayores a 0
+                        current_segment.append(point)
+                
+                # Agregar el último segmento si existe
+                if current_segment:
+                    segments.append(current_segment)
+                
+                # Calcular la distancia total sumando el valor máximo de cada segmento
+                for segment in segments:
+                    if segment:  # Asegurarse de que el segmento no esté vacío
+                        # Obtener el valor máximo del segmento
+                        max_in_segment = max(segment, key=lambda x: x['data'])
+                        total_distance_meters += max_in_segment['data']
+                
+                # Si no hay segmentos pero hay datos positivos (ej: un solo valor sin ceros)
+                if not segments and any(p['data'] > 0 for p in points):
+                    last_non_zero = next((p['data'] for p in reversed(points) if p['data'] > 0), 0)
+                    total_distance_meters = last_non_zero
+            
+            # Convertir a kilómetros y redondear a 3 decimales
+            total_distance = round(total_distance_meters / 1000, 3) if total_distance_meters > 0 else 0
+            
+            # Calcular tiempo de operación (diferencia entre primer y último registro)
+            operating_time_hours = 0
+            first_point = data.order_by('registered_at').first()
+            last_point = data.order_by('-registered_at').first()
+            
+            if first_point and last_point:
+                time_diff = last_point.registered_at - first_point.registered_at
+                if data.count() == 1:
+                    operating_time_hours = round(60 / 3600, 2)  # 1 minuto si solo hay un dato
+                else:
+                    operating_time_hours = max(0, round(time_diff.total_seconds() / 3600, 2))
+            
+            # Calcular horas efectivas de trabajo (parámetro 18 = 2)
+            working_data = data.filter(id_parameter=18, data=2)
+            working_periods = []
+            current_start = None
+            
+            for point in working_data.order_by('registered_at'):
+                if current_start is None:
+                    current_start = point.registered_at
+                else:
+                    time_diff = (point.registered_at - current_start).total_seconds()
+                    if time_diff > 300:  # Si hay más de 5 minutos de diferencia, se considera un nuevo período
+                        working_periods.append((current_start, point.registered_at))
+                        current_start = point.registered_at
+            
+            if current_start and working_data.exists():
+                working_periods.append((current_start, working_data.order_by('-registered_at').first().registered_at))
+            
+            # Sumar la duración de todos los períodos de trabajo
+            effective_hours = sum((end - start).total_seconds() / 3600 for start, end in working_periods)
             
             # Calcular la distancia total (parámetro 15 - distancia en metros)
             distance_data = data.filter(id_parameter=15).order_by('registered_at')
