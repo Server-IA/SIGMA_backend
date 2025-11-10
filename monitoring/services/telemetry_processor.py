@@ -14,6 +14,7 @@ from decimal import Decimal
 
 import websockets
 import aiohttp
+import requests
 from django.db import transaction, connection
 from django.utils import timezone as django_timezone
 from django.core.exceptions import ObjectDoesNotExist
@@ -256,6 +257,62 @@ class TelemetryProcessor:
         except Exception as e:
             logger.error(f"Error al obtener parámetros del dispositivo: {str(e)}")
             return []
+    
+    def _get_operator_name(self, user_id: int) -> Optional[str]:
+        """
+        Obtiene el nombre completo del operario desde el servicio externo de usuarios
+        
+        Args:
+            user_id: ID del usuario (operario)
+            
+        Returns:
+            Nombre completo del operario o None si no se puede obtener
+        """
+        if not user_id:
+            return None
+        
+        try:
+            base_url = os.getenv("AUTH_SERVICE_URL", "").rstrip("/")
+            if not base_url:
+                logger.warning("AUTH_SERVICE_URL no está configurado. No se puede obtener nombre del operario.")
+                return None
+            
+            url = f"{base_url}/users/users/basic-user-list/by-ids"
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            # Intentar obtener token de servicio si está disponible
+            service_token = os.getenv("SERVICE_AUTH_TOKEN")
+            if service_token:
+                headers["Authorization"] = f"Bearer {service_token}"
+            
+            response = requests.post(
+                url,
+                json={"ids": [user_id]},
+                headers=headers,
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                payload = response.json() or {}
+                data = payload.get("data") or []
+                if isinstance(data, list) and data:
+                    user_data = data[0]
+                    name = user_data.get("name", "").strip()
+                    first_last_name = user_data.get("first_last_name", "").strip()
+                    second_last_name = user_data.get("second_last_name", "").strip()
+                    full_name = " ".join(filter(None, [name, first_last_name, second_last_name]))
+                    return full_name if full_name else None
+            else:
+                logger.warning(f"Error al obtener datos del operario {user_id}: {response.status_code}")
+                
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Error de conexión al obtener nombre del operario {user_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error inesperado al obtener nombre del operario {user_id}: {str(e)}")
+            
+        return None
     
     def calculate_logistic_status(
         self,
@@ -982,11 +1039,28 @@ class TelemetryProcessor:
             # Agregar alertas al paquete
             packet['alerts'] = alerts_list if alerts_list else None
             
+            # Agregar request_id al paquete (necesario para filtrar por solicitud en WebSocket/SSE)
+            packet['request_id'] = active_request.id_request
+            
+            # Agregar información de maquinaria y operario al paquete
+            packet['serial_number'] = machinery.serial_number
+            packet['machinery_name'] = machinery.machinery_name
+            
+            # Obtener nombre del operario desde el servicio externo
+            operator_name = None
+            if request_machinery_user and request_machinery_user.user:
+                operator_name = self._get_operator_name(request_machinery_user.user.id_user)
+            packet['operator_name'] = operator_name
+            
             # Filtrar parámetros no configurados antes de enviar por WebSocket
             filtered_packet = self.filter_packet_by_device_parameters(packet, device_parameters)
             
             logger.info(
-                f"Paquete procesado: IMEI {imei}, "
+                f"Paquete procesado: Request ID {active_request.id_request}, "
+                f"IMEI {imei}, "
+                f"Serial: {machinery.serial_number}, "
+                f"Maquinaria: {machinery.machinery_name}, "
+                f"Operario: {operator_name or 'N/A'}, "
                 f"Estado logístico: {logistic_status}, "
                 f"Registros creados: {records_created}, "
                 f"Alertas: {total_alerts}"
