@@ -180,11 +180,35 @@ class DataViewSet(viewsets.ViewSet):
                 
                 if machinery_data:
                     # Calcular effective_working_hours como la suma de los valores individuales de las solicitudes
-                    total_effective_hours = sum(
-                        request.get('effective_working_hours', 0) 
-                        for request in response_data.get('requests', [])
-                    )
-                    machinery_data['effective_working_hours'] = round(total_effective_hours, 2)
+                    total_effective_hours = 0.0
+                    for request in response_data.get('requests', []):
+                        if 'effective_working_hours' in request:
+                            # Extraer el valor numérico del string formateado (ej: '0.03 h' -> 0.03)
+                            try:
+                                hours_str = request['effective_working_hours']
+                                if isinstance(hours_str, str) and 'h' in hours_str:
+                                    hours = float(hours_str.split('h')[0].strip())
+                                    total_effective_hours += hours
+                            except (ValueError, AttributeError) as e:
+                                print(f"Error al procesar effective_working_hours: {e}")
+                    
+                    machinery_data['effective_working_hours'] = f"{total_effective_hours:.2f} h"
+                    
+                    # Calcular operating_time_hours como la suma de los valores individuales de las solicitudes
+                    total_operating_hours = 0.0
+                    for request in response_data.get('requests', []):
+                        if 'operating_time_hours' in request:
+                            # Extraer el valor numérico del string formateado (ej: '0.05 h' -> 0.05)
+                            try:
+                                hours_str = request['operating_time_hours']
+                                if isinstance(hours_str, str) and 'h' in hours_str:
+                                    hours = float(hours_str.split('h')[0].strip())
+                                    total_operating_hours += hours
+                            except (ValueError, AttributeError) as e:
+                                print(f"Error al procesar operating_time_hours: {e}")
+                    
+                    machinery_data['operating_time_hours'] = f"{total_operating_hours:.2f} h"
+                    
                     response_data = {**machinery_data, **response_data}
             
             return Response(response_data)
@@ -320,7 +344,8 @@ class DataViewSet(viewsets.ViewSet):
     # Acción para listar (requerida por DRF)
     def _get_machinery_summary(self, machinery_id, start_date=None, end_date=None, operator_id=None, request_ids=None):
         """
-        Obtiene un resumen de las estadísticas de la maquinaria
+        Obtiene un resumen de las estadísticas de la maquinaria.
+        Nota: operating_time_hours y effective_working_hours ahora se calculan sumando los valores individuales de las solicitudes.
         """
         try:
             # Filtrar por maquinaria, operador (si se proporciona) y rango de fechas
@@ -353,12 +378,8 @@ class DataViewSet(viewsets.ViewSet):
                 }
             
             # Calcular promedios de velocidad (parámetro 3) y consumo (parámetro 12)
-            # Usando los mismos filtros para todas las métricas
-            avg_speed_data = data.filter(id_parameter=3)
-            avg_speed = avg_speed_data.aggregate(avg=Avg('data'))['avg'] or 0
-            
-            avg_consumption_data = data.filter(id_parameter=12)
-            avg_consumption = avg_consumption_data.aggregate(avg=Avg('data'))['avg'] or 0
+            avg_speed = data.filter(id_parameter=3).aggregate(avg=Avg('data'))['avg'] or 0
+            avg_consumption = data.filter(id_parameter=12).aggregate(avg=Avg('data'))['avg'] or 0
             
             # Calcular distancia total (parámetro 15) con los mismos filtros
             distance_data = data.filter(id_parameter=15).order_by('registered_at')
@@ -400,122 +421,15 @@ class DataViewSet(viewsets.ViewSet):
             # Convertir a kilómetros y redondear a 3 decimales
             total_distance = round(total_distance_meters / 1000, 3) if total_distance_meters > 0 else 0
             
-            # Calcular tiempo de operación (diferencia entre primer y último registro)
-            operating_time_hours = 0
-            first_point = data.order_by('registered_at').first()
-            last_point = data.order_by('-registered_at').first()
-            
-            if first_point and last_point:
-                time_diff = last_point.registered_at - first_point.registered_at
-                if data.count() == 1:
-                    operating_time_hours = round(60 / 3600, 2)  # 1 minuto si solo hay un dato
-                else:
-                    operating_time_hours = max(0, round(time_diff.total_seconds() / 3600, 2))
-            
-            # Calcular horas efectivas de trabajo (parámetro 18 = 2)
-            working_data = data.filter(id_parameter=18, data=2)
-            working_periods = []
-            current_start = None
-            
-            for point in working_data.order_by('registered_at'):
-                if current_start is None:
-                    current_start = point.registered_at
-                else:
-                    time_diff = (point.registered_at - current_start).total_seconds()
-                    if time_diff > 300:  # Si hay más de 5 minutos de diferencia, se considera un nuevo período
-                        working_periods.append((current_start, point.registered_at))
-                        current_start = point.registered_at
-            
-            if current_start and working_data.exists():
-                working_periods.append((current_start, working_data.order_by('-registered_at').first().registered_at))
-            
-            # Sumar la duración de todos los períodos de trabajo
-            effective_hours = sum((end - start).total_seconds() / 3600 for start, end in working_periods)
-            
-            # Calcular la distancia total (parámetro 15 - distancia en metros)
-            distance_data = data.filter(id_parameter=15).order_by('registered_at')
-            total_distance_meters = 0
-            
-            if distance_data.exists():
-                # Obtener todos los puntos de distancia con sus valores y fechas
-                points = list(distance_data.values('data', 'registered_at'))
-                
-                # Encontrar segmentos entre ceros
-                segments = []
-                current_segment = []
-                
-                for point in points:
-                    if point['data'] == 0 and current_segment:
-                        # Si encontramos un 0 y hay un segmento en progreso, lo guardamos
-                        segments.append(current_segment)
-                        current_segment = []
-                    elif point['data'] > 0:
-                        # Solo agregar puntos con datos mayores a 0
-                        current_segment.append(point)
-                
-                # Agregar el último segmento si existe
-                if current_segment:
-                    segments.append(current_segment)
-                
-                # Calcular la distancia total sumando el valor máximo de cada segmento
-                for segment in segments:
-                    if segment:  # Asegurarse de que el segmento no esté vacío
-                        # Obtener el valor máximo del segmento
-                        max_in_segment = max(segment, key=lambda x: x['data'])
-                        total_distance_meters += max_in_segment['data']
-                
-                # Si no hay segmentos pero hay datos positivos (ej: un solo valor sin ceros)
-                if not segments and any(p['data'] > 0 for p in points):
-                    last_non_zero = next((p['data'] for p in reversed(points) if p['data'] > 0), 0)
-                    total_distance_meters = last_non_zero
-            
-            # Convertir a kilómetros y redondear a 6 decimales para mayor precisión
-            total_distance = round(total_distance_meters / 1000, 6) if total_distance_meters > 0 else 0
-            
-            # Calcular tiempo operativo (diferencia entre primer y último registro)
-            operating_time_hours = 0
-            first_point = data.order_by('registered_at').first()
-            last_point = data.order_by('registered_at').last()
-            
-            if first_point and last_point:
-                time_diff = last_point.registered_at - first_point.registered_at
-                # Si hay un solo punto de datos, asumir 1 minuto de operación
-                if data.count() == 1:
-                    operating_time_hours = round(60 / 3600, 2)  # 1 minuto en horas
-                else:
-                    operating_time_hours = max(0, round(time_diff.total_seconds() / 3600, 2))
-            
-            # Calcular horas efectivas de trabajo (parámetro 18 con data=2)
-            working_data = data.filter(id_parameter=18, data=2)
-            working_periods = []
-            current_start = None
-            
-            for point in working_data.order_by('registered_at'):
-                if current_start is None:
-                    current_start = point.registered_at
-                else:
-                    # Si hay más de 5 minutos entre puntos, se considera un nuevo período
-                    time_diff = (point.registered_at - current_start).total_seconds()
-                    if time_diff > 300:  # 5 minutos en segundos
-                        working_periods.append((current_start, point.registered_at))
-                        current_start = point.registered_at
-            
-            # Agregar el último período si existe
-            if current_start:
-                working_periods.append((current_start, working_data.order_by('-registered_at').first().registered_at))
-            
-            # Calcular la suma total de horas efectivas
-            effective_hours = sum(
-                (end - start).total_seconds() / 3600 
-                for start, end in working_periods
-            )
+            # Los valores de operating_time_hours y effective_working_hours se calcularán sumando los valores individuales
+            # de las solicitudes en el método service_requests
             
             return {
-                "operating_time_hours": round(operating_time_hours, 2),
-                "total_distance_km": round(total_distance, 3),
-                "effective_working_hours": round(effective_hours, 2),
-                "average_speed": round(avg_speed, 2),
-                "average_consumption": round(avg_consumption, 2)
+                "operating_time_hours": f"{0:.2f} h",  # Se sobrescribirá en service_requests
+                "total_distance_km": f"{round(total_distance, 3)} km",
+                "effective_working_hours": f"{0:.2f} h",  # Se sobrescribirá en service_requests
+                "average_speed": f"{round(avg_speed, 2)} km/h",
+                "average_consumption": f"{round(avg_consumption, 2)} L/h"
             }
             
         except Exception as e:

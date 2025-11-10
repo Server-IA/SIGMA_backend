@@ -13,11 +13,11 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
     request_status_id = serializers.IntegerField(source="request_status.id_statues", read_only=True)
     scheduled_date = serializers.DateField(source="scheduled_start_date", read_only=True)
     completion_date = serializers.SerializerMethodField()
-    maquinarias = serializers.SerializerMethodField()
-    operadores = serializers.SerializerMethodField()
-    distancia_recorrida = serializers.SerializerMethodField()
-    velocidad_promedio = serializers.SerializerMethodField()
-    consumo_promedio = serializers.SerializerMethodField()
+    machineries = serializers.SerializerMethodField()
+    operators = serializers.SerializerMethodField()
+    total_distance_km = serializers.SerializerMethodField()
+    average_speed = serializers.SerializerMethodField()
+    average_consumption = serializers.SerializerMethodField()
     effective_working_hours = serializers.SerializerMethodField()
     operating_time_hours = serializers.SerializerMethodField()
 
@@ -32,11 +32,11 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             "request_status_name",
             "scheduled_date",
             "completion_date",
-            "maquinarias",
-            "operadores",
-            "distancia_recorrida",
-            "velocidad_promedio",
-            "consumo_promedio",
+            "machineries",
+            "operators",
+            "total_distance_km",
+            "average_speed",
+            "average_consumption",
             "effective_working_hours",
             "operating_time_hours"
         ]
@@ -110,7 +110,7 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
         except Exception:
             return None
 
-    def get_maquinarias(self, obj):
+    def get_machineries(self, obj):
         try:
             # Obtener filtros del contexto
             filters = self.context.get('filters', {})
@@ -145,7 +145,7 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             print(f"Error en get_maquinarias: {str(e)}")
             return None
 
-    def get_operadores(self, obj):
+    def get_operators(self, obj):
         try:
             # Obtener filtros del contexto
             filters = self.context.get('filters', {})
@@ -210,7 +210,7 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             print(f"Error en get_operadores: {str(e)}")
             return None
 
-    def get_distancia_recorrida(self, obj):
+    def get_total_distance_km(self, obj):
         try:
             # Obtener filtros del contexto
             filters = self.context.get('filters', {})
@@ -252,7 +252,7 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             print(f"Error en get_distancia_recorrida: {str(e)}")
             return None
 
-    def get_velocidad_promedio(self, obj):
+    def get_average_speed(self, obj):
         try:
             # Obtener filtros del contexto
             filters = self.context.get('filters', {})
@@ -295,7 +295,7 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             print(f"Error en get_velocidad_promedio: {str(e)}")
             return "0 km/h"
 
-    def get_consumo_promedio(self, obj):
+    def get_average_consumption(self, obj):
         """
         Calcula el consumo promedio (parámetro 12) para cada solicitud.
         Retorna un string con el valor formateado o "0 L/h" si no hay datos.
@@ -341,7 +341,7 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
     def get_effective_working_hours(self, obj):
         """
         Obtiene las horas efectivas de trabajo (parámetro 18) para cada solicitud.
-        Retorna un valor numérico con las horas o 0 si no hay datos.
+        Retorna un string con el valor formateado o "0 h" si no hay datos.
         """
         try:
             filters = self.context.get('filters', {})
@@ -358,19 +358,19 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             
             # Si hay datos de maquinaria, devolver el effective_working_hours del primer registro
             if machinery_data and len(machinery_data) > 0:
-                # Redondear a 2 decimales para consistencia
-                return round(machinery_data[0].get('effective_working_hours', 0), 2)
+                hours = float(machinery_data[0].get('effective_working_hours', 0))
+                return f"{hours:.2f} h"
                 
-            return 0.0
+            return "0.00 h"
             
         except Exception as e:
             print(f"Error en get_effective_working_hours: {str(e)}")
-            return 0.0
+            return "0.00 h"
             
     def get_operating_time_hours(self, obj):
         """
         Obtiene las horas de operación para cada solicitud.
-        Retorna un valor numérico con las horas o 0 si no hay datos.
+        Retorna un string con el valor formateado o "0 h" si no hay datos.
         """
         try:
             filters = self.context.get('filters', {})
@@ -387,14 +387,14 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             
             # Si hay datos de maquinaria, devolver el operating_time_hours del primer registro
             if machinery_data and len(machinery_data) > 0:
-                # Redondear a 2 decimales para consistencia
-                return round(machinery_data[0].get('operating_time_hours', 0), 2)
+                hours = float(machinery_data[0].get('operating_time_hours', 0))
+                return f"{hours:.2f} h"
                 
-            return 0.0
+            return "0.00 h"
             
         except Exception as e:
             print(f"Error en get_operating_time_hours: {str(e)}")
-            return 0.0
+            return "0.00 h"
 
     def _get_users_info(self, user_ids):
         """Obtiene información de usuarios desde el servicio externo"""
