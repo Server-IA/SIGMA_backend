@@ -177,7 +177,14 @@ class DataViewSet(viewsets.ViewSet):
                     operator_id=operator_id,
                     request_ids=request_ids
                 )
+                
                 if machinery_data:
+                    # Calcular effective_working_hours como la suma de los valores individuales de las solicitudes
+                    total_effective_hours = sum(
+                        request.get('effective_working_hours', 0) 
+                        for request in response_data.get('requests', [])
+                    )
+                    machinery_data['effective_working_hours'] = round(total_effective_hours, 2)
                     response_data = {**machinery_data, **response_data}
             
             return Response(response_data)
