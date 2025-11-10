@@ -43,15 +43,43 @@ class DataViewSet(viewsets.ViewSet):
         Parámetros opcionales:
         - start_date: Fecha de inicio en formato ISO 8601 (ej: 2025-01-01T00:00:00)
         - end_date: Fecha de fin en formato ISO 8601 (ej: 2025-01-31T23:59:59)
+        - machinery_id: ID de la maquinaria específica a filtrar (opcional)
+        - operator_id: ID del operador para filtrar maquinarias (opcional)
+        
+        Se pueden combinar los filtros de la siguiente manera:
+        - Solo machinery_id: Trae solo la maquinaria especificada
+        - Solo operator_id: Trae todas las maquinarias operadas por ese usuario
+        - Ambos: Trae la maquinaria especificada solo si es operada por el usuario especificado
         """
         try:
             logger.info(f"Iniciando solicitud de datos para request_id: {pk}")
             
-            # Obtener parámetros de fecha
+            # Obtener parámetros de filtro
             start_date = request.query_params.get('start_date')
             end_date = request.query_params.get('end_date')
+            machinery_id = request.query_params.get('machinery_id')
+            operator_id = request.query_params.get('operator_id')
             
-            logger.debug(f"Filtros - start_date: {start_date}, end_date: {end_date}")
+            # Convertir a enteros si existen
+            if machinery_id is not None:
+                try:
+                    machinery_id = int(machinery_id)
+                except (ValueError, TypeError):
+                    return Response(
+                        {"detail": "El parámetro machinery_id debe ser un número entero"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            if operator_id is not None:
+                try:
+                    operator_id = int(operator_id)
+                except (ValueError, TypeError):
+                    return Response(
+                        {"detail": "El parámetro operator_id debe ser un número entero"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            logger.debug(f"Filtros - start_date: {start_date}, end_date: {end_date}, "
+                        f"machinery_id: {machinery_id}, operator_id: {operator_id}")
             
             # Validar que end_date no sea anterior a start_date
             if start_date and end_date:
@@ -92,25 +120,28 @@ class DataViewSet(viewsets.ViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            # Obtener los datos de la maquinaria con los filtros de fecha
-            logger.debug("Obteniendo datos de maquinaria...")
-            machinery_data = get_machinery_data(
-                pk, 
+            # Obtener los datos de la maquinaria con los filtros aplicados
+            result = get_machinery_data(
+                request_id=pk,
                 request=request,
                 start_date=start_date,
-                end_date=end_date
+                end_date=end_date,
+                machinery_id=machinery_id,
+                operator_id=operator_id
             )
             
-            logger.debug(f"Datos de maquinaria obtenidos: {len(machinery_data)} registros")
+            logger.debug(f"Datos de maquinaria obtenidos: {len(result)} registros")
             
             # Serializar y retornar los datos
             serializer = DataSerializer(
-                machinery_data, 
+                result, 
                 many=True,
                 context={
                     'request': request,
                     'start_date': start_date,
-                    'end_date': end_date
+                    'end_date': end_date,
+                    'machinery_id': machinery_id,
+                    'operator_id': operator_id
                 }
             )
             

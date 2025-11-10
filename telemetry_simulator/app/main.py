@@ -123,26 +123,52 @@ async def broadcast_processed_packet(packet: dict):
 
 
 @app.websocket("/ws/telemetria")
-async def websocket_endpoint(
+async def websocket_endpoint_processor(
     websocket: WebSocket, 
-    processor: bool = Query(False),
-    password: str = Query(..., description="Contraseña requerida para conectarse al WebSocket")
+    processor: bool = Query(True),  # Por defecto True, solo para procesadores
+    password: str = Query(None, description="Contraseña requerida para conectarse al WebSocket")
 ):
     """
-    WebSocket endpoint for telemetry data streaming
+    WebSocket endpoint SOLO para procesadores (sin request_id)
     
     Args:
-        processor: Si es True, marca la conexión como procesador (recibe datos sin procesar)
-                   Si es False, es un cliente normal (solo recibe datos procesados)
-        password: Contraseña requerida para conectarse al WebSocket (variable de entorno WEBSOCKET_PASSWORD)
-    
-    Cliente normal:
-        Connects to: ws://localhost:8003/ws/telemetria?password=telemetry_password_2024
-        Receives: Solo datos procesados con alertas (cada 30 segundos aprox)
+        processor: Debe ser True (solo procesadores pueden usar esta ruta)
+        password: Contraseña requerida para conectarse al WebSocket
     
     Procesador:
         Connects to: ws://localhost:8003/ws/telemetria?processor=true&password=telemetry_password_2024
         Receives: Datos sin procesar para procesar y generar alertas
+    """
+    if not processor:
+        await websocket.close(code=4003, reason="Esta ruta es solo para procesadores. Use /ws/telemetria/{request_id} para clientes")
+        return
+    
+    # Validar contraseña antes de aceptar la conexión
+    if password != settings.WEBSOCKET_PASSWORD:
+        logger.warning(f"Intento de conexión con contraseña incorrecta")
+        await websocket.close(code=4001, reason="Contraseña incorrecta")
+        return
+    
+    # Contraseña válida, proceder con la conexión (sin request_id para procesadores)
+    await websocket_telemetry_endpoint(websocket, is_processor=True, request_id=None)
+
+
+@app.websocket("/ws/telemetria/{request_id}")
+async def websocket_endpoint_client(
+    websocket: WebSocket,
+    request_id: str,
+    password: str = Query(None, description="Contraseña requerida para conectarse al WebSocket")
+):
+    """
+    WebSocket endpoint para clientes (con request_id obligatorio)
+    
+    Args:
+        request_id: ID de la solicitud a monitorear (obligatorio)
+        password: Contraseña requerida para conectarse al WebSocket
+    
+    Cliente normal:
+        Connects to: ws://localhost:8003/ws/telemetria/{request_id}?password=telemetry_password_2024
+        Receives: Solo datos procesados con alertas de la solicitud especificada (cada 30 segundos aprox)
     
     Returns:
         - JSON with timestamp and telemetry data including:
@@ -152,6 +178,7 @@ async def websocket_endpoint(
             - OBD faults, odometer readings
             - Event types and G-values
             - alerts (solo en datos procesados)
+            - request_id, serial_number, machinery_name, operator_name
     """
     # Validar contraseña antes de aceptar la conexión
     if password != settings.WEBSOCKET_PASSWORD:
@@ -159,33 +186,60 @@ async def websocket_endpoint(
         await websocket.close(code=4001, reason="Contraseña incorrecta")
         return
     
-    # Contraseña válida, proceder con la conexión
-    await websocket_telemetry_endpoint(websocket, is_processor=processor)
+    # Contraseña válida, proceder con la conexión (con request_id para clientes)
+    await websocket_telemetry_endpoint(websocket, is_processor=False, request_id=request_id)
 
 
-@app.get("/api/telemetria/stream")
+@app.get("/api/telemetria/stream/{request_id}")
 async def telemetry_stream(
-    password: str = Query(..., description="Contraseña requerida para conectarse al stream")
+    request_id: str,
+    password: str = Query(None, description="Contraseña requerida para conectarse al stream")
 ):
     """
-    Server-Sent Events (SSE) endpoint para streaming de telemetría procesada.
+    Server-Sent Events (SSE) endpoint para streaming de telemetría procesada por solicitud.
+
+    Args:
+        request_id: ID de la solicitud a monitorear (obligatorio)
+        password: Contraseña requerida para conectarse al stream
 
     Uso:
-        GET /api/telemetria/stream?password=...
+        GET /api/telemetria/stream/{request_id}?password=...
+        
+    Retorna:
+        - Stream de datos procesados con alertas solo de la solicitud especificada
+        - Cada evento incluye: imei, request_id, serial_number, machinery_name, operator_name, data, alerts
     """
     # Validar contraseña antes de iniciar el stream
     if password != settings.WEBSOCKET_PASSWORD:
-        return {"error": "Contraseña incorrecta"}
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Contraseña incorrecta"}
+        )
 
-    # Crear cola por cliente y registrar consumidor SSE
+    # Enviar mensaje inicial de confirmación (sin validar existencia - el timeout manejará si no hay datos)
+    confirmation_data = {
+        "type": "connection_confirmed",
+        "request_id": request_id,
+        "message": f"Conexión establecida exitosamente para la solicitud '{request_id}'",
+        "status": "waiting_for_data",
+        "timeout_seconds": manager.data_timeout_seconds
+    }
+    
+    # Crear cola por cliente y registrar consumidor SSE con request_id
     queue: asyncio.Queue = asyncio.Queue(maxsize=10)
-    unsubscribe = manager.register_sse_consumer(queue)
+    unsubscribe = manager.register_sse_consumer(queue, request_id)
 
     async def event_generator():
         try:
+            # Enviar mensaje inicial de confirmación
+            yield f"data: {json.dumps(confirmation_data, default=str)}\n\n"
+            
             while True:
                 packet = await queue.get()
-                yield f"data: {json.dumps(packet, default=str)}\n\n"
+                # Verificar que el paquete coincida con el request_id (doble verificación)
+                if packet.get('request_id') == request_id:
+                    yield f"data: {json.dumps(packet, default=str)}\n\n"
         except asyncio.CancelledError:
             pass
         finally:
