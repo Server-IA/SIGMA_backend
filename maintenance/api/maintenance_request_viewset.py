@@ -19,6 +19,8 @@ from maintenance.serializers.maintenance_request_serializers.maintenance_request
 from maintenance.serializers.maintenance_request_serializers.maintenance_request_list_serializer import MaintenanceRequestListSerializer
 from maintenance.serializers.manteinace_scheduling_serializers.maintenance_scheduling_from_request_create_serializer import MaintenanceSchedulingFromRequestCreateSerializer
 from maintenance.serializers.maintenance_request_serializers.maintenance_request_detail_serializer import MaintenanceRequestDetailSerializer
+from maintenance.serializers.maintenance_request_serializers.maintenance_request_from_service_serializer import MaintenanceRequestFromServiceSerializer
+from service_requests.models.service_request import ServiceRequest
 
 # Auditoría
 from audit_sdk import AuditClient
@@ -291,6 +293,149 @@ class MaintenanceRequestViewSet(viewsets.ViewSet):
                     "details": str(e),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=True, methods=["post"], url_path="from-service-request")
+    def create_from_service_request(self, request, pk=None):
+        """
+        Crea solicitudes de mantenimiento a partir de una solicitud de servicio.
+        
+        Este endpoint crea una solicitud de mantenimiento por cada maquinaria con alertas
+        en la solicitud de servicio especificada.
+        
+        Parámetros:
+        - pk: ID de la solicitud de servicio (service_requests.id_request)
+        
+        Solo requiere autenticación, no requiere permisos especiales.
+        """
+        # Verificar autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        try:
+            # Obtener la solicitud de servicio
+            try:
+                service_request = ServiceRequest.objects.get(
+                    id_request=pk,
+                    request_status_id=21  # Verificar que el estado sea 21
+                )
+            except ServiceRequest.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Solicitud de servicio no encontrada o no tiene el estado requerido (21)"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Verificar si ya existen solicitudes de mantenimiento para esta solicitud de servicio
+            existing_requests = MaintenanceRequest.objects.filter(
+                description__icontains=f"SR-{pk}"
+            )
+            
+            if existing_requests.exists():
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Ya existen solicitudes de mantenimiento para esta solicitud de servicio"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Usar el serializer para crear las solicitudes de mantenimiento
+            serializer = MaintenanceRequestFromServiceSerializer(
+                data={},
+                context={
+                    'request': request,
+                    'service_request': service_request
+                }
+            )
+            
+            if not serializer.is_valid():
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Error en los datos de la solicitud",
+                        "errors": serializer.errors
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Crear las solicitudes de mantenimiento
+            maintenance_requests = serializer.save()
+            
+            if not maintenance_requests:
+                return Response(
+                    {
+                        "success": True,
+                        "message": "No se encontraron máquinas con alertas para generar solicitudes de mantenimiento"
+                    },
+                    status=status.HTTP_200_OK
+                )
+            
+            # Registrar en auditoría para cada solicitud creada
+            try:
+                # Obtener información del actor para auditoría
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                
+                for req in maintenance_requests:
+                    try:
+                        AuditClient(request).create(
+                            object_id=str(getattr(req, "id_maintenance_request", "")),
+                            after=maintenance_request_snapshot(req),
+                            actor_id=actor_id,
+                            actor_name=actor_name,
+                            actor_role=actor_role_name,
+                            permission_id=119, 
+                            module="maintenance",
+                            submodule="maintenance_request",
+                            meta={
+                                "action": "create_from_service",
+                                "service_request_id": str(pk),
+                                "machinery_id": str(req.id_machinery_id) if req.id_machinery_id else None,
+                                "maintenance_type": str(req.maintenance_type_id) if req.maintenance_type_id else None,
+                                "priority": str(req.priority_id) if req.priority_id else None
+                            }
+                        )
+                    except Exception as audit_error:
+                        logger.warning(f"Error en el registro de auditoría: {str(audit_error)}")
+                
+                return Response(
+                    {
+                        "success": True,
+                        "message": f"Se crearon {len(maintenance_requests)} solicitudes de mantenimiento correctamente",
+                        "data": {
+                            "count": len(maintenance_requests),
+                            "requests": [{
+                                "id": req.id_maintenance_request,
+                                "machinery_id": req.id_machinery_id,
+                                "description": req.description
+                            } for req in maintenance_requests]
+                        }
+                    },
+                    status=status.HTTP_201_CREATED
+                )
+            except Exception as e:
+                logger.error(f"Error al obtener información del actor para auditoría: {str(e)}")
+                return Response(
+                    {
+                        "success": True,
+                        "message": f"Se crearon {len(maintenance_requests)} solicitudes de mantenimiento, pero hubo un error al registrar la auditoría"
+                    },
+                    status=status.HTTP_201_CREATED
+                )
+        except Exception as e:
+            logger.error(f"Error al crear solicitudes de mantenimiento desde servicio: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al procesar la solicitud",
+                    "details": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     @action(detail=True, methods=["post"], url_path="reject")
