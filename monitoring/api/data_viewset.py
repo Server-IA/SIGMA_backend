@@ -190,9 +190,9 @@ class DataViewSet(viewsets.ViewSet):
                 id_request__isnull=True
             ).values_list('id_request', flat=True).distinct()
             
-            # Construir consulta de solicitudes
+            # Construir consulta de solicitudes - solo estado 22 (Finalizada)
             queryset = ServiceRequest.objects.filter(
-                request_status_id__in=[20, 21, 22],  # Solo estados 20, 21, 22
+                request_status_id=22,  # Solo estado 22 (Finalizada)
                 id_request__in=request_ids_from_data
             )
             
