@@ -14,6 +14,12 @@ class EstablishedContract(models.Model):
         ('Mensual fijo', 'Mensual fijo'),
     ]
     
+    OVERTIME_PERIOD_CHOICES = [
+        ('dia', 'Día'),
+        ('semana', 'Semana'),
+        ('mes', 'Mes'),
+    ]
+    
     contract_code = models.CharField(primary_key=True, max_length=20, null=False, db_column="contract_code")
     id_employee_charge = models.ForeignKey("parameterization.EmployeeCharge", on_delete=models.PROTECT, related_name="established_contracts", db_column="employee_charges_id_employee_charge", null=False, blank=False)
     description = models.CharField(max_length=100, null=True, blank=True, db_column="description")
@@ -29,11 +35,12 @@ class EstablishedContract(models.Model):
     currency_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="established_contracts_by_currency_type", db_column="currency_type", null=False, blank=False)
     trial_period_days = models.IntegerField(null=True, blank=True, db_column="trial_period_days")
     vacation_days = models.IntegerField(null=False, blank=False, db_column="vacation_days")
-    cumulative_vacation = models.IntegerField(null=True, blank=True, db_column="cumulative_vacation")
+    cumulative_vacation = models.BooleanField(null=True, blank=True, db_column="cumulative_vacation")
+    start_cumulative_vacation = models.DateField(db_column="start_cumulative_vacation", null=True, blank=True)
     vacation_frequency_days = models.IntegerField(null=True, blank=True, db_column="vacation_frequency_days")
     maximum_disability_days = models.IntegerField(null=False, blank=False, db_column="maximum_disability_days")
     overtime = models.FloatField(null=False, blank=False, db_column="overtime")
-    overtime_period = models.IntegerField(null=True, blank=True, db_column="overtime_period")
+    overtime_period = models.CharField(max_length=20, choices=OVERTIME_PERIOD_CHOICES, null=True, blank=True, db_column="overtime_period")
     notice_period_days = models.IntegerField(null=True, blank=True, db_column="notice_period_days")
     established_contract_status = models.ForeignKey("parameterization.Statues", on_delete=models.PROTECT, related_name="established_contracts_by_status", db_column="established_contract_status", null=False, blank=False)
     creation_date = models.DateTimeField(db_column="creation_date", null=False, blank=False)
