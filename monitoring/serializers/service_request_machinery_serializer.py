@@ -341,7 +341,7 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
     def get_effective_working_hours(self, obj):
         """
         Obtiene las horas efectivas de trabajo (parámetro 18) para cada solicitud.
-        Retorna un string con el valor formateado o "0 h" si no hay datos.
+        Retorna un string con los valores formateados separados por '; ' o "0 h" si no hay datos.
         """
         try:
             filters = self.context.get('filters', {})
@@ -356,12 +356,22 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
                 operator_id=operator_id
             )
             
-            # Si hay datos de maquinaria, devolver el effective_working_hours del primer registro
-            if machinery_data and len(machinery_data) > 0:
-                hours = float(machinery_data[0].get('effective_working_hours', 0))
-                return f"{hours:.2f} h"
+            if not machinery_data:
+                return "0.00 h"
                 
-            return "0.00 h"
+            # Obtener todos los valores de effective_working_hours para cada maquinaria
+            hours_list = []
+            for data in machinery_data:
+                if 'effective_working_hours' in data and data['effective_working_hours'] is not None:
+                    try:
+                        hours = float(data['effective_working_hours'])
+                        hours_list.append(f"{hours:.2f} h")
+                    except (ValueError, TypeError):
+                        hours_list.append("0.00 h")
+                else:
+                    hours_list.append("0.00 h")
+            
+            return "; ".join(hours_list) if hours_list else "0.00 h"
             
         except Exception as e:
             print(f"Error en get_effective_working_hours: {str(e)}")
@@ -370,7 +380,7 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
     def get_operating_time_hours(self, obj):
         """
         Obtiene las horas de operación para cada solicitud.
-        Retorna un string con el valor formateado o "0 h" si no hay datos.
+        Retorna un string con los valores formateados separados por '; ' o "0 h" si no hay datos.
         """
         try:
             filters = self.context.get('filters', {})
@@ -385,12 +395,22 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
                 operator_id=operator_id
             )
             
-            # Si hay datos de maquinaria, devolver el operating_time_hours del primer registro
-            if machinery_data and len(machinery_data) > 0:
-                hours = float(machinery_data[0].get('operating_time_hours', 0))
-                return f"{hours:.2f} h"
+            if not machinery_data:
+                return "0.00 h"
                 
-            return "0.00 h"
+            # Obtener todos los valores de operating_time_hours para cada maquinaria
+            hours_list = []
+            for data in machinery_data:
+                if 'operating_time_hours' in data and data['operating_time_hours'] is not None:
+                    try:
+                        hours = float(data['operating_time_hours'])
+                        hours_list.append(f"{hours:.2f} h")
+                    except (ValueError, TypeError):
+                        hours_list.append("0.00 h")
+                else:
+                    hours_list.append("0.00 h")
+            
+            return "; ".join(hours_list) if hours_list else "0.00 h"
             
         except Exception as e:
             print(f"Error en get_operating_time_hours: {str(e)}")

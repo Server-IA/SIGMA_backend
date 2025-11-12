@@ -179,35 +179,56 @@ class DataViewSet(viewsets.ViewSet):
                 )
                 
                 if machinery_data:
-                    # Calcular effective_working_hours como la suma de los valores individuales de las solicitudes
-                    total_effective_hours = 0.0
+                    # Calcular effective_working_hours sumando los valores individuales de las solicitudes
+                    # Mantener los valores separados por maquinaria
+                    effective_hours_by_machinery = {}
+                    
                     for request in response_data.get('requests', []):
                         if 'effective_working_hours' in request:
-                            # Extraer el valor numérico del string formateado (ej: '0.03 h' -> 0.03)
-                            try:
-                                hours_str = request['effective_working_hours']
-                                if isinstance(hours_str, str) and 'h' in hours_str:
-                                    hours = float(hours_str.split('h')[0].strip())
-                                    total_effective_hours += hours
-                            except (ValueError, AttributeError) as e:
-                                print(f"Error al procesar effective_working_hours: {e}")
+                            hours_str = request['effective_working_hours']
+                            if isinstance(hours_str, str):
+                                # Separar los valores por ';' y procesar cada uno
+                                hours_values = hours_str.split(';')
+                                for i, value in enumerate(hours_values):
+                                    try:
+                                        hours = float(value.strip().split('h')[0].strip())
+                                        if i not in effective_hours_by_machinery:
+                                            effective_hours_by_machinery[i] = 0.0
+                                        effective_hours_by_machinery[i] += hours
+                                    except (ValueError, AttributeError, IndexError) as e:
+                                        print(f"Error al procesar effective_working_hours: {e}")
                     
-                    machinery_data['effective_working_hours'] = f"{total_effective_hours:.2f} h"
+                    # Formatear los resultados sumados por maquinaria
+                    if effective_hours_by_machinery:
+                        total_effective_hours = "; ".join([f"{hours:.2f} h" for i, hours in sorted(effective_hours_by_machinery.items())])
+                        machinery_data['effective_working_hours'] = total_effective_hours
+                    else:
+                        machinery_data['effective_working_hours'] = "0.00 h"
                     
-                    # Calcular operating_time_hours como la suma de los valores individuales de las solicitudes
-                    total_operating_hours = 0.0
+                    # Calcular operating_time_hours sumando los valores individuales de las solicitudes
+                    operating_hours_by_machinery = {}
+                    
                     for request in response_data.get('requests', []):
                         if 'operating_time_hours' in request:
-                            # Extraer el valor numérico del string formateado (ej: '0.05 h' -> 0.05)
-                            try:
-                                hours_str = request['operating_time_hours']
-                                if isinstance(hours_str, str) and 'h' in hours_str:
-                                    hours = float(hours_str.split('h')[0].strip())
-                                    total_operating_hours += hours
-                            except (ValueError, AttributeError) as e:
-                                print(f"Error al procesar operating_time_hours: {e}")
+                            hours_str = request['operating_time_hours']
+                            if isinstance(hours_str, str):
+                                # Separar los valores por ';' y procesar cada uno
+                                hours_values = hours_str.split(';')
+                                for i, value in enumerate(hours_values):
+                                    try:
+                                        hours = float(value.strip().split('h')[0].strip())
+                                        if i not in operating_hours_by_machinery:
+                                            operating_hours_by_machinery[i] = 0.0
+                                        operating_hours_by_machinery[i] += hours
+                                    except (ValueError, AttributeError, IndexError) as e:
+                                        print(f"Error al procesar operating_time_hours: {e}")
                     
-                    machinery_data['operating_time_hours'] = f"{total_operating_hours:.2f} h"
+                    # Formatear los resultados sumados por maquinaria
+                    if operating_hours_by_machinery:
+                        total_operating_hours = "; ".join([f"{hours:.2f} h" for i, hours in sorted(operating_hours_by_machinery.items())])
+                        machinery_data['operating_time_hours'] = total_operating_hours
+                    else:
+                        machinery_data['operating_time_hours'] = "0.00 h"
                     
                     response_data = {**machinery_data, **response_data}
             
