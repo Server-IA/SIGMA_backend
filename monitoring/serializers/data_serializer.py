@@ -1,6 +1,7 @@
 import os
 import logging
 import requests
+from datetime import datetime
 from django.db.models import Q
 from rest_framework import serializers
 
@@ -173,11 +174,16 @@ def get_machinery_data(request_id, request=None, start_date=None, end_date=None,
         'user_id'
     ).distinct()
     
-    # Aplicar filtros de fecha si están presentes
-    if start_date:
-        data_query = data_query.filter(registered_at__gte=start_date)
-    if end_date:
-        data_query = data_query.filter(registered_at__lte=end_date)
+    # Aplicar filtros de fecha/hora si están presentes
+    if start_date and end_date and (isinstance(start_date, datetime) or 'T' in str(start_date)) and (isinstance(end_date, datetime) or 'T' in str(end_date)):
+        # Si se proporcionan fechas con hora, filtrar por rango exacto
+        data_query = data_query.filter(registered_at__range=(start_date, end_date))
+    else:
+        # Si son solo fechas, filtrar por día completo
+        if start_date:
+            data_query = data_query.filter(registered_at__date__gte=start_date)
+        if end_date:
+            data_query = data_query.filter(registered_at__date__lte=end_date)
     
     # Obtener el último registro por maquinaria para tener la información más reciente
     latest_data = data_query.values('id_machinery').annotate(
