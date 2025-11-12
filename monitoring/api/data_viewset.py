@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, time
 from django.utils import timezone
-from django.db.models import Q, Avg, Sum
+from django.db.models import Q, Avg, Sum, Min, Max
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -173,6 +173,18 @@ class DataViewSet(viewsets.ViewSet):
             if end_datetime:
                 data_queryset = data_queryset.filter(registered_at__lte=end_datetime)
                 
+            # Obtener fechas mínima y máxima si no se proporcionaron
+            if not start_datetime or not end_datetime:
+                date_range = data_queryset.aggregate(
+                    min_date=Min('registered_at'),
+                    max_date=Max('registered_at')
+                )
+                if date_range['min_date'] and date_range['max_date']:
+                    if not start_datetime:
+                        start_datetime = date_range['min_date']
+                    if not end_datetime:
+                        end_datetime = date_range['max_date']
+            
             # Obtener IDs únicos de solicitudes que tienen datos en el rango
             request_ids_from_data = data_queryset.exclude(
                 id_request__isnull=True
@@ -221,10 +233,17 @@ class DataViewSet(viewsets.ViewSet):
                 context=context
             )
             
-            # Preparar la respuesta
-            response_data = {
-                "requests": serializer.data
-            }
+            # Preparar la respuesta con las fechas al principio si no se proporcionaron en la consulta
+            response_data = {}
+            
+            # Agregar fechas al inicio si no se proporcionaron en la consulta
+            if not start_datetime_str and start_datetime:
+                response_data["start_date"] = start_datetime.strftime('%Y-%m-%dT%H:%M:%S')
+            if not end_datetime_str and end_datetime:
+                response_data["end_date"] = end_datetime.strftime('%Y-%m-%dT%H:%M:%S')
+                
+            # Agregar los datos de las solicitudes
+            response_data["requests"] = serializer.data
             
             # Si hay filtro de maquinaria, agregar información resumida
             if machinery_id is not None:
