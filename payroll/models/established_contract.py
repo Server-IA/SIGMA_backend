@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.exceptions import ValidationError
 
 class EstablishedContract(models.Model):
     PAYMENT_FREQUENCY_CHOICES = [
@@ -46,6 +47,18 @@ class EstablishedContract(models.Model):
     creation_date = models.DateTimeField(db_column="creation_date", null=False, blank=False)
     modification_date = models.DateTimeField(db_column="modification_date", null=False, blank=False)
     id_responsible_user = models.ForeignKey("users.User", on_delete=models.PROTECT, related_name="established_contracts_responsible", db_column="id_responsible_user", null=False, blank=False)
+
+    def clean(self):
+        """Valida que start_cumulative_vacation sea obligatorio si cumulative_vacation es True"""
+        if self.cumulative_vacation is True and not self.start_cumulative_vacation:
+            raise ValidationError({
+                'start_cumulative_vacation': 'Este campo es obligatorio cuando "Vacaciones acumulativas" está activado.'
+            })
+    
+    def save(self, *args, **kwargs):
+        """Sobrescribe save para ejecutar la validación"""
+        self.full_clean()
+        super().save(*args, **kwargs)
 
     class Meta:
         db_table = "established_contracts"
