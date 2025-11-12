@@ -1,6 +1,7 @@
-from rest_framework import serializers
+from datetime import datetime
 import os
 import requests
+from rest_framework import serializers
 from service_requests.models import ServiceRequest, RequestMachineryUser
 from monitoring.serializers.data_serializer import get_machinery_data
 
@@ -348,12 +349,19 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             machinery_id = filters.get('machinery_id')
             operator_id = filters.get('operator_id')
             
-            # Obtener datos de la maquinaria para esta solicitud
+            # Obtener fechas del contexto si están disponibles
+            request = self.context.get('request')
+            start_date = request.query_params.get('start_date', None) if request else None
+            end_date = request.query_params.get('end_date', None) if request else None
+            
+            # Obtener datos de la maquinaria para esta solicitud con los filtros aplicados
             machinery_data = get_machinery_data(
                 request_id=obj.id_request,
-                request=self.context.get('request'),
+                request=request,
                 machinery_id=machinery_id,
-                operator_id=operator_id
+                operator_id=operator_id,
+                start_date=start_date,
+                end_date=end_date
             )
             
             if not machinery_data:
@@ -387,12 +395,19 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             machinery_id = filters.get('machinery_id')
             operator_id = filters.get('operator_id')
             
-            # Obtener datos de la maquinaria para esta solicitud
+            # Obtener fechas del contexto si están disponibles
+            request = self.context.get('request')
+            start_date = request.query_params.get('start_date', None) if request else None
+            end_date = request.query_params.get('end_date', None) if request else None
+            
+            # Obtener datos de la maquinaria para esta solicitud con los filtros aplicados
             machinery_data = get_machinery_data(
                 request_id=obj.id_request,
-                request=self.context.get('request'),
+                request=request,
                 machinery_id=machinery_id,
-                operator_id=operator_id
+                operator_id=operator_id,
+                start_date=start_date,
+                end_date=end_date
             )
             
             if not machinery_data:

@@ -1,4 +1,6 @@
 import logging
+from datetime import datetime, time
+from django.utils import timezone
 from django.db.models import Q, Avg, Sum
 from rest_framework import viewsets, status
 from rest_framework.response import Response
@@ -47,8 +49,8 @@ class DataViewSet(viewsets.ViewSet):
         Filtros opcionales:
         - status: Filtrar por estado (20: Programada, 21: En Progreso, 22: Finalizada)
         - customer_id: Filtrar por ID de cliente
-        - start_date: Fecha de inicio (formato YYYY-MM-DD)
-        - end_date: Fecha de fin (formato YYYY-MM-DD)
+        - start_date: Fecha de inicio (formatos aceptados: YYYY-MM-DD o YYYY-MM-DDTHH:MM:SS)
+        - end_date: Fecha de fin (formatos aceptados: YYYY-MM-DD o YYYY-MM-DDTHH:MM:SS)
         - machinery_id: ID de la maquinaria a filtrar (opcional)
         - operator_id: ID del operador a filtrar (opcional)
         
@@ -61,17 +63,63 @@ class DataViewSet(viewsets.ViewSet):
             # Verificar permiso
             if not self.check_permission(request, 172):
                 return Response(
-                    {"error": "No tiene permiso para ver las solicitudes de servicio"},
+                    {"error": "No tiene permiso para acceder a este recurso"},
                     status=status.HTTP_403_FORBIDDEN
                 )
+                
+            # Obtener parámetros de consulta
+            status_filter = request.query_params.get('status', None)
+            customer_id = request.query_params.get('customer_id', None)
+            start_datetime_str = request.query_params.get('start_date', None)
+            end_datetime_str = request.query_params.get('end_date', None)
+            machinery_id = request.query_params.get('machinery_id', None)
+            operator_id = request.query_params.get('operator_id', None)
             
-            # Obtener parámetros de filtro
-            status_filter = request.query_params.get('status')
-            customer_id = request.query_params.get('customer_id')
-            start_date = request.query_params.get('start_date')
-            end_date = request.query_params.get('end_date')
-            machinery_id = request.query_params.get('machinery_id')
-            operator_id = request.query_params.get('operator_id')
+            # Variables para fechas
+            start_date = None
+            end_date = None
+            start_datetime = None
+            end_datetime = None
+            
+            # Parsear fechas/horas
+            if start_datetime_str:
+                try:
+                    if 'T' in start_datetime_str:
+                        naive_start = datetime.strptime(start_datetime_str, '%Y-%m-%dT%H:%M:%S')
+                        start_datetime = timezone.make_aware(naive_start, timezone.get_current_timezone())
+                        start_date = start_datetime.date()
+                    else:
+                        start_date = datetime.strptime(start_datetime_str, '%Y-%m-%d').date()
+                        # Si solo es fecha, establecer la hora a 00:00:00 en la zona horaria actual
+                        start_datetime = timezone.make_aware(
+                            datetime.combine(start_date, time.min),
+                            timezone.get_current_timezone()
+                        )
+                except ValueError:
+                    return Response(
+                        {"error": "Formato de fecha/hora de inicio inválido. Use YYYY-MM-DD o YYYY-MM-DDTHH:MM:SS"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                    
+            if end_datetime_str:
+                try:
+                    if 'T' in end_datetime_str:
+                        naive_end = datetime.strptime(end_datetime_str, '%Y-%m-%dT%H:%M:%S')
+                        end_datetime = timezone.make_aware(naive_end, timezone.get_current_timezone())
+                        end_date = end_datetime.date()
+                    else:
+                        end_date = datetime.strptime(end_datetime_str, '%Y-%m-%d').date()
+                        # Si solo es fecha, establecer la hora a 23:59:59.999999 en la zona horaria actual
+                        end_of_day = datetime.combine(end_date, time.max)
+                        end_datetime = timezone.make_aware(
+                            end_of_day,
+                            timezone.get_current_timezone()
+                        )
+                except ValueError:
+                    return Response(
+                        {"error": "Formato de fecha/hora de fin inválido. Use YYYY-MM-DD o YYYY-MM-DDTHH:MM:SS"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             
             # Convertir a enteros si existen
             if machinery_id is not None:
@@ -110,12 +158,33 @@ class DataViewSet(viewsets.ViewSet):
                 # Obtener IDs únicos de solicitudes que cumplen con los filtros
                 request_ids = machinery_users.values_list('request_id', flat=True).distinct()
             
+            # Obtener los IDs de solicitudes que tienen datos en el rango de fechas
+            data_queryset = Data.objects.all()
+            
+            # Aplicar filtros de maquinaria y operador si existen
+            if machinery_id is not None:
+                data_queryset = data_queryset.filter(id_machinery=machinery_id)
+            if operator_id is not None:
+                data_queryset = data_queryset.filter(id_user=operator_id)
+                
+            # Aplicar filtros de fechas
+            if start_datetime:
+                data_queryset = data_queryset.filter(registered_at__gte=start_datetime)
+            if end_datetime:
+                data_queryset = data_queryset.filter(registered_at__lte=end_datetime)
+                
+            # Obtener IDs únicos de solicitudes que tienen datos en el rango
+            request_ids_from_data = data_queryset.exclude(
+                id_request__isnull=True
+            ).values_list('id_request', flat=True).distinct()
+            
             # Construir consulta de solicitudes
             queryset = ServiceRequest.objects.filter(
-                request_status_id__in=[20, 21, 22]  # Solo estados 20, 21, 22
+                request_status_id__in=[20, 21, 22],  # Solo estados 20, 21, 22
+                id_request__in=request_ids_from_data
             )
             
-            # Aplicar filtro de IDs de solicitud si es necesario
+            # Aplicar filtro de IDs de solicitud si se proporcionaron
             if request_ids is not None:
                 queryset = queryset.filter(id_request__in=request_ids)
             
@@ -132,12 +201,6 @@ class DataViewSet(viewsets.ViewSet):
                 
             if customer_id:
                 queryset = queryset.filter(customer_id=customer_id)
-                
-            if start_date:
-                queryset = queryset.filter(scheduled_start_date__gte=start_date)
-                
-            if end_date:
-                queryset = queryset.filter(scheduled_start_date__lte=end_date)
             
             # Ordenar por fecha programada descendente
             queryset = queryset.order_by('-scheduled_start_date')
@@ -171,9 +234,11 @@ class DataViewSet(viewsets.ViewSet):
                 
                 # Obtener datos de la maquinaria, pasando también el operador y los request_ids si están presentes
                 machinery_data = self._get_machinery_summary(
-                    machinery_id, 
-                    start_date, 
-                    end_date,
+                    machinery_id=machinery_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    start_datetime=start_datetime,
+                    end_datetime=end_datetime,
                     operator_id=operator_id,
                     request_ids=request_ids
                 )
@@ -363,10 +428,19 @@ class DataViewSet(viewsets.ViewSet):
             )
     
     # Acción para listar (requerida por DRF)
-    def _get_machinery_summary(self, machinery_id, start_date=None, end_date=None, operator_id=None, request_ids=None):
+    def _get_machinery_summary(self, machinery_id, start_date=None, end_date=None, start_datetime=None, end_datetime=None, operator_id=None, request_ids=None):
         """
         Obtiene un resumen de las estadísticas de la maquinaria.
         Nota: operating_time_hours y effective_working_hours ahora se calculan sumando los valores individuales de las solicitudes.
+        
+        Args:
+            machinery_id: ID de la maquinaria
+            start_date: Fecha de inicio (solo fecha)
+            end_date: Fecha de fin (solo fecha)
+            start_datetime: Fecha y hora de inicio (datetime)
+            end_datetime: Fecha y hora de fin (datetime)
+            operator_id: ID del operador (opcional)
+            request_ids: Lista de IDs de solicitudes (opcional)
         """
         try:
             # Filtrar por maquinaria, operador (si se proporciona) y rango de fechas
@@ -380,10 +454,16 @@ class DataViewSet(viewsets.ViewSet):
             if request_ids is not None and request_ids.exists():
                 filters &= Q(id_request__in=request_ids)
             
-            if start_date:
-                filters &= Q(registered_at__date__gte=start_date)
-            if end_date:
-                filters &= Q(registered_at__date__lte=end_date)
+            # Aplicar filtros de fecha/hora
+            if start_datetime and end_datetime:
+                # Usar filtro de rango de fechas/horas exactas
+                filters &= Q(registered_at__range=(start_datetime, end_datetime))
+            else:
+                # Usar filtros de fecha (compatibilidad con versiones anteriores)
+                if start_date:
+                    filters &= Q(registered_at__date__gte=start_date)
+                if end_date:
+                    filters &= Q(registered_at__date__lte=end_date)
             
             # Obtener datos de la maquinaria con los filtros aplicados
             data = Data.objects.filter(filters)
