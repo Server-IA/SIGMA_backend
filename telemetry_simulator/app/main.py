@@ -167,7 +167,7 @@ async def websocket_endpoint_client(
     
     Cliente normal:
         Connects to: ws://localhost:8003/ws/telemetria/{request_id}?password=telemetry_password_2024
-        Receives: Solo datos procesados con alertas de la solicitud especificada (cada 30 segundos aprox)
+        Receives: Solo datos procesados con alertas de la solicitud especificada (cada 5 segundos aprox)
     
     Returns:
         - JSON with timestamp and telemetry data including:
