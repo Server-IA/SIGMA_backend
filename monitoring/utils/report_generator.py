@@ -156,3 +156,19 @@ def generate_excel_report(queryset) -> bytes:
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
+
+def generate_csv_report(queryset) -> str:
+    """Genera un reporte en formato CSV a partir del queryset."""
+    import csv
+    from io import StringIO
+
+    report_data = _build_report_data(queryset)
+
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=report_data[0].keys())
+    writer.writeheader()
+
+    for row in report_data:
+        writer.writerow(row)
+
+    return output.getvalue()
