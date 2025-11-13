@@ -1,3 +1,6 @@
+from monitoring.models.data import Data
+from monitoring.serializers.historical_data_report_serializer import HistoricalDataReportSerializer
+from monitoring.services.reporte_service import ReportService
 import logging
 from datetime import datetime, time
 from django.utils import timezone
@@ -6,6 +9,12 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
+import logging
+from audit_sdk import AuditClient
+from django.db import transaction
+from django.utils import timezone
+
 from service_requests.models.service_request import ServiceRequest
 from service_requests.models.request_machinery_user import RequestMachineryUser
 from monitoring.serializers.data_serializer import DataSerializer, get_machinery_data
@@ -15,6 +24,8 @@ from monitoring.models.data import Data
 logger = logging.getLogger(__name__)
 
 class DataViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
     """
     ViewSet para manejar las operaciones de datos de telemetría.
     """
@@ -39,6 +50,75 @@ class DataViewSet(viewsets.ViewSet):
                     permisos_usuario.append(perm.get("id"))
 
         return required_permission_id in permisos_usuario
+
+    @action(detail=False, methods=['get'], url_path='generate-report')
+    def generate_report(self, request):
+        """Generar un reporte de datos históricos."""
+
+        try:
+            # 1. Verificar autenticación del usuario
+            if not request.user.is_authenticated:
+                return Response({
+                    "success": False,
+                    "message": "Usuario no autenticado"
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # 2. Validar permisos
+            if not self.check_permission(request, 173):  # monitoring.download_historical_report
+                return Response({
+                    "success": False,
+                    "message": "No tiene permiso para generar reportes"
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # 3. Validar parámetros de consulta
+            serializer = HistoricalDataReportSerializer(data=request.query_params)
+            if not serializer.is_valid():
+                return Response({
+                    "success": False,
+                    "message": "Parámetros inválidos",
+                    "errors": serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            validated_data = serializer.validated_data
+            report_format = validated_data.get('report_format', 'excel')
+            request_id = validated_data.get('request_id', None)
+
+            # 4. Construir queryset para el reporte
+            queryset = self._build_historical_data_queryset(request_id=request_id)
+
+            # 5. Verificar si hay datos para el reporte
+            if not queryset.exists():
+                return Response({
+                    "success": False,
+                    "message": "No hay datos disponibles para la solicitud seleccionada"
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # 6. Generar el reporte
+            return ReportService.generate_report_response(
+                queryset=queryset,
+                format_type=report_format
+            )
+
+
+        except Exception as e:
+            logger.error(f"Error generando reporte: {str(e)}", exc_info=True)
+            return Response({
+                "success": False,
+                "message": "Error interno generando el reporte"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _build_historical_data_queryset(self, request_id=None):
+        """Construir el queryset para datos históricos basado en filtros."""
+
+        queryset = Data.objects.all()
+
+        if request_id is not None:
+            queryset = queryset.filter(id_request=request_id)
+
+        print("🧾 SQL Query:", str(queryset.query))  # 👈 imprime el SQL real
+        print("🔢 Total registros:", queryset.count())
+
+        return queryset
     
     @action(detail=False, methods=['get'])
     def service_requests(self, request):
