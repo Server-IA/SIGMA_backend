@@ -21,15 +21,7 @@ class ReportService:
         """
         Genera la respuesta HTTP con el reporte.
         
-        Args:
-            queryset: QuerySet filtrado
-            format_type: Tipo de formato ('excel' o 'csv')
-            user_data_map: Mapa de datos de usuarios
-            user_info: Información del usuario actual
-            request_status: Estado de la solicitud (opcional)
-            has_list_own_permission: Si tiene permiso para ver sus propias solicitudes
-            has_list_all_permission: Si tiene permiso para ver todas las solicitudes
-            
+       
         Returns:
             HttpResponse con el archivo del reporte
         """

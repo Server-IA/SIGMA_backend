@@ -14,6 +14,7 @@ from decimal import Decimal
 
 import websockets
 import aiohttp
+import requests
 from django.db import transaction, connection
 from django.utils import timezone as django_timezone
 from django.core.exceptions import ObjectDoesNotExist
@@ -256,6 +257,62 @@ class TelemetryProcessor:
         except Exception as e:
             logger.error(f"Error al obtener parámetros del dispositivo: {str(e)}")
             return []
+    
+    def _get_operator_name(self, user_id: int) -> Optional[str]:
+        """
+        Obtiene el nombre completo del operario desde el servicio externo de usuarios
+        
+        Args:
+            user_id: ID del usuario (operario)
+            
+        Returns:
+            Nombre completo del operario o None si no se puede obtener
+        """
+        if not user_id:
+            return None
+        
+        try:
+            base_url = os.getenv("AUTH_SERVICE_URL", "").rstrip("/")
+            if not base_url:
+                logger.warning("AUTH_SERVICE_URL no está configurado. No se puede obtener nombre del operario.")
+                return None
+            
+            url = f"{base_url}/users/users/basic-user-list/by-ids"
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            # Intentar obtener token de servicio si está disponible
+            service_token = os.getenv("SERVICE_AUTH_TOKEN")
+            if service_token:
+                headers["Authorization"] = f"Bearer {service_token}"
+            
+            response = requests.post(
+                url,
+                json={"ids": [user_id]},
+                headers=headers,
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                payload = response.json() or {}
+                data = payload.get("data") or []
+                if isinstance(data, list) and data:
+                    user_data = data[0]
+                    name = user_data.get("name", "").strip()
+                    first_last_name = user_data.get("first_last_name", "").strip()
+                    second_last_name = user_data.get("second_last_name", "").strip()
+                    full_name = " ".join(filter(None, [name, first_last_name, second_last_name]))
+                    return full_name if full_name else None
+            else:
+                logger.warning(f"Error al obtener datos del operario {user_id}: {response.status_code}")
+                
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Error de conexión al obtener nombre del operario {user_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error inesperado al obtener nombre del operario {user_id}: {str(e)}")
+            
+        return None
     
     def calculate_logistic_status(
         self,
@@ -591,7 +648,9 @@ class TelemetryProcessor:
         telemetry_data: Dict,
         timestamp: datetime,
         parameter_alerts: Dict[str, Tuple[bool, Optional[str]]],
-        allowed_parameters: Optional[List[Parameters]] = None
+        allowed_parameters: Optional[List[Parameters]] = None,
+        user=None,
+        logistic_status: Optional[str] = None
     ) -> int:
         """
         Almacena los datos de telemetría en la tabla 'data'
@@ -605,11 +664,18 @@ class TelemetryProcessor:
             timestamp: Timestamp de la telemetría
             parameter_alerts: Diccionario {param_name: (is_alert, reason)}
             allowed_parameters: Lista de parámetros permitidos para este dispositivo (opcional)
+            user: Instancia de User obtenida de RequestMachineryUser (OBLIGATORIO)
+            logistic_status: Estado logístico calculado ("Ida", "Vuelta", "Trabajo" o None)
             
         Returns:
             Número de registros creados
         """
         records_created = 0
+        
+        # Validar que user no sea None
+        if not user:
+            logger.error("User es None. No se pueden crear registros sin usuario.")
+            raise ValueError("User es requerido para almacenar datos de telemetría")
         
         try:
             # Crear conjunto de AVL IDs permitidos para validación rápida
@@ -670,6 +736,8 @@ class TelemetryProcessor:
                             registered_at=timestamp,
                             id_device=device,
                             id_request=active_request,
+                            id_machinery=machinery,
+                            id_user=user,
                             alert=is_alert,
                             obd_fault=None
                         )
@@ -679,12 +747,13 @@ class TelemetryProcessor:
                         logger.error(f"Error guardando parámetro {field_name} (AVL_ID {avl_id}): {str(e)}")
                         continue
             
-            # Manejar GPS: guardar latitud (el parámetro GPS puede almacenar la latitud)
+            # Manejar GPS: guardar latitud y longitud como dos registros consecutivos
+            # Ambos usan el mismo AVL_ID (387) y el mismo timestamp
             gps_location = telemetry_data.get('gps_location')
             if gps_location:
                 try:
                     # VALIDACIÓN: Verificar si GPS está configurado para este dispositivo
-                    gps_avl_id = 387  # GPS location (AVL_ID 387)
+                    gps_avl_id = 387  # GPS location (AVL_ID 387) - usado para latitud y longitud
                     if allowed_parameters and gps_avl_id not in allowed_avl_ids:
                         logger.debug(
                             f"Parámetro GPS (AVL_ID {gps_avl_id}) no está configurado "
@@ -693,19 +762,40 @@ class TelemetryProcessor:
                     else:
                         match = re.match(r'\+([+-]?\d+\.?\d*)([+-]?\d+\.?\d*)/', gps_location)
                         if match:
-                            lat_value = float(match.group(1))
+                            lat_value = float(match.group(1))  # Latitud
+                            lon_value = float(match.group(2))  # Longitud
+                            
                             parameter = self.get_parameter_by_avl_id(gps_avl_id)
                             if parameter:
+                                # 1. Guardar LATITUD primero (id_data menor, secuencial)
                                 Data.objects.create(
-                                    data=lat_value,  # Guardamos latitud
+                                    data=lat_value,
                                     id_parameter=parameter,
                                     registered_at=timestamp,
                                     id_device=device,
                                     id_request=active_request,
+                                    id_machinery=machinery,
+                                    id_user=user,
                                     alert=False,
                                     obd_fault=None
                                 )
                                 records_created += 1
+                                
+                                # 2. Guardar LONGITUD inmediatamente después (id_data mayor, consecutivo)
+                                Data.objects.create(
+                                    data=lon_value,
+                                    id_parameter=parameter,  # Mismo parámetro (AVL_ID 387)
+                                    registered_at=timestamp,  # Mismo timestamp exacto
+                                    id_device=device,
+                                    id_request=active_request,
+                                    id_machinery=machinery,
+                                    id_user=user,
+                                    alert=False,
+                                    obd_fault=None
+                                )
+                                records_created += 1
+                                
+                                logger.debug(f"GPS guardado: Lat={lat_value}, Lon={lon_value} (mismo timestamp)")
                 except Exception as e:
                     logger.warning(f"Error procesando GPS: {str(e)}")
             
@@ -736,6 +826,8 @@ class TelemetryProcessor:
                                     registered_at=timestamp,
                                     id_device=device,
                                     id_request=active_request,
+                                    id_machinery=machinery,
+                                    id_user=user,
                                     alert=True,
                                     obd_fault=code_upper
                                 )
@@ -744,6 +836,43 @@ class TelemetryProcessor:
                                 logger.warning(f"Parámetro OBD (AVL_ID {obd_avl_id}) no encontrado. Falla {code_upper} no guardada en 'data'")
                         except Exception as e:
                             logger.error(f"Error guardando falla OBD {fault_code} en 'data': {str(e)}")
+            
+            # Guardar estado logístico (AVL_ID -1)
+            if logistic_status:
+                try:
+                    logistic_avl_id = -1
+                    logistic_parameter = self.get_parameter_by_avl_id(logistic_avl_id)
+                    
+                    if logistic_parameter:
+                        # Convertir estado logístico a valor numérico
+                        # 1 = Ida, 2 = Vuelta, 3 = Trabajo
+                        status_map = {
+                            "Ida": 1.0,
+                            "Vuelta": 2.0,
+                            "Trabajo": 3.0
+                        }
+                        status_value = status_map.get(logistic_status)
+                        
+                        if status_value is not None:
+                            Data.objects.create(
+                                data=status_value,
+                                id_parameter=logistic_parameter,
+                                registered_at=timestamp,
+                                id_device=device,
+                                id_request=active_request,
+                                id_machinery=machinery,
+                                id_user=user,
+                                alert=False,
+                                obd_fault=None
+                            )
+                            records_created += 1
+                            logger.debug(f"Estado logístico guardado: {logistic_status} (valor: {status_value})")
+                        else:
+                            logger.warning(f"Estado logístico desconocido: {logistic_status}")
+                    else:
+                        logger.warning(f"Parámetro de estado logístico (AVL_ID -1) no encontrado en la base de datos")
+                except Exception as e:
+                    logger.error(f"Error guardando estado logístico: {str(e)}")
             
             logger.debug(f"Almacenados {records_created} registros en tabla 'data'")
             return records_created
@@ -791,9 +920,10 @@ class TelemetryProcessor:
             # 3. Buscar solicitud activa para esta maquinaria
             # VALIDACIÓN CRÍTICA: Si no hay solicitud activa, no se procesan ni guardan datos
             active_request = None
+            request_machinery_user = None  # Guardar el objeto completo para obtener el usuario
             for req_id, req in active_requests.items():
                 try:
-                    RequestMachineryUser.objects.get(
+                    request_machinery_user = RequestMachineryUser.objects.get(
                         request_id=req_id,
                         machinery=machinery
                     )
@@ -803,7 +933,7 @@ class TelemetryProcessor:
                     continue
             
             # Si no hay solicitud activa para esta maquinaria en este día, no se guardan datos
-            if not active_request:
+            if not active_request or not request_machinery_user:
                 logger.warning(
                     f"No se encontro solicitud activa para maquinaria {machinery.id_machinery} "
                     f"(IMEI {imei}) en fecha {timestamp.date()}. Datos descartados."
@@ -891,7 +1021,9 @@ class TelemetryProcessor:
                 telemetry_data=data,
                 timestamp=timestamp,
                 parameter_alerts=parameter_alerts,
-                allowed_parameters=device_parameters
+                allowed_parameters=device_parameters,
+                user=request_machinery_user.user,  # Pasar el usuario desde RequestMachineryUser
+                logistic_status=logistic_status  # Pasar el estado logístico calculado
             )
             
             # 9. Agregar alertas al paquete original para incluir en WebSocket
@@ -907,11 +1039,28 @@ class TelemetryProcessor:
             # Agregar alertas al paquete
             packet['alerts'] = alerts_list if alerts_list else None
             
+            # Agregar request_id al paquete (necesario para filtrar por solicitud en WebSocket/SSE)
+            packet['request_id'] = active_request.id_request
+            
+            # Agregar información de maquinaria y operario al paquete
+            packet['serial_number'] = machinery.serial_number
+            packet['machinery_name'] = machinery.machinery_name
+            
+            # Obtener nombre del operario desde el servicio externo
+            operator_name = None
+            if request_machinery_user and request_machinery_user.user:
+                operator_name = self._get_operator_name(request_machinery_user.user.id_user)
+            packet['operator_name'] = operator_name
+            
             # Filtrar parámetros no configurados antes de enviar por WebSocket
             filtered_packet = self.filter_packet_by_device_parameters(packet, device_parameters)
             
             logger.info(
-                f"Paquete procesado: IMEI {imei}, "
+                f"Paquete procesado: Request ID {active_request.id_request}, "
+                f"IMEI {imei}, "
+                f"Serial: {machinery.serial_number}, "
+                f"Maquinaria: {machinery.machinery_name}, "
+                f"Operario: {operator_name or 'N/A'}, "
                 f"Estado logístico: {logistic_status}, "
                 f"Registros creados: {records_created}, "
                 f"Alertas: {total_alerts}"

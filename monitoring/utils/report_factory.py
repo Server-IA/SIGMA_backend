@@ -7,8 +7,7 @@ class ReportGenerator(ABC):
     """Interfaz abstracta para generadores de reporte."""
     
     @abstractmethod
-    def generate(self, queryset: QuerySet, user_data_map: Dict[int, Dict[str, Any]], 
-                 user_info: Dict[str, Any] = None) -> Union[bytes, str]:
+    def generate(self, queryset: QuerySet) -> Union[bytes, str]:
         """Genera el reporte en el formato específico."""
         pass
 
@@ -16,19 +15,17 @@ class ReportGenerator(ABC):
 class ExcelReportGenerator(ReportGenerator):
     """Generador de reportes en formato Excel."""
     
-    def generate(self, queryset: QuerySet, user_data_map: Dict[int, Dict[str, Any]], 
-                 user_info: Dict[str, Any] = None) -> bytes:
+    def generate(self, queryset: QuerySet) -> bytes:
         from .report_generator import generate_excel_report
-        return generate_excel_report(queryset, user_data_map, user_info)
+        return generate_excel_report(queryset)
 
 
 class CSVReportGenerator(ReportGenerator):
     """Generador de reportes en formato CSV."""
     
-    def generate(self, queryset: QuerySet, user_data_map: Dict[int, Dict[str, Any]], 
-                 user_info: Dict[str, Any] = None) -> str:
+    def generate(self, queryset: QuerySet) -> str:
         from .report_generator import generate_csv_report
-        return generate_csv_report(queryset, user_data_map, user_info)
+        return generate_csv_report(queryset)
 
 
 class ReportGeneratorFactory:

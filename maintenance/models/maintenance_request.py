@@ -6,7 +6,7 @@ class MaintenanceRequest(models.Model):
     id_maintenance_request = models.CharField(primary_key=True, max_length=20, null=False)
     id_machinery = models.ForeignKey(Machinery, on_delete=models.PROTECT, related_name="maintenance_requests", db_column="id_machinery", null=False, blank=False)
     maintenance_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="maintenance_requests_by_type", db_column="maintenance_type", null=False,blank=False)
-    description = models.CharField(max_length=300, null=False, blank=False, db_column="problem_description")
+    description = models.CharField(max_length=1000, null=False, blank=False, db_column="problem_description")
     priority = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="maintenance_requests_by_priority", db_column="priority_type", null=False, blank=False)
     request_status = models.ForeignKey("parameterization.Statues", on_delete=models.PROTECT, related_name="maintenance_requests_by_status", db_column="request_status", null=False, blank=False)
     justification = models.CharField(max_length=300, null=True, blank=True)

@@ -60,6 +60,7 @@ class RequestMachineryUserSerializer(serializers.ModelSerializer):
             'implementation_name',
             'depth',
             'slope',
+            'implement_width',
             'work_duration'
         ]
         extra_kwargs = {
