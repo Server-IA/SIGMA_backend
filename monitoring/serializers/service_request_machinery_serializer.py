@@ -15,7 +15,9 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
     scheduled_date = serializers.DateField(source="scheduled_start_date", read_only=True)
     completion_date = serializers.SerializerMethodField()
     machineries = serializers.SerializerMethodField()
+    id_machineries = serializers.SerializerMethodField()
     operators = serializers.SerializerMethodField()
+    id_operators = serializers.SerializerMethodField()
     total_distance_km = serializers.SerializerMethodField()
     average_speed = serializers.SerializerMethodField()
     average_consumption = serializers.SerializerMethodField()
@@ -34,7 +36,9 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             "scheduled_date",
             "completion_date",
             "machineries",
+            "id_machineries",
             "operators",
+            "id_operators",
             "total_distance_km",
             "average_speed",
             "average_consumption",
@@ -146,6 +150,111 @@ class ServiceRequestMachineryDataSerializer(serializers.ModelSerializer):
             print(f"Error en get_maquinarias: {str(e)}")
             return None
 
+    def get_id_operators(self, obj):
+        """Obtiene los IDs y nombres de los operadores para la solicitud"""
+        try:
+            # Obtener los filtros del contexto
+            filters = self.context.get('filters', {})
+            machinery_id = filters.get('machinery_id')
+            operator_id = filters.get('operator_id')
+            
+            # Obtener las asignaciones de maquinaria-operador para esta solicitud
+            request_operators = RequestMachineryUser.objects.filter(
+                request=obj
+            ).select_related('user')
+            
+            # Aplicar filtros si existen
+            if machinery_id is not None:
+                request_operators = request_operators.filter(machinery_id=machinery_id)
+            if operator_id is not None:
+                request_operators = request_operators.filter(user_id=operator_id)
+            
+            # Obtener IDs de operadores únicos
+            operator_ids = set()
+            
+            for ro in request_operators:
+                if ro.user and ro.user.id_user:
+                    operator_ids.add(ro.user.id_user)
+            
+            # Si no hay operadores, devolver lista vacía
+            if not operator_ids:
+                return []
+                
+            # Obtener información de usuarios desde el servicio externo
+            try:
+                users_info = self._get_users_info(list(operator_ids))
+                
+                # Construir la lista de operadores con la información del servicio externo
+                operators = []
+                for user in users_info:
+                    user_id = user.get('id')
+                    if not user_id:
+                        continue
+                        
+                    name = (
+                        f"{user.get('name', '')} "
+                        f"{user.get('first_last_name', '')} "
+                        f"{user.get('second_last_name', '')}"
+                    ).strip()
+                    
+                    if not name:
+                        name = f'Operador {user_id}'
+                    
+                    operators.append({
+                        'id': user_id,
+                        'name': name
+                    })
+                
+                return operators
+                
+            except Exception as e:
+                print(f"Error al obtener información de usuarios: {str(e)}")
+                # Si falla el servicio externo, devolver solo los IDs
+                return [{'id': op_id, 'name': f'Operador {op_id}'} for op_id in operator_ids]
+            
+        except Exception as e:
+            print(f"Error en get_id_operators: {str(e)}")
+            return []
+            
+        except Exception as e:
+            print(f"Error en get_id_operators: {str(e)}")
+            return []
+            
+    def get_id_machineries(self, obj):
+        """Obtiene los IDs, nombres y números de serie de las máquinas para la solicitud"""
+        try:
+            # Obtener los filtros del contexto
+            filters = self.context.get('filters', {})
+            machinery_id = filters.get('machinery_id')
+            
+            # Obtener las asignaciones de maquinaria
+            request_machineries = RequestMachineryUser.objects.filter(
+                request=obj
+            ).select_related('machinery')
+            
+            # Aplicar filtro de maquinaria si existe
+            if machinery_id is not None:
+                request_machineries = request_machineries.filter(machinery_id=machinery_id)
+            
+            # Obtener máquinas únicas
+            machineries = []
+            processed_machinery_ids = set()
+            
+            for rm in request_machineries:
+                if rm.machinery and rm.machinery.id_machinery not in processed_machinery_ids:
+                    machineries.append({
+                        'id': rm.machinery.id_machinery,
+                        'name': rm.machinery.machinery_name,
+                        'serial': rm.machinery.serial_number
+                    })
+                    processed_machinery_ids.add(rm.machinery.id_machinery)
+            
+            return machineries if machineries else []
+            
+        except Exception as e:
+            print(f"Error en get_id_machineries: {str(e)}")
+            return []
+            
     def get_operators(self, obj):
         try:
             # Obtener filtros del contexto
