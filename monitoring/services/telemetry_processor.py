@@ -14,6 +14,7 @@ from decimal import Decimal
 
 import websockets
 import aiohttp
+import requests
 from django.db import transaction, connection
 from django.utils import timezone as django_timezone
 from django.core.exceptions import ObjectDoesNotExist
@@ -55,6 +56,11 @@ class TelemetryProcessor:
     
     # Cache de paquetes procesados recientemente (evita procesamiento duplicado)
     _processed_packets_cache: Dict[str, datetime] = {}  # {imei_timestamp: processed_time}
+    
+    # Cache para nivel inicial de combustible por request+machinery
+    _fuel_level_initial_cache: Dict[Tuple[str, int], float] = {}  # {(request_id, machinery_id): fuel_level}
+    _fuel_used_initial_cache: Dict[Tuple[str, int], float] = {}  # {(request_id, machinery_id): fuel_used}
+    _sample_interval_seconds: int = int(os.getenv("TELEMETRY_SAMPLE_INTERVAL_SECONDS", "5"))
     
     # Mapeo de IDs de parámetros AVL a nombres de campos
     PARAMETER_MAPPING = {
@@ -269,6 +275,95 @@ class TelemetryProcessor:
         except Exception as e:
             logger.error(f"Error al obtener parámetros del dispositivo: {str(e)}")
             return []
+
+    def _estimate_duration_hours(
+        self,
+        request: ServiceRequest,
+        machinery: Machinery,
+        timestamp: datetime = None
+    ) -> float:
+        """
+        Estima la duración en horas usando registros de ignición encendida.
+        """
+        try:
+            ignition_param = Parameters.objects.filter(avl_id_parameter=239).first()
+            if not ignition_param:
+                return 0.0
+
+            queryset = Data.objects.filter(
+                id_request=request,
+                id_machinery=machinery,
+                id_parameter=ignition_param
+            )
+
+            if timestamp:
+                queryset = queryset.filter(registered_at__lte=timestamp)
+
+            count_on = queryset.filter(data__gt=0).count()
+            if count_on == 0:
+                return 0.0
+
+            duration_hours = (count_on * self._sample_interval_seconds) / 3600.0
+            return round(duration_hours, 4)
+        except Exception as e:
+            logger.warning(f"Error estimando duración con ignición: {str(e)}")
+            return 0.0
+    
+    def _get_operator_name(self, user_id: int) -> Optional[str]:
+        """
+        Obtiene el nombre completo del operario desde el servicio externo de usuarios
+        
+        Args:
+            user_id: ID del usuario (operario)
+            
+        Returns:
+            Nombre completo del operario o None si no se puede obtener
+        """
+        if not user_id:
+            return None
+        
+        try:
+            base_url = os.getenv("AUTH_SERVICE_URL", "").rstrip("/")
+            if not base_url:
+                logger.warning("AUTH_SERVICE_URL no está configurado. No se puede obtener nombre del operario.")
+                return None
+            
+            url = f"{base_url}/users/users/basic-user-list/by-ids"
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            # Intentar obtener token de servicio si está disponible
+            service_token = os.getenv("SERVICE_AUTH_TOKEN")
+            if service_token:
+                headers["Authorization"] = f"Bearer {service_token}"
+            
+            response = requests.post(
+                url,
+                json={"ids": [user_id]},
+                headers=headers,
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                payload = response.json() or {}
+                data = payload.get("data") or []
+                if isinstance(data, list) and data:
+                    user_data = data[0]
+                    name = user_data.get("name", "").strip()
+                    first_last_name = user_data.get("first_last_name", "").strip()
+                    second_last_name = user_data.get("second_last_name", "").strip()
+                    full_name = " ".join(filter(None, [name, first_last_name, second_last_name]))
+                    return full_name if full_name else None
+            else:
+                logger.warning(f"Error al obtener datos del operario {user_id}: {response.status_code}")
+                
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Error de conexión al obtener nombre del operario {user_id}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error inesperado al obtener nombre del operario {user_id}: {str(e)}")
+            
+        return None
     
     def calculate_logistic_status(
         self,
@@ -369,7 +464,7 @@ class TelemetryProcessor:
     def check_thresholds(
         self,
         machinery: Machinery,
-        parameter_name: str,
+        avl_id: int,
         value: float
     ) -> Tuple[bool, Optional[str]]:
         """
@@ -384,9 +479,9 @@ class TelemetryProcessor:
             Tupla (is_alert, reason)
         """
         try:
-            # Obtener el parámetro por nombre
+            # Obtener el parámetro por id AVL
             try:
-                parameter = Parameters.objects.get(parameter_name=parameter_name)
+                parameter = Parameters.objects.get(avl_id_parameter=avl_id)
             except Parameters.DoesNotExist:
                 return (False, None)
             
@@ -403,7 +498,7 @@ class TelemetryProcessor:
             # Verificar umbrales
             is_alert = False
             reason = None
-            
+
             if thresholds.minimum_threshold is not None and value < thresholds.minimum_threshold:
                 is_alert = True
                 reason = f"Valor {value} por debajo del mínimo {thresholds.minimum_threshold}"
@@ -421,7 +516,7 @@ class TelemetryProcessor:
                     # Primera vez → enviar notificación (aquí solo logueamos)
                     logger.warning(
                         f"ALERTA: {machinery.machinery_name} - "
-                        f"Parámetro {parameter_name}: {reason}"
+                        f"Parámetro {parameter.parameter_name}: {reason}"
                     )
                     # TODO: Integrar sistema de notificaciones aquí
                     
@@ -595,6 +690,192 @@ class TelemetryProcessor:
             filtered_packet['data'] = filtered_data
         
         return filtered_packet
+    
+    def calculate_consumption_comparison(
+        self,
+        request: ServiceRequest,
+        machinery: Machinery,
+        timestamp: datetime,
+        consumo_estimado_l: float,
+        consumo_estimado_lh: float
+    ) -> Optional[Dict]:
+        """
+        Calcula consumo real desde telemetría y comparaciones con la predicción.
+        
+        Args:
+            request: Instancia de ServiceRequest
+            machinery: Instancia de Machinery
+            timestamp: Timestamp actual
+            consumo_estimado_l: Consumo estimado por el modelo (L)
+            consumo_estimado_lh: Consumo estimado por hora (L/h)
+            
+        Returns:
+            Diccionario con comparaciones o None si no se puede calcular
+        """
+        try:
+            fuel_level_param = Parameters.objects.filter(avl_id_parameter=48).first()
+            instant_consumption_param = Parameters.objects.filter(avl_id_parameter=60).first()
+            
+            if not fuel_level_param:
+                logger.warning("Parámetro de nivel de combustible no encontrado")
+                return None
+            
+            # Obtener capacidad del tanque
+            fuel_capacity_l = None
+            try:
+                # Intentar obtener la ficha técnica
+                from machinery.models import SpecificTechnicalSheet
+                tech_sheet = getattr(machinery, 'specifictechnicalsheet', None)
+                
+                if not tech_sheet:
+                    tech_sheet = SpecificTechnicalSheet.objects.filter(id_machinery=machinery).first()
+                
+                if tech_sheet and tech_sheet.fuel_capacity:
+                    fuel_capacity_l = tech_sheet.fuel_capacity
+                    # Convertir a litros si es necesario
+                    if tech_sheet.fuel_capacity_unit and tech_sheet.fuel_capacity_unit.name.lower() not in ['l', 'litro', 'liter']:
+                        if 'gal' in tech_sheet.fuel_capacity_unit.name.lower():
+                            fuel_capacity_l = fuel_capacity_l * 3.78541
+                        elif 'm3' in tech_sheet.fuel_capacity_unit.name.lower():
+                            fuel_capacity_l = fuel_capacity_l * 1000
+            except Exception as e:
+                logger.warning(f"Error obteniendo capacidad del tanque: {str(e)}")
+            
+            # Obtener nivel inicial (usar cache si existe, sino buscar en BD)
+            cache_key = (request.id_request, machinery.id_machinery)
+            fuel_level_initial = None
+            
+            if cache_key in self._fuel_level_initial_cache:
+                fuel_level_initial = self._fuel_level_initial_cache[cache_key]
+            else:
+                # Buscar primer registro de fuel_level para esta solicitud y maquinaria
+                fuel_initial_data = Data.objects.filter(
+                    id_request=request,
+                    id_machinery=machinery,
+                    id_parameter=fuel_level_param
+                ).order_by('registered_at').first()
+                
+                if fuel_initial_data and fuel_initial_data.data is not None:
+                    fuel_level_initial = float(fuel_initial_data.data)
+                    # Guardar en cache
+                    self._fuel_level_initial_cache[cache_key] = fuel_level_initial
+                else:
+                    # Si no hay registro inicial, usar el actual como inicial (primera vez)
+                    fuel_current_data = Data.objects.filter(
+                        id_request=request,
+                        id_machinery=machinery,
+                        id_parameter=fuel_level_param,
+                        registered_at__lte=timestamp
+                    ).order_by('-registered_at').first()
+                    
+                    if fuel_current_data and fuel_current_data.data is not None:
+                        fuel_level_initial = float(fuel_current_data.data)
+                        self._fuel_level_initial_cache[cache_key] = fuel_level_initial
+            
+            # Obtener nivel actual (último registro hasta el timestamp)
+            fuel_current_data = Data.objects.filter(
+                id_request=request,
+                id_machinery=machinery,
+                id_parameter=fuel_level_param,
+                registered_at__lte=timestamp
+            ).order_by('-registered_at').first()
+            
+            fuel_level_actual = float(fuel_current_data.data) if fuel_current_data and fuel_current_data.data is not None else None
+            
+            # Si no tenemos nivel inicial, usar el actual como inicial
+            if fuel_level_initial is None and fuel_level_actual is not None:
+                fuel_level_initial = fuel_level_actual
+                self._fuel_level_initial_cache[cache_key] = fuel_level_initial
+            
+            consumo_real_l = None
+            
+            if fuel_capacity_l and fuel_level_initial is not None and fuel_level_actual is not None:
+                # Calcular consumo real basado en porcentaje y capacidad
+                consumo_real_l = ((fuel_level_initial - fuel_level_actual) / 100) * fuel_capacity_l
+                consumo_real_l = max(0, consumo_real_l)
+            
+            # Fallback usando fuel_used_gps (AVL 12)
+            if consumo_real_l is None:
+                fuel_used_param = Parameters.objects.filter(avl_id_parameter=12).first()
+                if fuel_used_param:
+                    fuel_used_initial = self._fuel_used_initial_cache.get(cache_key)
+                    if fuel_used_initial is None:
+                        fuel_used_initial_data = Data.objects.filter(
+                            id_request=request,
+                            id_machinery=machinery,
+                            id_parameter=fuel_used_param
+                        ).order_by('registered_at').first()
+                        if fuel_used_initial_data and fuel_used_initial_data.data is not None:
+                            fuel_used_initial = float(fuel_used_initial_data.data)
+                            self._fuel_used_initial_cache[cache_key] = fuel_used_initial
+                    
+                    fuel_used_current_data = Data.objects.filter(
+                        id_request=request,
+                        id_machinery=machinery,
+                        id_parameter=fuel_used_param,
+                        registered_at__lte=timestamp
+                    ).order_by('-registered_at').first()
+                    
+                    if fuel_used_initial is not None and fuel_used_current_data and fuel_used_current_data.data is not None:
+                        consumo_real_l = max(0, float(fuel_used_current_data.data) - fuel_used_initial)
+            
+            if consumo_real_l is None:
+                logger.debug(f"No se pudo calcular consumo real para request {request.id_request} y machinery {machinery.id_machinery}")
+                return None
+            
+            # Calcular consumo instantáneo promedio
+            consumo_instantaneo_promedio_lh = None
+            if instant_consumption_param:
+                instant_data = Data.objects.filter(
+                    id_request=request,
+                    id_machinery=machinery,
+                    id_parameter=instant_consumption_param,
+                    registered_at__lte=timestamp
+                ).values_list('data', flat=True)
+                
+                if instant_data:
+                    valores = [float(d) for d in instant_data if d is not None]
+                    if valores:
+                        consumo_instantaneo_promedio_lh = sum(valores) / len(valores)
+            
+            # Calcular comparaciones
+            duration_hours = self._estimate_duration_hours(request, machinery, timestamp)
+            if (consumo_estimado_lh is None or consumo_estimado_lh <= 0) and duration_hours > 0:
+                consumo_estimado_lh = consumo_estimado_l / duration_hours
+
+            diferencia_absoluta_l = abs(consumo_real_l - consumo_estimado_l)
+            error_porcentual = None
+            if consumo_real_l > 0:
+                error_porcentual = (diferencia_absoluta_l / consumo_real_l) * 100
+            elif consumo_estimado_l > 0:
+                # Si consumo real es 0 pero estimado no, error es 100%
+                error_porcentual = 100.0
+            else:
+                error_porcentual = 0.0
+            
+            result = {
+                'consumo_real_l': round(consumo_real_l, 2),
+                'consumo_instantaneo_promedio_lh': round(consumo_instantaneo_promedio_lh, 2) if consumo_instantaneo_promedio_lh else None,
+                'consumo_estimado_l': round(consumo_estimado_l, 2),
+                'consumo_estimado_lh': round(consumo_estimado_lh, 2) if consumo_estimado_lh is not None else None,
+                'diferencia_absoluta_l': round(diferencia_absoluta_l, 2),
+                'error_porcentual': round(error_porcentual, 2),
+                'fuel_level_inicial': round(fuel_level_initial, 2) if fuel_level_initial is not None else None,
+                'fuel_level_actual': round(fuel_level_actual, 2) if fuel_level_actual is not None else None,
+                'fuel_capacity_l': round(fuel_capacity_l, 2) if fuel_capacity_l is not None else None,
+                'duracion_h': round(duration_hours, 2) if duration_hours else None
+            }
+            
+            logger.debug(
+                f"Comparación calculada: Real={consumo_real_l:.2f}L, "
+                f"Estimado={consumo_estimado_l:.2f}L, Error={error_porcentual:.2f}%"
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error calculando comparación de consumo: {str(e)}", exc_info=True)
+            return None
     
     def store_telemetry_data(
         self,
@@ -831,7 +1112,30 @@ class TelemetryProcessor:
                     logger.error(f"Error guardando estado logístico: {str(e)}")
             
             logger.debug(f"Almacenados {records_created} registros en tabla 'data'")
-            return records_created
+            
+            # NUEVO: Generar predicción después de crear los datos
+            prediction_data = None
+            if records_created > 0:
+                try:
+                    from monitoring.services.prediction_service import prediction_service
+                    
+                    prediction_data = prediction_service.predict_and_save_training_data(
+                        request=active_request,
+                        machinery=machinery,
+                        imei=str(device.IMEI),
+                        timestamp=timestamp,
+                        user=user
+                    )
+                    
+                    if prediction_data:
+                        logger.info(
+                            f"Predicción generada: {prediction_data['consumo_estimado_l']:.2f} L "
+                            f"(Contador: {prediction_data['training_counter']}/100)"
+                        )
+                except Exception as e:
+                    logger.error(f"Error generando predicción: {str(e)}", exc_info=True)
+            
+            return records_created, prediction_data
             
         except Exception as e:
             logger.error(f"Error almacenando datos en tabla 'data': {str(e)}")
@@ -913,31 +1217,36 @@ class TelemetryProcessor:
             parameter_alerts = {}  # {param_name: (is_alert, reason)}
             
             # Crear conjunto de nombres de parámetros permitidos para validación rápida
-            allowed_parameter_names = set()
+            allowed_parameter_id = set()
             if device_parameters:
-                allowed_parameter_names = {p.parameter_name for p in device_parameters if p.parameter_name}
-            
+                allowed_parameter_id = {p.avl_id_parameter for p in device_parameters if p.avl_id_parameter}
+
             # Verificar umbrales para parámetros numéricos
             threshold_checks = [
-                ('speed', data.get('speed')),
-                ('engine_temp', data.get('engine_temp')),
-                ('rpm', data.get('rpm')),
-                ('oil_level', data.get('oil_level')),
-                ('fuel_level', data.get('fuel_level')),
+                ('speed', data.get('speed'), 24),
+                ('engine_temp', data.get('engine_temp'), 32),
+                ('engine_load', data.get('engine_load'), 31),
+                ('rpm', data.get('rpm'), 36),
+                ('oil_level', data.get('oil_level'), 1159),
+                ('fuel_level', data.get('fuel_level'), 48),
+                ('fuel_used_gps', data.get('fuel_used_gps'), 12),
+                ('instant_consumption', data.get('instant_consumption'), 60),
+                ('odometer_total', data.get('odometer_total'), 16),
+                ('odometer_trip', data.get('odometer_trip'), 199),
             ]
-            
             total_alerts = 0
-            for param_name, value in threshold_checks:
+
+            for param_name, value, avl_id in threshold_checks:
                 if value is not None:
                     # VALIDACIÓN: Solo verificar umbrales si el parámetro está configurado para el dispositivo
-                    if device_parameters and param_name not in allowed_parameter_names:
+                    if device_parameters and avl_id not in allowed_parameter_id:
                         logger.debug(
                             f"Parámetro {param_name} no está configurado para el dispositivo "
                             f"{device.name} (IMEI {device.IMEI}). Umbrales omitidos."
                         )
                         continue
                     
-                    is_alert, reason = self.check_thresholds(machinery, param_name, float(value))
+                    is_alert, reason = self.check_thresholds(machinery, avl_id, float(value))
                     parameter_alerts[param_name] = (is_alert, reason)
                     if is_alert:
                         total_alerts += 1
@@ -970,7 +1279,7 @@ class TelemetryProcessor:
             
             # 8. Almacenar datos en tabla 'data' (un registro por parámetro)
             # Pasar los parámetros permitidos para validación
-            records_created = self.store_telemetry_data(
+            records_created, prediction_data = self.store_telemetry_data(
                 machinery=machinery,
                 device=device,
                 active_request=active_request,
@@ -995,11 +1304,55 @@ class TelemetryProcessor:
             # Agregar alertas al paquete
             packet['alerts'] = alerts_list if alerts_list else None
             
+            # Agregar request_id al paquete (necesario para filtrar por solicitud en WebSocket/SSE)
+            packet['request_id'] = active_request.id_request
+            
+            # Agregar información de maquinaria y operario al paquete
+            packet['serial_number'] = machinery.serial_number
+            packet['machinery_name'] = machinery.machinery_name
+            
+            # Obtener nombre del operario desde el servicio externo
+            operator_name = None
+            if request_machinery_user and request_machinery_user.user:
+                operator_name = self._get_operator_name(request_machinery_user.user.id_user)
+            packet['operator_name'] = operator_name
+            
+            # NUEVO: Agregar predicción al paquete
+            if prediction_data:
+                packet['consumption_prediction'] = {
+                    'consumo_estimado_l': prediction_data['consumo_estimado_l'],
+                    'consumo_estimado_lh': prediction_data['consumo_estimado_lh'],
+                    'timestamp': prediction_data['timestamp'],
+                    'training_progress': f"{prediction_data['training_counter']}/100",
+                    'duracion_h': prediction_data.get('duracion_h')
+                }
+                
+                # Calcular comparaciones con consumo real
+                comparison_data = self.calculate_consumption_comparison(
+                    request=active_request,
+                    machinery=machinery,
+                    timestamp=timestamp,
+                    consumo_estimado_l=prediction_data['consumo_estimado_l'],
+                    consumo_estimado_lh=prediction_data['consumo_estimado_lh']
+                )
+                
+                if comparison_data:
+                    packet['consumption_comparison'] = comparison_data
+                    logger.info(
+                        f"Comparación: Real={comparison_data['consumo_real_l']}L, "
+                        f"Estimado={comparison_data['consumo_estimado_l']}L, "
+                        f"Error={comparison_data['error_porcentual']}%"
+                    )
+            
             # Filtrar parámetros no configurados antes de enviar por WebSocket
             filtered_packet = self.filter_packet_by_device_parameters(packet, device_parameters)
             
             logger.info(
-                f"Paquete procesado: IMEI {imei}, "
+                f"Paquete procesado: Request ID {active_request.id_request}, "
+                f"IMEI {imei}, "
+                f"Serial: {machinery.serial_number}, "
+                f"Maquinaria: {machinery.machinery_name}, "
+                f"Operario: {operator_name or 'N/A'}, "
                 f"Estado logístico: {logistic_status}, "
                 f"Registros creados: {records_created}, "
                 f"Alertas: {total_alerts}"

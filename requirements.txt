@@ -23,3 +23,11 @@ pytz==2025.1
 openpyxl==3.1.2
 websockets==14.1
 aiohttp==3.10.0
+openmeteo_requests>=1.0.0
+requests_cache>=1.1.0
+retry_requests>=1.0.0
+pandas>=1.5.0
+scikit-learn>=1.2.0
+joblib>=1.2.0
+kagglehub>=0.2.0
+numpy>=1.24.0
