@@ -413,7 +413,7 @@ class TelemetryProcessor:
     def check_thresholds(
         self,
         machinery: Machinery,
-        parameter_name: str,
+        avl_id: int,
         value: float
     ) -> Tuple[bool, Optional[str]]:
         """
@@ -428,9 +428,9 @@ class TelemetryProcessor:
             Tupla (is_alert, reason)
         """
         try:
-            # Obtener el parámetro por nombre
+            # Obtener el parámetro por id AVL
             try:
-                parameter = Parameters.objects.get(parameter_name=parameter_name)
+                parameter = Parameters.objects.get(avl_id_parameter=avl_id)
             except Parameters.DoesNotExist:
                 return (False, None)
             
@@ -447,7 +447,7 @@ class TelemetryProcessor:
             # Verificar umbrales
             is_alert = False
             reason = None
-            
+
             if thresholds.minimum_threshold is not None and value < thresholds.minimum_threshold:
                 is_alert = True
                 reason = f"Valor {value} por debajo del mínimo {thresholds.minimum_threshold}"
@@ -465,7 +465,7 @@ class TelemetryProcessor:
                     # Primera vez → enviar notificación (aquí solo logueamos)
                     logger.warning(
                         f"ALERTA: {machinery.machinery_name} - "
-                        f"Parámetro {parameter_name}: {reason}"
+                        f"Parámetro {parameter.parameter_name}: {reason}"
                     )
                     # TODO: Integrar sistema de notificaciones aquí
                     
@@ -957,31 +957,36 @@ class TelemetryProcessor:
             parameter_alerts = {}  # {param_name: (is_alert, reason)}
             
             # Crear conjunto de nombres de parámetros permitidos para validación rápida
-            allowed_parameter_names = set()
+            allowed_parameter_id = set()
             if device_parameters:
-                allowed_parameter_names = {p.parameter_name for p in device_parameters if p.parameter_name}
-            
+                allowed_parameter_id = {p.avl_id_parameter for p in device_parameters if p.avl_id_parameter}
+
             # Verificar umbrales para parámetros numéricos
             threshold_checks = [
-                ('speed', data.get('speed')),
-                ('engine_temp', data.get('engine_temp')),
-                ('rpm', data.get('rpm')),
-                ('oil_level', data.get('oil_level')),
-                ('fuel_level', data.get('fuel_level')),
+                ('speed', data.get('speed'), 24),
+                ('engine_temp', data.get('engine_temp'), 32),
+                ('engine_load', data.get('engine_load'), 31),
+                ('rpm', data.get('rpm'), 36),
+                ('oil_level', data.get('oil_level'), 1159),
+                ('fuel_level', data.get('fuel_level'), 48),
+                ('fuel_used_gps', data.get('fuel_used_gps'), 12),
+                ('instant_consumption', data.get('instant_consumption'), 60),
+                ('odometer_total', data.get('odometer_total'), 16),
+                ('odometer_trip', data.get('odometer_trip'), 199),
             ]
-            
             total_alerts = 0
-            for param_name, value in threshold_checks:
+
+            for param_name, value, avl_id in threshold_checks:
                 if value is not None:
                     # VALIDACIÓN: Solo verificar umbrales si el parámetro está configurado para el dispositivo
-                    if device_parameters and param_name not in allowed_parameter_names:
+                    if device_parameters and avl_id not in allowed_parameter_id:
                         logger.debug(
                             f"Parámetro {param_name} no está configurado para el dispositivo "
                             f"{device.name} (IMEI {device.IMEI}). Umbrales omitidos."
                         )
                         continue
                     
-                    is_alert, reason = self.check_thresholds(machinery, param_name, float(value))
+                    is_alert, reason = self.check_thresholds(machinery, avl_id, float(value))
                     parameter_alerts[param_name] = (is_alert, reason)
                     if is_alert:
                         total_alerts += 1
