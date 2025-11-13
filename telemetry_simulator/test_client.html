@@ -155,19 +155,29 @@
 </head>
 <body>
     <div class="container">
-        <h1>🚗 Telemetry Simulator - Test Client</h1>
+        <h1>Telemetry Simulator - Test Client</h1>
         
         <div id="status" class="status disconnected">
             ● Desconectado
         </div>
         
         <div class="password-input">
-            <label for="passwordInput">🔑 Contraseña WebSocket:</label>
+            <label for="passwordInput">Contraseña WebSocket:</label>
             <input 
                 type="password" 
                 id="passwordInput" 
                 placeholder="Ingresa la contraseña para conectarte"
                 value="telemetry_password_2024"
+            />
+        </div>
+        
+        <div class="password-input">
+            <label for="requestIdInput">Request ID (opcional, se usará el del primer paquete si no se especifica):</label>
+            <input 
+                type="text" 
+                id="requestIdInput" 
+                placeholder="Ej: SOL-2025-0073"
+                value="SOL-2025-0073"
             />
         </div>
         
@@ -181,7 +191,7 @@
             <!-- Los datos se insertarán aquí dinámicamente -->
         </div>
         
-        <h2 style="margin-top: 30px;">📋 Log de Datos</h2>
+        <h2 style="margin-top: 30px;">Log de Datos</h2>
         <div class="log-container" id="logContainer"></div>
     </div>
 
@@ -228,18 +238,18 @@
             
             grid.innerHTML = `
                 <div class="data-card" style="grid-column: 1 / -1; background: #f0f4ff;">
-                    <h3>📱 IMEI del Dispositivo</h3>
+                    <h3>IMEI del Dispositivo</h3>
                     <div class="value" style="font-size: 18px;">${data.imei}</div>
                 </div>
                 
                 <div class="data-card" style="grid-column: 1 / -1; background: #f0f4ff;">
-                    <h3>⏰ Timestamp</h3>
+                    <h3>Timestamp</h3>
                     <div class="value" style="font-size: 14px;">${data.timestamp}</div>
                 </div>
                 
                 ${data.data.speed !== undefined ? `
                 <div class="data-card">
-                    <h3>🚀 Velocidad</h3>
+                    <h3>Velocidad</h3>
                     <div class="value">${data.data.speed}</div>
                     <div class="unit">km/h</div>
                 </div>
@@ -247,21 +257,21 @@
                 
                 ${data.data.ignition_status !== undefined ? `
                 <div class="data-card">
-                    <h3>🔋 Estado Ignición</h3>
+                    <h3>Estado Ignición</h3>
                     <div class="value">${data.data.ignition_status ? 'ON' : 'OFF'}</div>
                 </div>
                 ` : ''}
                 
                 ${data.data.movement_status !== undefined ? `
                 <div class="data-card">
-                    <h3>🚦 Movimiento</h3>
+                    <h3>Movimiento</h3>
                     <div class="value">${data.data.movement_status ? 'SI' : 'NO'}</div>
                 </div>
                 ` : ''}
                 
                 ${data.data.rpm !== undefined ? `
                 <div class="data-card">
-                    <h3>🔧 RPM</h3>
+                    <h3>RPM</h3>
                     <div class="value">${data.data.rpm}</div>
                     <div class="unit">rpm</div>
                 </div>
@@ -269,7 +279,7 @@
                 
                 ${data.data.engine_temp !== undefined ? `
                 <div class="data-card">
-                    <h3>🌡️ Temperatura Motor</h3>
+                    <h3>Temperatura Motor</h3>
                     <div class="value">${data.data.engine_temp}</div>
                     <div class="unit">°C</div>
                 </div>
@@ -277,7 +287,7 @@
                 
                 ${data.data.engine_load !== undefined ? `
                 <div class="data-card">
-                    <h3>⚡ Carga Motor</h3>
+                    <h3>Carga Motor</h3>
                     <div class="value">${data.data.engine_load}</div>
                     <div class="unit">%</div>
                 </div>
@@ -285,7 +295,7 @@
                 
                 ${data.data.fuel_level !== undefined ? `
                 <div class="data-card">
-                    <h3>⛽ Combustible</h3>
+                    <h3>Combustible</h3>
                     <div class="value">${data.data.fuel_level}</div>
                     <div class="unit">%</div>
                 </div>
@@ -293,7 +303,7 @@
                 
                 ${data.data.oil_level !== undefined ? `
                 <div class="data-card">
-                    <h3>🛢️ Aceite</h3>
+                    <h3>Aceite</h3>
                     <div class="value">${data.data.oil_level}</div>
                     <div class="unit">%</div>
                 </div>
@@ -301,7 +311,7 @@
                 
                 ${data.data.gsm_signal !== undefined ? `
                 <div class="data-card">
-                    <h3>📶 Señal GSM</h3>
+                    <h3>Señal GSM</h3>
                     <div class="value">${data.data.gsm_signal}</div>
                     <div class="unit">/ 5</div>
                 </div>
@@ -309,14 +319,14 @@
                 
                 ${data.data.gps_location !== undefined ? `
                 <div class="data-card">
-                    <h3>📍 Ubicación GPS</h3>
+                    <h3>Ubicación GPS</h3>
                     <div class="value" style="font-size: 14px;">${data.data.gps_location}</div>
                 </div>
                 ` : ''}
                 
                 ${data.data.instant_consumption !== undefined ? `
                 <div class="data-card">
-                    <h3>⛽ Consumo Instantáneo</h3>
+                    <h3>Consumo Instantáneo</h3>
                     <div class="value">${data.data.instant_consumption}</div>
                     <div class="unit">L/h</div>
                 </div>
@@ -324,7 +334,7 @@
                 
                 ${data.data.fuel_used_gps !== undefined ? `
                 <div class="data-card">
-                    <h3>📊 Combustible Usado</h3>
+                    <h3>Combustible Usado</h3>
                     <div class="value">${data.data.fuel_used_gps}</div>
                     <div class="unit">L</div>
                 </div>
@@ -332,7 +342,7 @@
                 
                 ${data.data.odometer_total !== undefined ? `
                 <div class="data-card">
-                    <h3>📏 Odómetro Total</h3>
+                    <h3>Odómetro Total</h3>
                     <div class="value">${data.data.odometer_total}</div>
                     <div class="unit">m</div>
                 </div>
@@ -340,7 +350,7 @@
                 
                 ${data.data.odometer_trip !== undefined ? `
                 <div class="data-card">
-                    <h3>🚙 Odómetro Viaje</h3>
+                    <h3>Odómetro Viaje</h3>
                     <div class="value">${data.data.odometer_trip}</div>
                     <div class="unit">m</div>
                 </div>
@@ -348,28 +358,138 @@
                 
                 ${data.data.obd_faults && data.data.obd_faults.length > 0 ? `
                 <div class="data-card" style="border-left-color: #c00;">
-                    <h3>⚠️ Fallas OBD</h3>
+                    <h3>Fallas OBD</h3>
                     <div class="value" style="font-size: 14px;">${data.data.obd_faults.join(', ')}</div>
                 </div>
                 ` : ''}
                 
                 ${data.data.event_type !== null && data.data.event_type !== undefined ? `
                 <div class="data-card" style="border-left-color: #ff9800;">
-                    <h3>📢 Tipo de Evento</h3>
+                    <h3>Tipo de Evento</h3>
                     <div class="value">${data.data.event_type}</div>
                 </div>
                 ` : ''}
                 
                 ${data.data.event_g_value !== null && data.data.event_g_value !== undefined ? `
                 <div class="data-card" style="border-left-color: #ff9800;">
-                    <h3>⚡ Valor G del Evento</h3>
+                    <h3>Valor G del Evento</h3>
                     <div class="value">${data.data.event_g_value}</div>
+                </div>
+                ` : ''}
+                
+                ${data.request_id ? `
+                <div class="data-card" style="grid-column: 1 / -1; background: #e3f2fd;">
+                    <h3>Información de Solicitud</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 10px;">
+                        <div>
+                            <strong>Request ID:</strong> ${data.request_id}
+                        </div>
+                        ${data.serial_number ? `<div><strong>Serial:</strong> ${data.serial_number}</div>` : ''}
+                        ${data.machinery_name ? `<div><strong>Maquinaria:</strong> ${data.machinery_name}</div>` : ''}
+                        ${data.operator_name ? `<div><strong>Operario:</strong> ${data.operator_name}</div>` : ''}
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${data.consumption_prediction ? `
+                <div class="data-card" style="grid-column: 1 / -1; border-left-color: #2196F3; background: #e3f2fd;">
+                    <h3>Predicción de Consumo (IA)</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 10px;">
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Consumo Estimado</div>
+                            <div class="value" style="font-size: 28px; color: #2196F3;">${data.consumption_prediction.consumo_estimado_l.toFixed(2)}</div>
+                            <div class="unit">L</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Consumo Estimado por Hora</div>
+                            <div class="value" style="font-size: 28px; color: #2196F3;">${data.consumption_prediction.consumo_estimado_lh.toFixed(2)}</div>
+                            <div class="unit">L/h</div>
+                        </div>
+                        ${data.consumption_prediction.training_progress ? `
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Progreso Reentrenamiento</div>
+                            <div class="value" style="font-size: 20px; color: #4CAF50;">${data.consumption_prediction.training_progress}</div>
+                        </div>
+                        ` : ''}
+                        ${data.consumption_prediction.duracion_h ? `
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Duración Estimada</div>
+                            <div class="value" style="font-size: 20px; color: #2196F3;">${data.consumption_prediction.duracion_h.toFixed(2)}</div>
+                            <div class="unit">h</div>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${data.consumption_comparison ? `
+                <div class="data-card" style="grid-column: 1 / -1; border-left-color: #4CAF50; background: #e8f5e9;">
+                    <h3>Comparación: Consumo Real vs Estimado</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 10px;">
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Consumo Real</div>
+                            <div class="value" style="font-size: 28px; color: #4CAF50;">${data.consumption_comparison.consumo_real_l.toFixed(2)}</div>
+                            <div class="unit">L</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Consumo Instantáneo Promedio</div>
+                            <div class="value" style="font-size: 24px; color: #4CAF50;">${data.consumption_comparison.consumo_instantaneo_promedio_lh ? data.consumption_comparison.consumo_instantaneo_promedio_lh.toFixed(2) : 'N/A'}</div>
+                            <div class="unit">L/h</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Consumo Estimado</div>
+                            <div class="value" style="font-size: 28px; color: #2196F3;">${data.consumption_comparison.consumo_estimado_l.toFixed(2)}</div>
+                            <div class="unit">L</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Consumo Estimado por Hora</div>
+                            <div class="value" style="font-size: 24px; color: #2196F3;">${data.consumption_comparison.consumo_estimado_lh.toFixed(2)}</div>
+                            <div class="unit">L/h</div>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px; padding-top: 15px; border-top: 2px solid #ddd;">
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Diferencia Absoluta</div>
+                            <div class="value" style="font-size: 24px; color: ${Math.abs(data.consumption_comparison.diferencia_absoluta_l) > 5 ? '#f44336' : '#4CAF50'};">
+                                ${data.consumption_comparison.diferencia_absoluta_l.toFixed(2)}
+                            </div>
+                            <div class="unit">L</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Error Porcentual</div>
+                            <div class="value" style="font-size: 24px; color: ${data.consumption_comparison.error_porcentual > 10 ? '#f44336' : data.consumption_comparison.error_porcentual > 5 ? '#ff9800' : '#4CAF50'};">
+                                ${data.consumption_comparison.error_porcentual.toFixed(2)}%
+                            </div>
+                        </div>
+                        ${data.consumption_comparison.duracion_h ? `
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Duración Calculada</div>
+                            <div class="value" style="font-size: 20px;">${data.consumption_comparison.duracion_h.toFixed(2)}</div>
+                            <div class="unit">h</div>
+                        </div>
+                        ` : ''}
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Nivel Inicial Combustible</div>
+                            <div class="value" style="font-size: 20px;">${data.consumption_comparison.fuel_level_inicial.toFixed(1)}</div>
+                            <div class="unit">%</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Nivel Actual Combustible</div>
+                            <div class="value" style="font-size: 20px;">${data.consumption_comparison.fuel_level_actual.toFixed(1)}</div>
+                            <div class="unit">%</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Capacidad del Tanque</div>
+                            <div class="value" style="font-size: 20px;">${data.consumption_comparison.fuel_capacity_l.toFixed(1)}</div>
+                            <div class="unit">L</div>
+                        </div>
+                    </div>
                 </div>
                 ` : ''}
                 
                 ${data.alerts && data.alerts.length > 0 ? `
                 <div class="data-card" style="grid-column: 1 / -1; border-left-color: #f44336; background: #ffebee;">
-                    <h3>🚨 Alertas Detectadas (${data.alerts.length})</h3>
+                    <h3>Alertas Detectadas (${data.alerts.length})</h3>
                     <div style="margin-top: 10px;">
                         ${data.alerts.map(alert => `
                             <div style="padding: 8px; margin: 5px 0; background: white; border-radius: 4px; border-left: 3px solid #f44336;">
@@ -384,23 +504,32 @@
         
         function connect() {
             const passwordInput = document.getElementById('passwordInput');
+            const requestIdInput = document.getElementById('requestIdInput');
             const password = passwordInput.value.trim();
+            const requestId = requestIdInput.value.trim();
             
             if (!password) {
-                addLog('⚠️ Por favor ingresa la contraseña');
+                addLog('Por favor ingresa la contraseña');
                 passwordInput.focus();
                 return;
             }
             
-            addLog('🔌 Conectando al WebSocket...');
+            // Construir URL con request_id si está especificado
+            let wsUrl;
+            if (requestId) {
+                wsUrl = `ws://localhost:8003/ws/telemetria/${encodeURIComponent(requestId)}?password=${encodeURIComponent(password)}`;
+                addLog(`Conectando al WebSocket para request: ${requestId}...`);
+            } else {
+                // Sin request_id, usar endpoint de procesador (solo para desarrollo)
+                wsUrl = `ws://localhost:8003/ws/telemetria?processor=true&password=${encodeURIComponent(password)}`;
+                addLog('Conectando al WebSocket (modo procesador)...');
+            }
             
             try {
-                // Construir URL con contraseña como query parameter
-                const wsUrl = `ws://localhost:8003/ws/telemetria?password=${encodeURIComponent(password)}`;
                 ws = new WebSocket(wsUrl);
                 
                 ws.onopen = () => {
-                    addLog('✅ Conectado exitosamente');
+                    addLog('Conectado exitosamente');
                     updateStatus(true);
                 };
                 
@@ -408,62 +537,79 @@
                     const data = JSON.parse(event.data);
                     const imei = data.imei || 'N/A';
                     const timestamp = data.timestamp || 'N/A';
+                    const requestId = data.request_id || 'N/A';
                     const alertsCount = data.alerts ? data.alerts.length : 0;
                     const alertsMsg = alertsCount > 0 ? `, ${alertsCount} alerta(s)` : '';
-                    addLog(`📊 Datos recibidos - IMEI: ${imei}, TS: ${timestamp}, Velocidad: ${data.data?.speed || 'N/A'} km/h${alertsMsg}`);
+                    const predictionMsg = data.consumption_prediction ? `, Predicción: ${data.consumption_prediction.consumo_estimado_l.toFixed(2)}L` : '';
+                    
+                    // Si no se especificó request_id y recibimos uno, actualizar el input
+                    if (!requestIdInput.value.trim() && requestId !== 'N/A') {
+                        requestIdInput.value = requestId;
+                        addLog(`Request ID detectado: ${requestId}`);
+                    }
+                    
+                    addLog(`Datos recibidos - Request: ${requestId}, IMEI: ${imei}, TS: ${timestamp}, Velocidad: ${data.data?.speed || 'N/A'} km/h${alertsMsg}${predictionMsg}`);
                     updateDataGrid(data);
                 };
                 
                 ws.onerror = (error) => {
-                    addLog(`❌ Error en WebSocket: ${error}`);
+                    addLog(`Error en WebSocket: ${error}`);
                 };
                 
                 ws.onclose = (event) => {
                     if (event.code === 4001) {
-                        addLog('❌ Conexión rechazada: Contraseña incorrecta');
+                        addLog('Conexión rechazada: Contraseña incorrecta');
                     } else {
-                        addLog(`🔌 Conexión cerrada (Código: ${event.code})`);
+                        addLog(`Conexión cerrada (Código: ${event.code})`);
                     }
                     updateStatus(false);
                 };
                 
             } catch (error) {
-                addLog(`❌ Error al conectar: ${error.message}`);
+                addLog(`Error al conectar: ${error.message}`);
             }
         }
         
         function disconnect() {
             if (ws) {
                 ws.close();
-                addLog('🔌 Desconectando...');
+                addLog('Desconectando...');
             }
             if (es) {
                 es.close();
                 es = null;
-                addLog('🔌 Cerrando SSE...');
+                addLog('Cerrando SSE...');
             }
             updateStatus(false);
         }
 
         function connectSSE() {
             const passwordInput = document.getElementById('passwordInput');
+            const requestIdInput = document.getElementById('requestIdInput');
             const password = passwordInput.value.trim();
+            const requestId = requestIdInput.value.trim();
             
             if (!password) {
-                addLog('⚠️ Por favor ingresa la contraseña');
+                addLog('Por favor ingresa la contraseña');
                 passwordInput.focus();
                 return;
             }
             
-            addLog('🔌 Conectando vía SSE...');
+            if (!requestId) {
+                addLog('Por favor ingresa el Request ID para SSE');
+                requestIdInput.focus();
+                return;
+            }
+            
+            addLog(`Conectando vía SSE para request: ${requestId}...`);
             
             try {
-                // En local usamos el simulador expuesto en 8003
-                const sseUrl = `http://localhost:8003/api/telemetria/stream?password=${encodeURIComponent(password)}`;
+                // SSE requiere request_id obligatorio
+                const sseUrl = `http://localhost:8003/api/telemetria/stream/${encodeURIComponent(requestId)}?password=${encodeURIComponent(password)}`;
                 es = new EventSource(sseUrl);
                 
                 es.onopen = () => {
-                    addLog('✅ Conectado por SSE');
+                    addLog('Conectado por SSE');
                     updateStatus(true);
                 };
                 
@@ -471,17 +617,19 @@
                     const data = JSON.parse(event.data);
                     const imei = data.imei || 'N/A';
                     const timestamp = data.timestamp || 'N/A';
+                    const requestId = data.request_id || 'N/A';
                     const alertsCount = data.alerts ? data.alerts.length : 0;
                     const alertsMsg = alertsCount > 0 ? `, ${alertsCount} alerta(s)` : '';
-                    addLog(`📊 [SSE] Datos recibidos - IMEI: ${imei}, TS: ${timestamp}, Velocidad: ${data.data?.speed || 'N/A'} km/h${alertsMsg}`);
+                    const predictionMsg = data.consumption_prediction ? `, Predicción: ${data.consumption_prediction.consumo_estimado_l.toFixed(2)}L` : '';
+                    addLog(`[SSE] Datos recibidos - Request: ${requestId}, IMEI: ${imei}, TS: ${timestamp}, Velocidad: ${data.data?.speed || 'N/A'} km/h${alertsMsg}${predictionMsg}`);
                     updateDataGrid(data);
                 };
                 
                 es.onerror = (error) => {
-                    addLog('❌ Error en SSE, se reintentará automáticamente');
+                    addLog('Error en SSE, se reintentará automáticamente');
                 };
             } catch (error) {
-                addLog(`❌ Error al conectar SSE: ${error.message}`);
+                addLog(`Error al conectar SSE: ${error.message}`);
             }
         }
         
