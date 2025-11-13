@@ -98,7 +98,7 @@ class ConnectionManager:
             return
         
         self.is_running = True
-        logger.info("Iniciando generación de datos de telemetría cada 30 segundos (solo para procesador)...")
+        logger.info("Iniciando generación de datos de telemetría cada 5 segundos (solo para procesador)...")
         
         try:
             while self.is_running and len(self.processor_connections) > 0:
@@ -116,8 +116,8 @@ class ConnectionManager:
                 # Send ONLY to processor connections (not to regular clients)
                 await self._send_to_processors(message)
                 
-                # Wait 30 seconds before next transmission
-                await asyncio.sleep(30)
+                # Wait 5 seconds before next transmission
+                await asyncio.sleep(5)
                 
         except Exception as e:
             logger.error(f"Error en generación de datos: {str(e)}")
