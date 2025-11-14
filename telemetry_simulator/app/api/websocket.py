@@ -116,8 +116,8 @@ class ConnectionManager:
                 # Send ONLY to processor connections (not to regular clients)
                 await self._send_to_processors(message)
                 
-                # Wait 5 seconds before next transmission
-                await asyncio.sleep(5)
+                # Wait 30 seconds before next transmission
+                await asyncio.sleep(30)
                 
         except Exception as e:
             logger.error(f"Error en generación de datos: {str(e)}")
