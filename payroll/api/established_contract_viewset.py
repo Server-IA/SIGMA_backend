@@ -8,6 +8,9 @@ from audit_sdk import AuditClient
 from payroll.serializers.established_contracts_serializers.established_contract_serializer import (
     EstablishedContractCreateSerializer
 )
+from payroll.serializers.established_contracts_serializers.established_contract_update_serializer import (
+    EstablishedContractUpdateSerializer
+)
 from payroll.serializers.established_contracts_serializers.established_contract_detail_serializer import (
     EstablishedContractDetailSerializer
 )
@@ -193,3 +196,87 @@ class EstablishedContractViewSet(viewsets.ViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=True, methods=['put'], url_path='update_established_contract')
+    def update_established_contract(self, request, pk=None):
+        """
+        Actualiza un contrato establecido existente.
+
+        Requiere permiso: 176 (established_contract.update)
+        """
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 176 
+
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para actualizar este contrato."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        instance = get_object_or_404(EstablishedContract, contract_code=pk)
+
+        serializer = EstablishedContractUpdateSerializer(
+            instance,
+            data=request.data,
+            partial=False,
+            context={'request': request}
+        )
+
+        if serializer.is_valid():
+            try:
+                with transaction.atomic():
+                    before_snapshot = contract_snapshot(instance)
+                    updated_contract = serializer.save()
+                    after_snapshot = contract_snapshot(updated_contract)
+
+                    try:
+                        actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                        AuditClient(request).update(
+                            object_id=str(updated_contract.contract_code),
+                            before=before_snapshot,
+                            after=after_snapshot,
+                            actor_id=actor_id,
+                            actor_name=actor_name,
+                            actor_role=actor_role_name,
+                            permission_id=permission_id,
+                            module="payroll",
+                            submodule="established_contract",
+                        )
+                    except Exception as audit_exc:
+                        logger.warning(
+                            "El servicio de auditoría ha fallado en update_established_contract: %s",
+                            audit_exc
+                        )
+
+                    return Response(
+                        {
+                            "success": True,
+                            "message": "Contrato actualizado exitosamente",
+                            "contract_code": updated_contract.contract_code
+                        },
+                        status=status.HTTP_200_OK
+                    )
+            except Exception as e:
+                logger.error("Error al actualizar contrato: %s", str(e), exc_info=True)
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Error al actualizar el contrato",
+                        "error": str(e)
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        return Response(
+            {
+                "success": False,
+                "message": "Error de validación al actualizar el contrato",
+                "errors": serializer.errors
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
