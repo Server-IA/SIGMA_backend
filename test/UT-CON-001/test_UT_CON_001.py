@@ -22,8 +22,8 @@ def make_request(payload_dict, request_data):
     factory = APIRequestFactory()
     request_obj = factory.post(
         '/established_contracts/create_established_contract/',
-        data=request_data,
-        format='json'
+        data=json.dumps(request_data),
+        content_type='application/json'
     )
     
     # Wrap in DRF Request
