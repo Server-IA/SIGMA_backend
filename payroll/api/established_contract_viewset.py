@@ -8,8 +8,12 @@ from audit_sdk import AuditClient
 from payroll.serializers.established_contracts_serializers.established_contract_serializer import (
     EstablishedContractCreateSerializer
 )
+from payroll.serializers.established_contracts_serializers.established_contract_detail_serializer import (
+    EstablishedContractDetailSerializer
+)
 from payroll.models.established_contract import EstablishedContract
 from payroll.utils.audit_helpers import get_actor_info, contract_snapshot
+from django.shortcuts import get_object_or_404
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,62 @@ class EstablishedContractViewSet(viewsets.ViewSet):
                     permisos_usuario.append(perm.get("id"))
 
         return required_permission_id in permisos_usuario
+
+    @action(detail=True, methods=['get'], url_path='detail')
+    def retrieve_contract_detail(self, request, pk=None):
+        """
+        Obtiene el detalle completo de un contrato establecido.
+        
+        Requiere permiso: 175 (established_contract.retrieve)
+        
+        Parámetros:
+        - pk: contract_code del contrato a consultar
+        """
+        if not hasattr(request, 'user') or not request.user.is_authenticated:
+            return Response(
+                {"message": "Usuario no autenticado"}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permiso
+        required_permission = 175
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para consultar este contrato"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Obtener el contrato con sus relaciones
+            instance = EstablishedContract.objects.select_related(
+                'contract_type',
+                'workday_type',
+                'work_mode_type',
+                'currency_type',
+                'established_contract_status'
+            ).prefetch_related(
+                'contract_payments',
+                'contract_payments__id_day_of_week',
+                'established_deductions',
+                'established_increases'
+            ).get(contract_code=pk)
+            
+            # Serializar los datos
+            serializer = EstablishedContractDetailSerializer(instance)
+            
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except EstablishedContract.DoesNotExist:
+            return Response(
+                {"message": "No se encontró el contrato especificado"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error al obtener el detalle del contrato: {str(e)}", exc_info=True)
+            return Response(
+                {"message": "Ocurrió un error al procesar la solicitud"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=False, methods=['post'], url_path='create_established_contract')
     def create_established_contract(self, request):

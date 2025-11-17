@@ -19,7 +19,7 @@ class EstablishedDeduction(models.Model):
     start_date_deduction = models.DateField(null=True, blank=True, db_column="start_date_deduction")
     end_date_deductions = models.DateField(null=True, blank=True, db_column="end_date_deductions")
     description = models.CharField(max_length=255, null=True, blank=True, db_column="description")
-    amount = models.FloatField(null=False, blank=False, db_column="amount")
+    amount = models.FloatField(null=True, blank=True, db_column="amount")
     established_contracts_contract_code = models.ForeignKey("payroll.EstablishedContract", on_delete=models.PROTECT, related_name="established_deductions", db_column="established_contracts_contract_code", null=False, blank=True)
 
     class Meta:
