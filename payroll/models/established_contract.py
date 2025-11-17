@@ -20,7 +20,7 @@ class EstablishedContract(models.Model):
         ('mes', 'Mes'),
     ]
     
-    contract_code = models.CharField(primary_key=True, max_length=20, null=False, db_column="contract_code")
+    contract_code = models.CharField(primary_key=True, max_length=200, null=False, db_column="contract_code")
     id_employee_charge = models.ForeignKey("parameterization.EmployeeCharge", on_delete=models.PROTECT, related_name="established_contracts", db_column="employee_charges_id_employee_charge", null=False, blank=False)
     description = models.CharField(max_length=100, null=True, blank=True, db_column="description")
     contract_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="established_contracts_by_contract_type", db_column="contract_type", null=False, blank=False)
@@ -32,10 +32,10 @@ class EstablishedContract(models.Model):
     work_mode_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="established_contracts_by_work_mode_type", db_column="work_mode_type", null=True, blank=True)
     salary_type = models.CharField(max_length=20, choices=SALARY_TYPE_CHOICES, null=False, blank=False, db_column="salary_type")
     salary_base = models.FloatField(null=False, blank=False, db_column="salary_base")
-    currency_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="established_contracts_by_currency_type", db_column="currency_type", null=False, blank=False)
+    currency_type = models.ForeignKey("parameterization.Units", on_delete=models.PROTECT, related_name="established_contracts_by_currency_type", db_column="currency_type", null=False, blank=False)
     trial_period_days = models.IntegerField(null=True, blank=True, db_column="trial_period_days")
     vacation_days = models.IntegerField(null=False, blank=False, db_column="vacation_days")
-    cumulative_vacation = models.BooleanField(null=True, blank=True, db_column="cumulative_vacation")
+    cumulative_vacation = models.BooleanField(null=False, blank=False, db_column="cumulative_vacation")
     start_cumulative_vacation = models.DateField(db_column="start_cumulative_vacation", null=True, blank=True)
     vacation_frequency_days = models.IntegerField(null=True, blank=True, db_column="vacation_frequency_days")
     maximum_disability_days = models.IntegerField(null=False, blank=False, db_column="maximum_disability_days")
