@@ -6,6 +6,46 @@ del proyecto.
 """
 import pytest
 from django.utils import timezone
+import os
+
+# Ensure AUTH_SERVICE_URL is defined early for tests
+os.environ.setdefault('AUTH_SERVICE_URL', 'http://auth-service')
+
+
+@pytest.fixture(scope='session', autouse=True)
+def patch_user_lookups_session():
+    """Session fixture to stub external user lookups used by serializers.
+    This ensures tests do not depend on network or env timing.
+    """
+    try:
+        from monitoring.serializers.service_request_machinery_serializer import ServiceRequestMachineryDataSerializer
+        from monitoring.serializers.data_serializer import DataSerializer
+
+        orig_users = ServiceRequestMachineryDataSerializer._get_users_info
+        orig_external = DataSerializer._get_external_user
+
+        def _stub_get_users(self, ids):
+            data = []
+            for uid in ids or []:
+                if int(uid) == 1:
+                    data.append({'id': 1, 'name': 'Juan Andres', 'first_last_name': 'Veru', 'second_last_name': 'Sarmiento'})
+                elif int(uid) == 2:
+                    data.append({'id': 2, 'name': 'Juan', 'first_last_name': 'peralta petro', 'second_last_name': 'Sarmiento'})
+            return data
+
+        def _stub_external_user(self, user_id):
+            users = _stub_get_users(None, [user_id])
+            return users[0] if users else {}
+
+        ServiceRequestMachineryDataSerializer._get_users_info = _stub_get_users
+        DataSerializer._get_external_user = _stub_external_user
+        yield
+    finally:
+        try:
+            ServiceRequestMachineryDataSerializer._get_users_info = orig_users
+            DataSerializer._get_external_user = orig_external
+        except Exception:
+            pass
 
 
 def seed_ws_demo_data():
