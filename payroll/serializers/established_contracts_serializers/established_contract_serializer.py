@@ -84,7 +84,7 @@ class EstablishedDeductionSerializer(serializers.ModelSerializer):
         if 'amount_value' in data and data['amount_value'] < 0:
             raise serializers.ValidationError({"amount_value": "El valor no puede ser negativo."})
             
-        if 'amount' in data and data['amount'] < 0:
+        if 'amount' in data and data['amount'] is not None and data['amount'] < 0:
             raise serializers.ValidationError({"amount": "El monto no puede ser negativo."})
         
         if data.get('amount_type') == 'Porcentaje' and data.get('amount_value', 0) > 100:
@@ -145,7 +145,7 @@ class EstablishedIncreaseSerializer(serializers.ModelSerializer):
         if 'amount_value' in data and data['amount_value'] < 0:
             raise serializers.ValidationError({"amount_value": "El valor no puede ser negativo."})
             
-        if 'amount' in data and data['amount'] < 0:
+        if 'amount' in data and data['amount'] is not None and data['amount'] < 0:
             raise serializers.ValidationError({"amount": "El monto no puede ser negativo."})
         
         if data.get('amount_type') == 'Porcentaje' and data.get('amount_value', 0) > 100:
@@ -502,13 +502,6 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
             validated_data['established_contract_status'] = status
         except Statues.DoesNotExist:
             raise serializers.ValidationError({"established_contract_status": "El estado del contrato no es válido."})
-        
-        # Actualizar el estado de los contratos anteriores del mismo cargo del empleado
-        EstablishedContract.objects.filter(
-            id_employee_charge=employee_charge
-        ).update(
-            established_contract_status=Statues.objects.get(pk=2)  # Estado inactivo
-        )
         
         # Crear el contrato
         contract = EstablishedContract.objects.create(**validated_data)
