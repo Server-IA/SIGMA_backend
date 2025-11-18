@@ -14,6 +14,9 @@ from payroll.serializers.established_contracts_serializers.established_contract_
 from payroll.serializers.established_contracts_serializers.established_contract_detail_serializer import (
     EstablishedContractDetailSerializer
 )
+from payroll.serializers.established_contracts_serializers.established_contract_list_serializer import (
+    EstablishedContractListSerializer
+)
 from payroll.models.established_contract import EstablishedContract
 from payroll.utils.audit_helpers import get_actor_info, contract_snapshot
 from django.shortcuts import get_object_or_404
@@ -45,6 +48,53 @@ class EstablishedContractViewSet(viewsets.ViewSet):
                     permisos_usuario.append(perm.get("id"))
 
         return required_permission_id in permisos_usuario
+
+    @action(detail=False, methods=['get'], url_path='list')
+    def list_established_contracts(self, request):
+        """
+        Lista todos los contratos establecidos.
+        
+        Requiere permiso: 177 (established_contract.list)
+        """
+        if not hasattr(request, 'user') or not request.user.is_authenticated:
+            return Response(
+                {"message": "Usuario no autenticado"}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permiso
+        required_permission = 177
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para listar contratos"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Obtener todos los contratos con sus relaciones optimizadas
+            queryset = EstablishedContract.objects.select_related(
+                'contract_type',
+                'established_contract_status'
+            ).all()
+            
+            # Serializar los datos
+            serializer = EstablishedContractListSerializer(queryset, many=True, context={'request': request})
+            
+            return Response({
+                "success": True,
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error al listar contratos: {str(e)}", exc_info=True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud",
+                    "error": str(e)
+                }, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=True, methods=['get'], url_path='detail')
     def retrieve_contract_detail(self, request, pk=None):
