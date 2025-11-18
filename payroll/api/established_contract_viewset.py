@@ -20,6 +20,7 @@ from payroll.serializers.established_contracts_serializers.established_contract_
 from payroll.models.established_contract import EstablishedContract
 from payroll.utils.audit_helpers import get_actor_info, contract_snapshot
 from django.shortcuts import get_object_or_404
+from django.db import IntegrityError
 
 logger = logging.getLogger(__name__)
 
@@ -330,3 +331,174 @@ class EstablishedContractViewSet(viewsets.ViewSet):
             },
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    @action(detail=True, methods=['patch'], url_path='toggle-status')
+    def toggle_status(self, request, pk=None):
+        """
+        Activa/Inactiva un contrato establecido (1 Activo, 2 Inactivo) mediante toggle.
+        
+        Requiere permiso: 179 (established_contract.toggle_status)
+        """
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 179
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para activar/desactivar contratos."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            contract = EstablishedContract.objects.get(contract_code=pk)
+
+            try:
+                from parameterization.models import Statues
+                before_status_id = getattr(contract, 'established_contract_status_id', None)
+                if before_status_id == 1:
+                    new_status = Statues.objects.get(pk=2)
+                    new_status_id = 2
+                    message = "Contrato inactivado exitosamente"
+                else:
+                    new_status = Statues.objects.get(pk=1)
+                    new_status_id = 1
+                    message = "Contrato activado exitosamente"
+
+                contract.established_contract_status = new_status
+                contract.save(update_fields=['established_contract_status'])
+
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                    AuditClient(request).update(
+                        object_id=str(contract.contract_code),
+                        before={"established_contract_status": before_status_id},
+                        after={"established_contract_status": new_status_id},
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=permission_id,
+                        module="payroll",
+                        submodule="established_contract",
+                    )
+                except Exception as e:
+                    logger.warning("El servicio de auditoría ha fallado en toggle_status_contract: %s", str(e))
+
+                return Response({"success": True, "message": message}, status=status.HTTP_200_OK)
+
+            except Statues.DoesNotExist:
+                return Response(
+                    {"success": False, "message": "Estado no válido."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        except EstablishedContract.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Contrato no encontrado."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error al cambiar el estado del contrato: {str(e)}", exc_info=True)
+            return Response(
+                {"success": False, "message": "Error al cambiar el estado del contrato.", "error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @transaction.atomic
+    def destroy(self, request, pk=None):
+        """
+        Elimina un contrato establecido junto con sus relaciones:
+        - EstablishedDeduction
+        - EstablishedIncrease
+        - ContractPaymentsEstablishedContract
+        
+        Requiere permiso: 178 (established_contract.delete)
+        """
+        if not getattr(request, 'user', None) or not getattr(request.user, 'is_authenticated', False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        permission_id = 178  # established_contract.delete
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"success": False, "message": "No tiene permisos para eliminar contratos."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            contract = EstablishedContract.objects.select_related(
+                'established_contract_status'
+            ).prefetch_related(
+                'established_deductions',
+                'established_increases',
+                'contract_payments'
+            ).get(contract_code=pk)
+        except EstablishedContract.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Contrato no encontrado."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Capturar snapshot antes de eliminar para auditoría
+        before = contract_snapshot(contract)
+
+        try:
+            # Eliminar relaciones primero (aunque tienen PROTECT, las eliminamos manualmente)
+            # Eliminar deducciones
+            contract.established_deductions.all().delete()
+            
+            # Eliminar incrementos
+            contract.established_increases.all().delete()
+            
+            # Eliminar pagos del contrato
+            contract.contract_payments.all().delete()
+            
+            # Eliminar el contrato
+            contract_code = contract.contract_code
+            contract.delete()
+
+            # Auditoría
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                AuditClient(request).delete(
+                    object_id=str(contract_code),
+                    before=before,
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="payroll",
+                    submodule="established_contract",
+                )
+            except Exception as e:
+                logger.warning("El servicio de auditoría ha fallado en delete_contract: %s", str(e))
+
+            return Response({
+                "success": True,
+                "code": 200,
+                "message": "Contrato eliminado correctamente junto con sus relaciones.",
+                "data": None
+            }, status=status.HTTP_200_OK)
+
+        except IntegrityError as e:
+            logger.error(f"Error de integridad al eliminar contrato: {str(e)}", exc_info=True)
+            return Response({
+                "success": False,
+                "code": 409,
+                "message": "No se puede eliminar el contrato porque tiene referencias asociadas.",
+                "errors": {"detail": [str(e)]}
+            }, status=status.HTTP_409_CONFLICT)
+
+        except Exception as e:
+            logger.error(f"Error al eliminar el contrato: {str(e)}", exc_info=True)
+            return Response({
+                "success": False,
+                "code": 500,
+                "message": "Error al eliminar el contrato.",
+                "errors": {"detail": [str(e)]}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
