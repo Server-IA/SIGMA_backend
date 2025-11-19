@@ -25,7 +25,7 @@ class EstablishedContract(models.Model):
     description = models.CharField(max_length=100, null=True, blank=True, db_column="description")
     contract_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="established_contracts_by_contract_type", db_column="contract_type", null=False, blank=False)
     start_date = models.DateField(db_column="start_date", null=False, blank=False)
-    end_date = models.DateField(db_column="end_date", null=False, blank=False)
+    end_date = models.DateField(db_column="end_date", null=True, blank=True)
     payment_frequency_type = models.CharField(max_length=20, choices=PAYMENT_FREQUENCY_CHOICES, null=False, blank=False, db_column="payment_frequency_type")
     minimum_hours = models.IntegerField(null=True, blank=True, db_column="minimum_hours")
     workday_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="established_contracts_by_workday_type", db_column="workday_type", null=True, blank=True)

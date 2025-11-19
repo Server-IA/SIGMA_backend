@@ -8,4 +8,5 @@ from .employee_contract import EmployeeContract
 from .employee_contract_payment import EmployeeContractPayment
 from .employee_contract_deduction import EmployeeContractDeduction
 from .employee_contract_increase import EmployeeContractIncrease
+from .employee_news import EmployeeNews
 
