@@ -247,8 +247,6 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_start_date(self, value):
-        if value < timezone.now().date():
-            raise serializers.ValidationError("La fecha de inicio no puede ser anterior a la fecha actual.")
         return value
 
     def validate(self, data):
