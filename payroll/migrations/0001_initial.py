@@ -61,7 +61,7 @@ class Migration(migrations.Migration):
             name='ContractPaymentsEstablishedContract',
             fields=[
                 ('id_contract_payment', models.AutoField(db_column='id_contract_payment', primary_key=True, serialize=False)),
-                ('date_payment', models.DateField(db_column='date_payment')),
+                ('date_payment', models.IntegerField(db_column='date_payment', validators=[django.core.validators.MinValueValidator(1), django.core.validators.MaxValueValidator(31)])),
                 ('id_day_of_week', models.ForeignKey(db_column='id_day_of_week', on_delete=django.db.models.deletion.PROTECT, related_name='contract_payments_by_day', to='payroll.daysofweek')),
                 ('established_contracts_contract_code', models.ForeignKey(db_column='established_contracts_contract_code', on_delete=django.db.models.deletion.PROTECT, related_name='contract_payments', to='payroll.establishedcontract')),
             ],
