@@ -1,3 +1,37 @@
+import pytest
+
+
+def pytest_configure():
+    """Patch JWTAuthentication.authenticate early so tests don't depend on external tokens.
+
+    This makes tests deterministic: the fake returns a JWTUser with permiso id 177 by default.
+    """
+    try:
+        from users.authentication import JWTAuthentication, JWTUser
+
+        _orig = getattr(JWTAuthentication, 'authenticate', None)
+
+        def _fake_auth(self, request):
+            payload = {"roles": [{"permisos": [{"id": 177}]}], "id": 1000, "email": "test@example.com"}
+            user = JWTUser(user_id=payload.get('id', 1000), email=payload.get('email'), name=None, raw_payload=payload)
+            return (user, payload)
+
+        JWTAuthentication.authenticate = _fake_auth
+        pytest._orig_jwt_authenticate = _orig
+    except Exception:
+        # If anything fails, don't break the test collection phase
+        pass
+
+
+def pytest_unconfigure():
+    try:
+        orig = getattr(pytest, '_orig_jwt_authenticate', None)
+        if orig is not None:
+            from users.authentication import JWTAuthentication
+
+            JWTAuthentication.authenticate = orig
+    except Exception:
+        pass
 """
 Configuración global de pytest para todos los tests.
 
