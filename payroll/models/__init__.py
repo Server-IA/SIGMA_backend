@@ -9,4 +9,7 @@ from .employee_contract_payment import EmployeeContractPayment
 from .employee_contract_deduction import EmployeeContractDeduction
 from .employee_contract_increase import EmployeeContractIncrease
 from .employee_news import EmployeeNews
+from .payroll import Payroll
+from .payroll_deduction import PayrollDeduction
+from .payroll_increase import PayrollIncrease
 
