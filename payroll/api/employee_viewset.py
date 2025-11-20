@@ -1,11 +1,19 @@
 import logging
+import os
 
+import requests
+from audit_sdk import AuditClient
+from django.db import transaction
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.response import Response
 
-from payroll.models import EmployeeContract
+from parameterization.models import Statues
+from payroll.models import Employee, EmployeeContract, EmployeeNews
+from payroll.utils.audit_helpers import get_actor_info, employee_with_contract_snapshot
+from users.models import User
 from payroll.serializers.employee_contracts_serializers.employee_contract_detail_serializer import (
     EmployeeContractDetailSerializer,
 )
@@ -89,6 +97,168 @@ class EmployeeViewSet(viewsets.ViewSet):
 
         serializer = EmployeeContractDetailSerializer(contract)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["patch"], url_path="toggle-status")
+    def toggle_status(self, request, pk=None):
+        """Activa o desactiva un empleado y sincroniza la información relacionada."""
+
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        permission_id = 10
+        if not self.check_permission(request, permission_id):
+            return Response(
+                {"message": "No tiene permisos para activar/desactivar empleados."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            employee = Employee.objects.select_related("employee_status", "id_user").get(pk=pk)
+        except Employee.DoesNotExist:
+            return Response(
+                {"message": "Empleado no encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        responsible_user = self._get_responsible_user(request)
+        if responsible_user is None:
+            return Response(
+                {"message": "No se pudo determinar el usuario responsable autenticado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not employee.id_user_id:
+            return Response(
+                {"message": "El empleado no tiene un usuario asociado para sincronizar su estado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        observation = (request.data or {}).get("observation")
+        if observation is not None:
+            observation = str(observation).strip()
+
+        is_active = employee.employee_status_id == 1
+        if is_active:
+            target_status_id = 2
+            news_type = "DESACTIVACION_EMPLEADO"
+            external_status = 3
+            success_message = "Empleado desactivado exitosamente."
+            requires_contract_update = True
+        else:
+            target_status_id = 1
+            news_type = "ACTIVACION_EMPLEADO"
+            external_status = 4
+            success_message = "Empleado activado exitosamente."
+            requires_contract_update = False
+
+        if is_active and not observation:
+            return Response(
+                {"message": "El campo observation es obligatorio al desactivar al empleado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        observation_value = observation if observation else None
+
+        try:
+            target_status = Statues.objects.get(pk=target_status_id)
+        except Statues.DoesNotExist:
+            return Response(
+                {"message": f"No se encontró el estado {target_status_id} para empleados."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        latest_contract = None
+        contract_before_status = None
+        contract_after_status = None
+        contract_status_to_assign = None
+
+        if requires_contract_update:
+            try:
+                contract_status_to_assign = Statues.objects.get(pk=29)
+            except Statues.DoesNotExist:
+                return Response(
+                    {"message": "No se encontró el estado 29 para el contrato del empleado."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        with transaction.atomic():
+            before_employee_status = employee.employee_status_id
+
+            employee.employee_status = target_status
+            employee.modification_date = timezone.now()
+            employee.save(update_fields=["employee_status", "modification_date"])
+
+            if requires_contract_update and contract_status_to_assign:
+                latest_contract = (
+                    EmployeeContract.objects.select_for_update()
+                    .filter(id_employee=employee)
+                    .order_by("-creation_date")
+                    .first()
+                )
+                if not latest_contract:
+                    transaction.set_rollback(True)
+                    return Response(
+                        {"message": "El empleado no tiene contratos para actualizar."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                contract_before_status = latest_contract.contract_status_id
+                latest_contract.contract_status = contract_status_to_assign
+                latest_contract.save(update_fields=["contract_status"])
+                contract_after_status = contract_status_to_assign.id_statues
+
+            EmployeeNews.objects.create(
+                id_employee=employee,
+                observation=observation_value,
+                news_type=news_type,
+                id_responsible_user=responsible_user,
+            )
+
+        try:
+            self._change_external_user_status(request, employee.id_user_id, external_status)
+        except Exception as exc:
+            logger.error("Error al sincronizar el estado del usuario externo: %s", str(exc), exc_info=True)
+            return Response(
+                {
+                    "message": "No se pudo actualizar el estado en el servicio de autenticación.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        try:
+            actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+            AuditClient(request).update(
+                object_id=str(employee.id_employee),
+                before={"employee_status": before_employee_status},
+                after={"employee_status": target_status_id},
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=permission_id,
+                module="payroll",
+                submodule="employee_contract",
+            )
+
+            if requires_contract_update and latest_contract:
+                AuditClient(request).update(
+                    object_id=str(latest_contract.contract_code),
+                    before={"contract_status": contract_before_status},
+                    after={"contract_status": contract_after_status},
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=permission_id,
+                    module="payroll",
+                    submodule="employee_contract",
+                )
+        except Exception as audit_exc:
+            logger.warning("El servicio de auditoría falló en toggle_status: %s", str(audit_exc))
+
+        return Response({"message": success_message}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"], url_path="latest_employee_contract")
     def latest_employee_contract(self, request, pk=None):
@@ -188,6 +358,31 @@ class EmployeeViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        employee_id = result.get("employee_id")
+        contract_code = result.get("contract_code")
+
+        employee_instance = None
+        contract_instance = None
+        if employee_id:
+            employee_instance = Employee.objects.filter(pk=employee_id).first()
+        if contract_code:
+            contract_instance = EmployeeContract.objects.filter(contract_code=contract_code).first()
+
+        try:
+            actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+            AuditClient(request).create(
+                object_id=str(employee_id or ""),
+                after=employee_with_contract_snapshot(employee_instance, contract_instance),
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                permission_id=required_permission,
+                module="payroll",
+                submodule="employee_contract",
+            )
+        except Exception as audit_exc:
+            logger.warning("El servicio de auditoría falló en create_employee: %s", str(audit_exc))
+
         return Response(
             {
                 "message": "Empleado y contrato creados exitosamente.",
@@ -195,3 +390,34 @@ class EmployeeViewSet(viewsets.ViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+    def _get_responsible_user(self, request):
+        user_id = getattr(request.user, "id", None)
+        if not user_id:
+            return None
+        try:
+            return User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return None
+
+    def _change_external_user_status(self, request, user_id: int, new_status: int):
+        base_url = (os.getenv("AUTH_SERVICE_URL") or "").rstrip("/")
+        if not base_url:
+            raise ValueError("AUTH_SERVICE_URL no está configurado")
+
+        url = f"{base_url}/users/users/change-user-status/"
+        headers = {}
+        auth_header = request.META.get("HTTP_AUTHORIZATION")
+        if auth_header:
+            headers["Authorization"] = auth_header
+
+        response = requests.post(
+            url,
+            json={"user_id": user_id, "new_status": new_status},
+            headers=headers,
+            timeout=15,
+        )
+        if response.status_code not in (200, 201, 204):
+            raise ValueError(
+                f"Servicio externo respondió {response.status_code}: {response.text}"
+            )

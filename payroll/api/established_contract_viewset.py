@@ -3,10 +3,9 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db import transaction
 from django.http import HttpResponse
-from django.utils import timezone
+from datetime import datetime, timezone as dt_timezone
 import logging
 from audit_sdk import AuditClient
-from datetime import datetime
 
 from payroll.serializers.established_contracts_serializers.established_contract_serializer import (
     EstablishedContractCreateSerializer
@@ -98,6 +97,59 @@ class EstablishedContractViewSet(viewsets.ViewSet):
                     "message": "Ocurrió un error al procesar la solicitud",
                     "error": str(e)
                 }, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['get'], url_path='list_active_established_contracts')
+    def list_active_established_contracts(self, request, pk=None):
+        """Lista contratos activos (estatus=1) por cargo de empleado."""
+        if not hasattr(request, 'user') or not request.user.is_authenticated:
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        if not pk:
+            return Response(
+                {"message": "Se requiere el id del cargo del empleado"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            queryset = EstablishedContract.objects.select_related(
+                'contract_type',
+                'established_contract_status'
+            ).filter(
+                established_contract_status_id=1,
+                id_employee_charge_id=pk
+            )
+
+            serializer = EstablishedContractListSerializer(
+                queryset,
+                many=True,
+                context={'request': request}
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "data": serializer.data
+                },
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            logger.error(
+                "Error al listar contratos activos por cargo %s: %s",
+                pk,
+                str(e),
+                exc_info=True
+            )
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud",
+                    "error": str(e)
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -600,7 +652,7 @@ class EstablishedContractViewSet(viewsets.ViewSet):
 
             # Registrar descarga en historial (auditoría)
             try:
-                download_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                download_timestamp = datetime.now(dt_timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                 # Usar contract_snapshot para el after y agregar metadata de descarga
                 contract_data = contract_snapshot(contract)
                 contract_data['download_info'] = {
