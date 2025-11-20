@@ -2,8 +2,11 @@ from rest_framework import status, viewsets
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db import transaction
+from django.http import HttpResponse
+from django.utils import timezone
 import logging
 from audit_sdk import AuditClient
+from datetime import datetime
 
 from payroll.serializers.established_contracts_serializers.established_contract_serializer import (
     EstablishedContractCreateSerializer
@@ -19,6 +22,7 @@ from payroll.serializers.established_contracts_serializers.established_contract_
 )
 from payroll.models.established_contract import EstablishedContract
 from payroll.utils.audit_helpers import get_actor_info, contract_snapshot
+from payroll.utils.contract_document_generator import ContractDocumentGenerator
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 
@@ -502,3 +506,138 @@ class EstablishedContractViewSet(viewsets.ViewSet):
                 "message": "Error al eliminar el contrato.",
                 "errors": {"detail": [str(e)]}
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['get'], url_path='download')
+    def download_contract(self, request, pk=None):
+        """
+        Descarga un contrato establecido en formato PDF o DOCX.
+        
+        Requiere permiso: 180 (established_contract.download)
+        
+        Parámetros:
+        - pk: contract_code del contrato a descargar
+        - file_type: query param opcional ('pdf' o 'docx'), default: 'pdf'
+        """
+        if not hasattr(request, 'user') or not request.user.is_authenticated:
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permiso
+        required_permission = 180
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos o el contrato seleccionado no se encuentra disponible para descarga."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Obtener formato desde query params (default: pdf)
+            # Se usa 'file_type' en lugar de 'format' para evitar conflictos con DRF
+            file_format = request.query_params.get('file_type', 'pdf').lower()
+            if file_format not in ['pdf', 'docx']:
+                return Response(
+                    {"message": "Formato inválido. Formatos permitidos: pdf, docx"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Obtener el contrato con sus relaciones optimizadas
+            try:
+                contract = EstablishedContract.objects.select_related(
+                    'contract_type',
+                    'workday_type',
+                    'work_mode_type',
+                    'currency_type',
+                    'established_contract_status',
+                    'id_employee_charge'
+                ).prefetch_related(
+                    'contract_payments',
+                    'contract_payments__id_day_of_week',
+                    'established_deductions',
+                    'established_deductions__deduction_type',
+                    'established_increases',
+                    'established_increases__increase_type'
+                ).get(contract_code=pk)
+            except EstablishedContract.DoesNotExist:
+                return Response(
+                    {"message": "No tiene permisos o el contrato seleccionado no se encuentra disponible para descarga."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Obtener información del usuario que descarga
+            downloader_user = None
+            actor_id = None
+            actor_name = None
+            actor_role_name = None
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                downloader_user = actor_name
+            except Exception:
+                downloader_user = None
+
+            # Generar documento
+            if file_format == 'pdf':
+                document_bytes = ContractDocumentGenerator.generate_pdf(
+                    contract,
+                    downloader_user=downloader_user,
+                    logo_path=None
+                )
+                content_type = 'application/pdf'
+                file_extension = 'pdf'
+            else:  # docx
+                document_bytes = ContractDocumentGenerator.generate_docx(
+                    contract,
+                    downloader_user=downloader_user,
+                    logo_path=None
+                )
+                content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                file_extension = 'docx'
+
+            # Generar nombre del archivo
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"contrato_{contract.contract_code}_{timestamp}.{file_extension}"
+
+            # Registrar descarga en historial (auditoría)
+            try:
+                download_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                # Usar contract_snapshot para el after y agregar metadata de descarga
+                contract_data = contract_snapshot(contract)
+                contract_data['download_info'] = {
+                    'action': 'download',
+                    'file_format': file_extension.upper(),
+                    'downloaded_by': actor_name or 'Sistema',
+                    'download_timestamp': download_timestamp,
+                    'filename': filename
+                }
+                AuditClient(request).create(
+                    object_id=str(contract.contract_code),
+                    after=contract_data,
+                    actor_id=actor_id or 'Sistema',
+                    actor_name=actor_name or 'Sistema',
+                    actor_role=actor_role_name or 'Usuario',
+                    permission_id=required_permission,
+                    module="payroll",
+                    submodule="established_contract",
+                )
+                logger.info(f"Descarga de contrato {contract.contract_code} registrada en historial")
+            except Exception as audit_exc:
+                logger.warning(
+                    "El servicio de auditoría ha fallado al registrar descarga del contrato %s: %s",
+                    contract.contract_code,
+                    str(audit_exc)
+                )
+
+            # Crear respuesta HTTP
+            response = HttpResponse(document_bytes, content_type=content_type)
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            response['Content-Length'] = len(document_bytes)
+
+            return response
+
+        except Exception as e:
+            logger.error(f"Error al generar documento del contrato {pk}: {str(e)}", exc_info=True)
+            return Response(
+                {"message": "Error al generar el documento del contrato."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
