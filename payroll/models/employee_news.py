@@ -5,6 +5,7 @@ class EmployeeNews(models.Model):
         ('CREACION_EMPLEADO', 'Creación de empleado'),
         ('ACTUALIZACION_EMPLEADO', 'Actualizar empleado'),
         ('DESACTIVACION_EMPLEADO', 'Desactivar empleado'),
+        ('ACTIVACION_EMPLEADO', 'Activar empleado'),
         ('GENERAR_OTRO_SI', 'Generar otro si'),
         ('CAMBIO_CONTRATO', 'Cambio de contrato'),
         ('FINALIZACION_CONTRATO', 'Finalización de contrato'),
