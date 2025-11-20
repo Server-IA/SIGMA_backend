@@ -1,19 +1,19 @@
 from django.db import models
 
-class EmployeeContractDeduction(models.Model):
+class PayrollDeduction(models.Model):
     AMOUNT_TYPE_CHOICES = [
-        ('Porcentaje', 'Porcentaje'),
-        ('fijo', 'Fijo'),
+        ("Porcentaje", "Porcentaje"),
+        ("fijo", "Fijo"),
     ]
-    
+
     APPLICATION_DEDUCTION_TYPE_CHOICES = [
-        ('SalarioBase', 'Salario Base'),
-        ('SalarioFinal', 'Salario Final'),
-        ('SalarioPorHora', 'Salario Por Hora'),
+        ("SalarioBase", "Salario Base"),
+        ("SalarioFinal", "Salario Final"),
+        ("SalarioPorHora", "Salario Por Hora"),
     ]
-    
-    id_employee_contract_deduction = models.AutoField(primary_key=True, db_column="id_employee_contract_deduction")
-    deduction_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="employee_contract_deductions_by_type", db_column="deduction_type", null=False, blank=False)
+
+    id_payroll_deduction = models.AutoField(primary_key=True, db_column="id_payroll_deduction")
+    deduction_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="payroll_deductions_by_type", db_column="deduction_type", null=False, blank=False)
     amount_type = models.CharField(max_length=20, choices=AMOUNT_TYPE_CHOICES, null=False, blank=False, db_column="amount_type")
     amount_value = models.FloatField(null=False, blank=False, db_column="amount_value")
     application_deduction_type = models.CharField(max_length=20, choices=APPLICATION_DEDUCTION_TYPE_CHOICES, null=False, blank=False, db_column="application_deduction_type")
@@ -21,7 +21,7 @@ class EmployeeContractDeduction(models.Model):
     end_date_deductions = models.DateField(null=True, blank=True, db_column="end_date_deductions")
     description = models.CharField(max_length=255, null=True, blank=True, db_column="description")
     amount = models.FloatField(null=True, blank=True, db_column="amount")
-    employee_contracts_contract_code = models.ForeignKey("payroll.EmployeeContract", on_delete=models.PROTECT, related_name="employee_contract_deductions", db_column="employee_contracts_contract_code", null=False, blank=True)
+    payroll = models.ForeignKey("payroll.Payroll", on_delete=models.PROTECT, related_name="payroll_deductions", db_column="id_payroll", null=False, blank=False)
 
     class Meta:
-        db_table = "employee_contract_deductions"
+        db_table = "payroll_deductions"

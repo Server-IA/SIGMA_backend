@@ -9,6 +9,7 @@ class EmployeeContractIncrease(models.Model):
     APPLICATION_INCREASE_TYPE_CHOICES = [
         ('SalarioBase', 'Salario Base'),
         ('SalarioFinal', 'Salario Final'),
+        ('SalarioPorHora', 'Salario Por Hora'),
     ]
     
     id_employee_contract_increase = models.AutoField(primary_key=True, db_column="id_employee_contract_increase")
