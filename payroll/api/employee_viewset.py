@@ -20,6 +20,7 @@ from payroll.serializers.employee_contracts_serializers.employee_contract_detail
 from payroll.serializers.employee_contracts_serializers.employee_with_contract_serializer import (
     EmployeeWithContractCreateSerializer,
 )
+from payroll.serializers.employee_contracts_serializers.employee_update_serializer import EmployeeUpdateSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -399,6 +400,108 @@ class EmployeeViewSet(viewsets.ViewSet):
             return User.objects.get(pk=user_id)
         except User.DoesNotExist:
             return None
+
+    @action(detail=True, methods=['patch'], url_path='update-employee')
+    def update_employee(self, request, pk=None):
+        """
+        Actualiza la información básica de un empleado.
+        Permite actualizar el email (validando unicidad) y el cargo.
+        Crea un registro en EmployeeNews para auditoría.
+        Requiere autenticación y permiso con ID 4.
+        """
+        # Check authentication
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Check permission
+        if not self.check_permission(request, 4):
+            return Response(
+                {"message": "No tiene permisos para actualizar empleados."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            employee = Employee.objects.get(pk=pk)
+        except Employee.DoesNotExist:
+            return Response(
+                {"message": "Empleado no encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Get responsible user
+        responsible_user = self._get_responsible_user(request)
+        if not responsible_user:
+            return Response(
+                {"message": "No se pudo determinar el usuario responsable."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Create serializer with context for audit
+        serializer = EmployeeUpdateSerializer(
+            instance=employee,
+            data=request.data,
+            context={'request': request}
+        )
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+                # Create before snapshot
+                before = employee_with_contract_snapshot(employee=employee)
+                
+                # Save employee updates
+                employee = serializer.save()
+                
+                # Create after snapshot with updated data
+                after = employee_with_contract_snapshot(employee=employee)
+
+                # Create EmployeeNews entry
+                observation = serializer.validated_data.get('observation')
+                if observation:
+                    EmployeeNews.objects.create(
+                        id_employee=employee,
+                        observation=observation,
+                        news_type='ACTUALIZACION_EMPLEADO',
+                        id_responsible_user=responsible_user
+                    )
+
+                # Auditoría
+                try:
+                    actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+
+                    AuditClient(request).update(
+                        object_id=str(getattr(employee, "id_employee", None) or ""),
+                        before=before,
+                        after=after,
+                        actor_id=str(actor_id) if actor_id is not None else None,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=4,
+                        module="payroll",
+                        submodule="employee",
+                    )
+                except Exception as e:
+                    logger.error(f"Error al registrar auditoría para actualización de empleado: {str(e)}")
+
+            return Response(
+                {"message": "Empleado actualizado exitosamente."},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as exc:
+            logger.exception("Error al actualizar empleado")
+            return Response(
+                {
+                    "message": "Ocurrió un error al actualizar el empleado.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     def _change_external_user_status(self, request, user_id: int, new_status: int):
         base_url = (os.getenv("AUTH_SERVICE_URL") or "").rstrip("/")
