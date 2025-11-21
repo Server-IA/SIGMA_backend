@@ -24,6 +24,9 @@ from payroll.serializers.employee_contracts_serializers.employee_update_serializ
 from payroll.serializers.employee_contracts_serializers.employee_contract_history_serializer import (
     EmployeeContractHistorySerializer,
 )
+from payroll.serializers.employee_contracts_serializers.employee_contract_detail_history_serializer import (
+    EmployeeContractDetailHistorySerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -618,6 +621,123 @@ class EmployeeViewSet(viewsets.ViewSet):
         except (ValueError, IndexError):
             pass
         return 0
+
+    def _extract_base_code(self, contract_code: str) -> str:
+        """
+        Extrae la base del contract_code (primeros 3 segmentos).
+        Formato esperado: CON-YYYY-NNNN-VV
+        Retorna: CON-YYYY-NNNN
+        """
+        try:
+            # Dividir por guiones
+            parts = contract_code.split('-')
+            if len(parts) >= 3:
+                # Tomar los primeros 3 segmentos
+                return '-'.join(parts[:3])
+            return contract_code
+        except Exception:
+            return contract_code
+
+    @action(detail=False, methods=["get"], url_path="contract-detail-history")
+    def contract_detail_history(self, request):
+        """
+        Devuelve el historial completo de un contrato específico.
+        Muestra todas las versiones del contrato con la misma base (primeros 3 segmentos).
+        
+        Parámetros de consulta:
+        - contract_code: Código del contrato (ej: CON-2025-0001-05)
+        
+        Requiere permiso: 184 (employee.contract_detail_history)
+        """
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        required_permission = 184
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para consultar el historial del contrato."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Obtener el contract_code de los parámetros de consulta
+        contract_code = request.query_params.get('contract_code', '').strip()
+        
+        if not contract_code:
+            return Response(
+                {
+                    "success": False,
+                    "message": "El parámetro 'contract_code' es requerido."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Verificar que el contrato existe
+            try:
+                requested_contract = EmployeeContract.objects.get(contract_code=contract_code)
+            except EmployeeContract.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Contrato no encontrado."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Extraer la base del código (primeros 3 segmentos)
+            base_code = self._extract_base_code(contract_code)
+            
+            # Buscar todos los contratos con la misma base
+            all_contracts = (
+                EmployeeContract.objects.filter(contract_code__startswith=f"{base_code}-")
+                .select_related("contract_status", "id_responsible_user")
+                .order_by("contract_code")  # Ordenar por código para mantener orden de versión
+            )
+
+            if not all_contracts.exists():
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No se encontraron versiones del contrato."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Convertir a lista y ordenar por versión
+            contracts_list = list(all_contracts)
+            contracts_list.sort(key=lambda x: self._extract_version(x.contract_code))
+
+            # Identificar el último contrato (mayor versión)
+            latest_contract = contracts_list[-1] if contracts_list else None
+
+            # Serializar los contratos pasando el último contrato para la lógica especial
+            serializer = EmployeeContractDetailHistorySerializer(
+                contracts_list,
+                many=True,
+                context={"request": request, "latest_contract": latest_contract}
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as exc:
+            logger.error("Error al obtener historial del contrato: %s", str(exc), exc_info=True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     def _change_external_user_status(self, request, user_id: int, new_status: int):
         base_url = (os.getenv("AUTH_SERVICE_URL") or "").rstrip("/")
