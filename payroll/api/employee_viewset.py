@@ -21,6 +21,7 @@ from payroll.serializers.employee_contracts_serializers.employee_with_contract_s
     EmployeeWithContractCreateSerializer,
 )
 from payroll.serializers.employee_contracts_serializers.employee_update_serializer import EmployeeUpdateSerializer
+from payroll.serializers.employee_contracts_serializers.employee_list_serializer import EmployeeListSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -498,6 +499,242 @@ class EmployeeViewSet(viewsets.ViewSet):
             return Response(
                 {
                     "message": "Ocurrió un error al actualizar el empleado.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=False, methods=['get'], url_path='list')
+    def list_employees(self, request):
+        """
+        Lista empleados con filtros, ordenamiento y paginación.
+        
+        Query params:
+        - search: Búsqueda por nombre o documento
+        - search_type: "documento" o "nombre" (opcional, por defecto "nombre")
+        - status: ID de estado (1=Activo, 2=Inactivo) (opcional)
+        - ordering: Ordenamiento por columnas (document, name, status) con prefijo - para descendente
+        - page: Número de página (por defecto 1)
+        - page_size: Tamaño de página (10, 25, 50, 100, por defecto 25)
+        
+        Requiere permiso: 183
+        """
+        # Verificar autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Verificar permiso
+        required_permission = 183
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para acceder al listado de empleados."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            # Obtener parámetros de consulta
+            search = request.query_params.get("search", "").strip()
+            search_type = request.query_params.get("search_type", "nombre").strip().lower()
+            status_filter = request.query_params.get("status")
+            ordering = request.query_params.get("ordering", "").strip()
+            page = request.query_params.get("page", "1")
+            page_size = request.query_params.get("page_size", "25")
+
+            # Validar search_type
+            if search_type and search_type not in ["documento", "nombre"]:
+                return Response(
+                    {"message": "search_type debe ser 'documento' o 'nombre'."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Validar status
+            if status_filter:
+                try:
+                    status_filter = int(status_filter)
+                    if status_filter not in [1, 2]:
+                        return Response(
+                            {"message": "status debe ser 1 (Activo) o 2 (Inactivo)."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                except ValueError:
+                    return Response(
+                        {"message": "status debe ser un número entero."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            # Validar page_size
+            allowed_page_sizes = [10, 25, 50, 100]
+            try:
+                page_size = int(page_size)
+                if page_size not in allowed_page_sizes:
+                    return Response(
+                        {"message": f"page_size debe ser uno de: {', '.join(map(str, allowed_page_sizes))}."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except ValueError:
+                return Response(
+                    {"message": "page_size debe ser un número entero."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Validar page
+            try:
+                page = int(page)
+                if page < 1:
+                    return Response(
+                        {"message": "page debe ser un número entero positivo."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except ValueError:
+                return Response(
+                    {"message": "page debe ser un número entero positivo."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Construir queryset base con optimizaciones
+            queryset = Employee.objects.select_related(
+                'id_employee_charge',
+                'employee_status',
+                'id_user'
+            ).all()
+
+            # Aplicar filtro de estado si se proporciona
+            if status_filter:
+                queryset = queryset.filter(employee_status_id=status_filter)
+
+            # Obtener todos los empleados
+            employees_list = list(queryset)
+
+            # Obtener usuarios en batch una sola vez si es necesario (para búsqueda u ordenamiento)
+            users_data = {}
+            needs_user_data = bool(search) or ordering in ['document', '-document', 'name', '-name'] or not ordering
+            if needs_user_data:
+                user_ids = [emp.id_user_id for emp in employees_list if emp.id_user_id]
+                if user_ids:
+                    from service_requests.utils.external_user_helper import get_users_info_batch, get_user_display_name
+                    users_data = get_users_info_batch(user_ids, request)
+
+            # Aplicar filtro de búsqueda si existe
+            if search:
+                matching_employee_ids = set()
+                search_lower = search.lower()
+                
+                for emp in employees_list:
+                    if not emp.id_user_id or emp.id_user_id not in users_data:
+                        continue
+                    
+                    user_data = users_data[emp.id_user_id]
+                    
+                    if search_type == "documento":
+                        # Buscar por documento
+                        doc_number = str(user_data.get('document_number', '')).strip()
+                        if search_lower in doc_number.lower():
+                            matching_employee_ids.add(emp.id_employee)
+                    else:
+                        # Buscar por nombre (por defecto)
+                        name_parts = [
+                            user_data.get('name', '').strip(),
+                            user_data.get('first_last_name', '').strip(),
+                            user_data.get('second_last_name', '').strip()
+                        ]
+                        full_name = ' '.join([p for p in name_parts if p]).lower()
+                        if search_lower in full_name:
+                            matching_employee_ids.add(emp.id_employee)
+                
+                # Filtrar empleados que coinciden
+                employees_list = [emp for emp in employees_list if emp.id_employee in matching_employee_ids]
+
+            # Ordenamiento
+            if ordering:
+                # Validar ordering
+                allowed_orderings = ['document', '-document', 'name', '-name', 'status', '-status']
+                if ordering not in allowed_orderings:
+                    ordering = None
+
+            if not ordering:
+                # Ordenamiento por defecto: activos primero, luego inactivos, luego alfabético
+                active_employees = [e for e in employees_list if e.employee_status_id == 1]
+                inactive_employees = [e for e in employees_list if e.employee_status_id == 2]
+                
+                # Ordenar alfabéticamente por nombre
+                if users_data:
+                    from service_requests.utils.external_user_helper import get_user_display_name
+                    
+                    def get_sort_key(emp):
+                        if not emp.id_user_id or emp.id_user_id not in users_data:
+                            return ""
+                        return get_user_display_name(users_data[emp.id_user_id]).lower()
+                    
+                    active_employees.sort(key=get_sort_key)
+                    inactive_employees.sort(key=get_sort_key)
+                
+                employees_list = active_employees + inactive_employees
+            else:
+                # Ordenamiento por columna específica
+                if ordering in ['document', '-document']:
+                    # Ordenar por documento
+                    def get_doc_sort_key(emp):
+                        if not emp.id_user_id or emp.id_user_id not in users_data:
+                            return ""
+                        doc = str(users_data[emp.id_user_id].get('document_number', '')).lower()
+                        return doc
+                    
+                    employees_list.sort(key=get_doc_sort_key, reverse=(ordering == '-document'))
+                elif ordering in ['name', '-name']:
+                    # Ordenar por nombre
+                    from service_requests.utils.external_user_helper import get_user_display_name
+                    
+                    def get_name_sort_key(emp):
+                        if not emp.id_user_id or emp.id_user_id not in users_data:
+                            return ""
+                        return get_user_display_name(users_data[emp.id_user_id]).lower()
+                    
+                    employees_list.sort(key=get_name_sort_key, reverse=(ordering == '-name'))
+                elif ordering in ['status', '-status']:
+                    # Ordenar por estado
+                    employees_list.sort(key=lambda e: e.employee_status_id, reverse=(ordering == '-status'))
+
+            # Paginación
+            total = len(employees_list)
+            total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            paginated_employees = employees_list[start_index:end_index]
+
+            # Serializar resultados (pasar usuarios_data para evitar llamadas adicionales)
+            serializer = EmployeeListSerializer(
+                paginated_employees,
+                many=True,
+                context={'request': request, 'users_data': users_data}
+            )
+
+            # Construir respuesta
+            response_data = {
+                "success": True,
+                "data": serializer.data,
+                "pagination": {
+                    "total": total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages
+                }
+            }
+
+            # Agregar mensaje si no hay resultados
+            if total == 0:
+                response_data["message"] = "No se encontraron empleados con los criterios seleccionados."
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as exc:
+            logger.exception("Error al listar empleados")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud.",
                     "error": str(exc),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
