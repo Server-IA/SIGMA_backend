@@ -22,6 +22,7 @@ from payroll.serializers.employee_contracts_serializers.employee_with_contract_s
 )
 from payroll.serializers.employee_contracts_serializers.employee_update_serializer import EmployeeUpdateSerializer
 from payroll.serializers.employee_contracts_serializers.employee_list_serializer import EmployeeListSerializer
+from payroll.serializers.employee_contracts_serializers.employee_detail_serializer import EmployeeDetailSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -731,6 +732,114 @@ class EmployeeViewSet(viewsets.ViewSet):
 
         except Exception as exc:
             logger.exception("Error al listar empleados")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=True, methods=['get'], url_path='detail')
+    def retrieve_employee_detail(self, request, pk=None):
+        """
+        Obtiene el detalle completo de un empleado.
+        
+        Incluye:
+        - Información personal (desde servicio externo)
+        - Información del contrato (cargo, departamento, estado)
+        - Historial de novedades
+        
+        Requiere permiso: 182 (employee.detail)
+        """
+        # Verificar autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Verificar permiso
+        required_permission = 182
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para consultar la información de este empleado."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            # Obtener empleado con optimizaciones
+            employee = (
+                Employee.objects.select_related(
+                    'id_employee_charge',
+                    'id_employee_charge__id_employee_department',
+                    'employee_status',
+                    'id_user'
+                )
+                .prefetch_related(
+                    'employee_contracts',
+                    'employeenews_set__id_responsible_user'
+                )
+                .get(pk=pk)
+            )
+        except Employee.DoesNotExist:
+            return Response(
+                {"message": "Empleado no encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            logger.exception("Error al obtener detalle del empleado")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        try:
+            # Obtener datos del usuario desde servicio externo si tiene id_user
+            users_data = {}
+            user_ids_to_fetch = []
+            
+            # Agregar ID del empleado si tiene usuario asociado
+            if employee.id_user_id:
+                user_ids_to_fetch.append(employee.id_user_id)
+            
+            # Obtener IDs de usuarios responsables de las novedades
+            news_queryset = getattr(employee, 'employee_news', None)
+            if news_queryset:
+                responsible_user_ids = list(
+                    news_queryset.values_list('id_responsible_user_id', flat=True).distinct()
+                )
+                responsible_user_ids = [uid for uid in responsible_user_ids if uid]
+                user_ids_to_fetch.extend(responsible_user_ids)
+            
+            # Obtener todos los usuarios en batch si hay alguno
+            if user_ids_to_fetch:
+                from service_requests.utils.external_user_helper import get_users_info_batch
+                # Eliminar duplicados manteniendo orden
+                unique_user_ids = list(dict.fromkeys(user_ids_to_fetch))
+                users_data = get_users_info_batch(unique_user_ids, request)
+
+            # Serializar empleado
+            serializer = EmployeeDetailSerializer(
+                employee,
+                context={'request': request, 'users_data': users_data}
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as exc:
+            logger.exception("Error al serializar detalle del empleado")
             return Response(
                 {
                     "success": False,
