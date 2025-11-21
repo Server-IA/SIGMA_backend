@@ -528,6 +528,7 @@ def employee_charge_snapshot(charge_obj) -> Dict[str, Any]:
             or _safe_get(charge_obj, "pk")
         ),
         "name": _safe_get(charge_obj, "name"),
+        "contract_prefix": _safe_get(charge_obj, "contract_prefix"),
         "description": _safe_get(charge_obj, "description"),
         "id_employee_department": serialize_attr("id_employee_department"),
         "id_statues": serialize_attr("id_statues"),
