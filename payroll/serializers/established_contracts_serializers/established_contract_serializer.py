@@ -450,23 +450,25 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
         return data
 
     def generate_contract_code(self, employee_charge):
-        # Obtener el nombre del cargo sin espacios y en mayúsculas
-        charge_name = re.sub(r'\s+', '', employee_charge.name).upper() if employee_charge.name else 'CARGO'
-        
+        # Usar el contract_prefix del cargo (ya debe estar validado y en mayúsculas)
+        charge_prefix = (employee_charge.contract_prefix or '').strip().upper() if employee_charge else ''
+        if not charge_prefix:
+            charge_prefix = 'CARGO'
+
         # Obtener el último contrato con el mismo prefijo
         last_contract = EstablishedContract.objects.filter(
-            contract_code__startswith=f'CON-{charge_name}-'
+            contract_code__startswith=f'CON-{charge_prefix}-'
         ).order_by('-contract_code').first()
-        
+
         if last_contract:
             # Extraer el número y sumar 1
             match = re.search(r'-(\d+)$', last_contract.contract_code)
             if match:
                 next_num = int(match.group(1)) + 1
-                return f'CON-{charge_name}-{next_num:04d}'
-        
+                return f'CON-{charge_prefix}-{next_num:04d}'
+
         # Si no hay contratos previos, empezar con 1
-        return f'CON-{charge_name}-0001'
+        return f'CON-{charge_prefix}-0001'
 
     @transaction.atomic
     def create(self, validated_data):

@@ -47,6 +47,12 @@ class EmployeeChargeCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'contract_prefix': "El prefijo de contrato no puede contener espacios."
             })
+            
+        # Validar que solo contenga letras
+        if not contract_prefix.isalpha():
+            raise serializers.ValidationError({
+                'contract_prefix': "El prefijo de contrato solo puede contener letras (sin números ni caracteres especiales)."
+            })
 
         normalized_prefix = contract_prefix.upper()
         prefix_qs = EmployeeCharge.objects.filter(contract_prefix__iexact=normalized_prefix)

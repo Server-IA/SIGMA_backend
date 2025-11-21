@@ -42,6 +42,7 @@ class EmployeeDepartmentCreateSerializer(serializers.ModelSerializer):
         Validaciones:
         - evitar cargos duplicados en la misma petición.
         - asegurar que cada cargo incluya contract_prefix y sea único globalmente.
+        - validar que contract_prefix solo contenga letras
         """
         if not isinstance(value, list):
             return value
@@ -52,6 +53,7 @@ class EmployeeDepartmentCreateSerializer(serializers.ModelSerializer):
         duplicate_prefixes = []
         missing_prefix = []
         invalid_prefix = []
+        invalid_chars = []
         existing_prefixes = []
 
         for item in value:
@@ -69,9 +71,16 @@ class EmployeeDepartmentCreateSerializer(serializers.ModelSerializer):
                     seen_names.add(lname)
 
             if contract_prefix:
+                # Check for whitespace
                 if any(ch.isspace() for ch in contract_prefix):
                     invalid_prefix.append(contract_prefix)
                     continue
+                    
+                # Check for non-letter characters
+                if not contract_prefix.isalpha():
+                    invalid_chars.append(contract_prefix)
+                    continue
+                    
                 lprefix = contract_prefix.lower()
                 if lprefix in seen_prefixes:
                     duplicate_prefixes.append(contract_prefix)
@@ -96,6 +105,10 @@ class EmployeeDepartmentCreateSerializer(serializers.ModelSerializer):
         if invalid_prefix:
             errors.append(
                 f"Los siguientes prefijos de contrato contienen espacios y no son válidos: {', '.join(invalid_prefix)}"
+            )
+        if invalid_chars:
+            errors.append(
+                f"Los siguientes prefijos de contrato contienen caracteres inválidos (solo se permiten letras): {', '.join(invalid_chars)}"
             )
         if existing_prefixes:
             errors.append(
