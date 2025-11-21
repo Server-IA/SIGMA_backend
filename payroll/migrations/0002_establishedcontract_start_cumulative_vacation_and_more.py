@@ -16,10 +16,15 @@ class Migration(migrations.Migration):
             name='start_cumulative_vacation',
             field=models.DateField(blank=True, db_column='start_cumulative_vacation', null=True),
         ),
-        migrations.AlterField(
+        migrations.RemoveField(
             model_name='contractpaymentsestablishedcontract',
             name='date_payment',
-            field=models.IntegerField(db_column='date_payment', validators=[django.core.validators.MinValueValidator(1), django.core.validators.MaxValueValidator(31)]),
+        ),
+        migrations.AddField(
+            model_name='contractpaymentsestablishedcontract',
+            name='date_payment',
+            field=models.IntegerField(db_column='date_payment', default=1, validators=[django.core.validators.MinValueValidator(1), django.core.validators.MaxValueValidator(31)]),
+            preserve_default=False,
         ),
         migrations.AlterField(
             model_name='establishedcontract',
