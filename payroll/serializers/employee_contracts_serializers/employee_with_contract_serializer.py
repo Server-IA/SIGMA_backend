@@ -592,7 +592,7 @@ class EmployeeWithContractCreateSerializer(serializers.Serializer):
         queryset=User.objects.all(),
         help_text="ID del usuario que se vinculará al empleado.",
     )
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
     observation = serializers.CharField(allow_blank=False)
     id_employee_charge = serializers.PrimaryKeyRelatedField(
         queryset=EmployeeCharge.objects.all()
@@ -604,7 +604,7 @@ class EmployeeWithContractCreateSerializer(serializers.Serializer):
         self._contract_serializer = None
 
     def validate_email(self, value):
-        if Employee.objects.filter(email=value).exists():
+        if value and Employee.objects.filter(email=value).exists():
             raise serializers.ValidationError("Ya existe un empleado con este correo electrónico.")
         return value
 
