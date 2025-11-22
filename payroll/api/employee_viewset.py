@@ -30,6 +30,9 @@ from payroll.serializers.employee_contracts_serializers.employee_contract_detail
 from payroll.serializers.employee_contracts_serializers.employee_contract_terminate_serializer import (
     EmployeeContractTerminateSerializer,
 )
+from payroll.serializers.employee_contracts_serializers.employee_contract_change_serializer import (
+    EmployeeContractChangeSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -959,6 +962,156 @@ class EmployeeViewSet(viewsets.ViewSet):
                 {
                     "success": False,
                     "message": "Ocurrió un error al finalizar el contrato.",
+                    "error": str(exc)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @transaction.atomic
+    @action(detail=True, methods=["post"], url_path="change-contract")
+    def change_contract(self, request, pk=None):
+        """
+        Cambia el contrato de un empleado.
+        
+        Finaliza el contrato actual del empleado (contract_status = 29) y crea uno nuevo.
+        El código del nuevo contrato sigue la lógica:
+        - Si el último contrato es del año actual: incrementa el primer consecutivo
+          (CON-2025-0004-00 → CON-2025-0005-00)
+        - Si el último contrato NO es del año actual: reinicia el consecutivo
+          (CON-2025-XXXX-XX → CON-2026-0001-00)
+        
+        Crea una novedad de tipo 'CAMBIO_CONTRATO' con la observación proporcionada.
+        
+        Requiere permiso: 186 (employee.change_contract)
+        
+        URL: POST /employees/{id_employee}/change-contract/
+        
+        Campos requeridos en el body:
+        - observation: Observación sobre el cambio de contrato (obligatoria)
+        - id_employee_charge: ID del cargo del empleado
+        - contract: Array con un objeto que contiene la información del nuevo contrato
+        
+        El contrato debe incluir todos los campos requeridos para la creación de un contrato,
+        aplicando las mismas validaciones.
+        """
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        required_permission = 186
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"success": False, "message": "No tiene permisos para cambiar contratos de empleados."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # El id_employee viene en la URL como pk
+        employee_id = pk
+
+        if not employee_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "El ID del empleado es requerido en la URL."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Verificar que el empleado existe
+        try:
+            employee = Employee.objects.select_related("employee_status").get(pk=employee_id)
+        except Employee.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Empleado no encontrado."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Validar datos de entrada con el serializer
+        serializer = EmployeeContractChangeSerializer(
+            data=request.data,
+            context={"request": request, "employee": employee},
+        )
+        
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "errors": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Crear el nuevo contrato y finalizar el anterior
+            result = serializer.save()
+            
+            # Registrar auditoría
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                
+                # Auditoría para el contrato anterior (finalizado)
+                AuditClient(request).update(
+                    object_id=str(result.get("old_contract_code", "")),
+                    before={"contract_status": 28},
+                    after={"contract_status": 29},
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=required_permission,
+                    module="payroll",
+                    submodule="employee_contract",
+                )
+                
+                # Auditoría para el nuevo contrato (creado)
+                new_contract = EmployeeContract.objects.filter(
+                    contract_code=result.get("new_contract_code")
+                ).first()
+                
+                if new_contract:
+                    AuditClient(request).create(
+                        object_id=str(result.get("new_contract_code", "")),
+                        after=employee_with_contract_snapshot(employee=employee, contract=new_contract),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=required_permission,
+                        module="payroll",
+                        submodule="employee_contract",
+                    )
+                    
+            except Exception as audit_exc:
+                logger.warning("El servicio de auditoría falló en change_contract: %s", str(audit_exc))
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Contrato cambiado exitosamente.",
+                    "data": result
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except DRFValidationError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "errors": exc.detail
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            logger.error("Error al cambiar contrato: %s", str(exc), exc_info=True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al cambiar el contrato.",
                     "error": str(exc)
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
