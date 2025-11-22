@@ -46,6 +46,7 @@ class EmployeeContract(models.Model):
     overtime_period = models.CharField(max_length=20, choices=OVERTIME_PERIOD_CHOICES, null=True, blank=True, db_column="overtime_period")
     notice_period_days = models.IntegerField(null=True, blank=True, db_column="notice_period_days")
     contract_status = models.ForeignKey("parameterization.Statues", on_delete=models.PROTECT, related_name="employee_contracts_by_status", db_column="contract_status", null=False, blank=False)
+    contract_termination_reason = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="employee_contracts_by_termination_reason", db_column="contract_termination_reason", null=True, blank=True)
     secundary_petition = models.BooleanField(null=False, blank=False, db_column="secundary_petition")
     creation_date = models.DateTimeField(db_column="creation_date", null=False, blank=False)
     id_responsible_user = models.ForeignKey("users.User", on_delete=models.PROTECT, related_name="employee_contracts_responsible", db_column="id_responsible_user", null=False, blank=False)
