@@ -182,15 +182,10 @@ class EmployeeContractChangeSerializer(serializers.Serializer):
                 "El empleado no tiene contratos registrados para cambiar."
             )
         
-        # Verificar que el último contrato no esté ya finalizado
-        if last_contract.contract_status_id == 29:
-            raise serializers.ValidationError(
-                "El último contrato del empleado ya está finalizado."
-            )
-        
-        # Finalizar el contrato actual
-        last_contract.contract_status = finished_status
-        last_contract.save(update_fields=["contract_status"])
+        # Finalizar el contrato actual si no está ya finalizado
+        if last_contract.contract_status_id != 29:  # Solo actualizar si no está ya finalizado
+            last_contract.contract_status = finished_status
+            last_contract.save(update_fields=["contract_status"])
         
         # 2. Generar el código del nuevo contrato
         new_contract_code = self._generate_next_contract_code(employee)
