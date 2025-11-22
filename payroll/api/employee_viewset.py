@@ -30,6 +30,14 @@ from payroll.serializers.employee_contracts_serializers.employee_contract_detail
 from payroll.serializers.employee_contracts_serializers.employee_contract_terminate_serializer import (
     EmployeeContractTerminateSerializer,
 )
+from payroll.serializers.employee_contracts_serializers.employee_contract_change_serializer import (
+    EmployeeContractChangeSerializer,
+)
+from payroll.serializers.employee_contracts_serializers.employee_contract_otro_si_serializer import (
+    EmployeeContractOtroSiSerializer,
+)
+from payroll.serializers.employee_contracts_serializers.employee_list_serializer import EmployeeListSerializer
+from payroll.serializers.employee_contracts_serializers.employee_detail_serializer import EmployeeDetailSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -742,22 +750,366 @@ class EmployeeViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @action(detail=False, methods=['get'], url_path='list')
+    def list_employees(self, request):
+        """
+        Lista empleados con filtros, ordenamiento y paginación.
+
+        Query params:
+        - search: Búsqueda por nombre o documento
+        - search_type: "documento" o "nombre" (opcional, por defecto "nombre")
+        - status: ID de estado (1=Activo, 2=Inactivo) (opcional)
+        - ordering: Ordenamiento por columnas (document, name, status) con prefijo - para descendente
+        - page: Número de página (por defecto 1)
+        - page_size: Tamaño de página (10, 25, 50, 100, por defecto 25)
+
+        Requiere permiso: 183
+        """
+        # Verificar autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Verificar permiso
+        required_permission = 183
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para acceder al listado de empleados."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            # Obtener parámetros de consulta
+            search = request.query_params.get("search", "").strip()
+            search_type = request.query_params.get("search_type", "nombre").strip().lower()
+            status_filter = request.query_params.get("status")
+            ordering = request.query_params.get("ordering", "").strip()
+            page = request.query_params.get("page", "1")
+            page_size = request.query_params.get("page_size", "25")
+
+            # Validar search_type
+            if search_type and search_type not in ["documento", "nombre"]:
+                return Response(
+                    {"message": "search_type debe ser 'documento' o 'nombre'."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Validar status
+            if status_filter:
+                try:
+                    status_filter = int(status_filter)
+                    if status_filter not in [1, 2]:
+                        return Response(
+                            {"message": "status debe ser 1 (Activo) o 2 (Inactivo)."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                except ValueError:
+                    return Response(
+                        {"message": "status debe ser un número entero."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            # Validar page_size
+            allowed_page_sizes = [10, 25, 50, 100]
+            try:
+                page_size = int(page_size)
+                if page_size not in allowed_page_sizes:
+                    return Response(
+                        {"message": f"page_size debe ser uno de: {', '.join(map(str, allowed_page_sizes))}."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except ValueError:
+                return Response(
+                    {"message": "page_size debe ser un número entero."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Validar page
+            try:
+                page = int(page)
+                if page < 1:
+                    return Response(
+                        {"message": "page debe ser un número entero positivo."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except ValueError:
+                return Response(
+                    {"message": "page debe ser un número entero positivo."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Construir queryset base con optimizaciones
+            queryset = Employee.objects.select_related(
+                'id_employee_charge',
+                'employee_status',
+                'id_user'
+            ).all()
+
+            # Aplicar filtro de estado si se proporciona
+            if status_filter:
+                queryset = queryset.filter(employee_status_id=status_filter)
+
+            # Obtener todos los empleados
+            employees_list = list(queryset)
+
+            # Obtener usuarios en batch una sola vez si es necesario (para búsqueda u ordenamiento)
+            users_data = {}
+            needs_user_data = bool(search) or ordering in ['document', '-document', 'name', '-name'] or not ordering
+            if needs_user_data:
+                user_ids = [emp.id_user_id for emp in employees_list if emp.id_user_id]
+                if user_ids:
+                    from service_requests.utils.external_user_helper import get_users_info_batch, get_user_display_name
+                    users_data = get_users_info_batch(user_ids, request)
+
+            # Aplicar filtro de búsqueda si existe
+            if search:
+                matching_employee_ids = set()
+                search_lower = search.lower()
+
+                for emp in employees_list:
+                    if not emp.id_user_id or emp.id_user_id not in users_data:
+                        continue
+
+                    user_data = users_data[emp.id_user_id]
+
+                    if search_type == "documento":
+                        # Buscar por documento
+                        doc_number = str(user_data.get('document_number', '')).strip()
+                        if search_lower in doc_number.lower():
+                            matching_employee_ids.add(emp.id_employee)
+                    else:
+                        # Buscar por nombre (por defecto)
+                        name_parts = [
+                            user_data.get('name', '').strip(),
+                            user_data.get('first_last_name', '').strip(),
+                            user_data.get('second_last_name', '').strip()
+                        ]
+                        full_name = ' '.join([p for p in name_parts if p]).lower()
+                        if search_lower in full_name:
+                            matching_employee_ids.add(emp.id_employee)
+
+                # Filtrar empleados que coinciden
+                employees_list = [emp for emp in employees_list if emp.id_employee in matching_employee_ids]
+
+            # Ordenamiento
+            if ordering:
+                # Validar ordering
+                allowed_orderings = ['document', '-document', 'name', '-name', 'status', '-status']
+                if ordering not in allowed_orderings:
+                    ordering = None
+
+            if not ordering:
+                # Ordenamiento por defecto: activos primero, luego inactivos, luego alfabético
+                active_employees = [e for e in employees_list if e.employee_status_id == 1]
+                inactive_employees = [e for e in employees_list if e.employee_status_id == 2]
+
+                # Ordenar alfabéticamente por nombre
+                if users_data:
+                    from service_requests.utils.external_user_helper import get_user_display_name
+
+                    def get_sort_key(emp):
+                        if not emp.id_user_id or emp.id_user_id not in users_data:
+                            return ""
+                        return get_user_display_name(users_data[emp.id_user_id]).lower()
+
+                    active_employees.sort(key=get_sort_key)
+                    inactive_employees.sort(key=get_sort_key)
+
+                employees_list = active_employees + inactive_employees
+            else:
+                # Ordenamiento por columna específica
+                if ordering in ['document', '-document']:
+                    # Ordenar por documento
+                    def get_doc_sort_key(emp):
+                        if not emp.id_user_id or emp.id_user_id not in users_data:
+                            return ""
+                        doc = str(users_data[emp.id_user_id].get('document_number', '')).lower()
+                        return doc
+
+                    employees_list.sort(key=get_doc_sort_key, reverse=(ordering == '-document'))
+                elif ordering in ['name', '-name']:
+                    # Ordenar por nombre
+                    from service_requests.utils.external_user_helper import get_user_display_name
+
+                    def get_name_sort_key(emp):
+                        if not emp.id_user_id or emp.id_user_id not in users_data:
+                            return ""
+                        return get_user_display_name(users_data[emp.id_user_id]).lower()
+
+                    employees_list.sort(key=get_name_sort_key, reverse=(ordering == '-name'))
+                elif ordering in ['status', '-status']:
+                    # Ordenar por estado
+                    employees_list.sort(key=lambda e: e.employee_status_id, reverse=(ordering == '-status'))
+
+            # Paginación
+            total = len(employees_list)
+            total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            paginated_employees = employees_list[start_index:end_index]
+
+            # Serializar resultados (pasar usuarios_data para evitar llamadas adicionales)
+            serializer = EmployeeListSerializer(
+                paginated_employees,
+                many=True,
+                context={'request': request, 'users_data': users_data}
+            )
+
+            # Construir respuesta
+            response_data = {
+                "success": True,
+                "data": serializer.data,
+                "pagination": {
+                    "total": total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages
+                }
+            }
+
+            # Agregar mensaje si no hay resultados
+            if total == 0:
+                response_data["message"] = "No se encontraron empleados con los criterios seleccionados."
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as exc:
+            logger.exception("Error al listar empleados")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=True, methods=['get'], url_path='detail')
+    def retrieve_employee_detail(self, request, pk=None):
+        """
+        Obtiene el detalle completo de un empleado.
+
+        Incluye:
+        - Información personal (desde servicio externo)
+        - Información del contrato (cargo, departamento, estado)
+        - Historial de novedades
+
+        Requiere permiso: 182 (employee.detail)
+        """
+        # Verificar autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Verificar permiso
+        required_permission = 182
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para consultar la información de este empleado."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            # Obtener empleado con optimizaciones
+            employee = (
+                Employee.objects.select_related(
+                    'id_employee_charge',
+                    'id_employee_charge__id_employee_department',
+                    'employee_status',
+                    'id_user'
+                )
+                .prefetch_related(
+                    'employee_contracts',
+                    'employeenews_set__id_responsible_user'
+                )
+                .get(pk=pk)
+            )
+        except Employee.DoesNotExist:
+            return Response(
+                {"message": "Empleado no encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            logger.exception("Error al obtener detalle del empleado")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        try:
+            # Obtener datos del usuario desde servicio externo si tiene id_user
+            users_data = {}
+            user_ids_to_fetch = []
+
+            # Agregar ID del empleado si tiene usuario asociado
+            if employee.id_user_id:
+                user_ids_to_fetch.append(employee.id_user_id)
+
+            # Obtener IDs de usuarios responsables de las novedades
+            news_queryset = getattr(employee, 'employee_news', None)
+            if news_queryset:
+                responsible_user_ids = list(
+                    news_queryset.values_list('id_responsible_user_id', flat=True).distinct()
+                )
+                responsible_user_ids = [uid for uid in responsible_user_ids if uid]
+                user_ids_to_fetch.extend(responsible_user_ids)
+
+            # Obtener todos los usuarios en batch si hay alguno
+            if user_ids_to_fetch:
+                from service_requests.utils.external_user_helper import get_users_info_batch
+                # Eliminar duplicados manteniendo orden
+                unique_user_ids = list(dict.fromkeys(user_ids_to_fetch))
+                users_data = get_users_info_batch(unique_user_ids, request)
+
+            # Serializar empleado
+            serializer = EmployeeDetailSerializer(
+                employee,
+                context={'request': request, 'users_data': users_data}
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as exc:
+            logger.exception("Error al serializar detalle del empleado")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
     @transaction.atomic
     @action(detail=True, methods=["post"], url_path="terminate-contract")
     def terminate_contract(self, request, pk=None):
         """
         Finaliza un contrato de empleado.
-        
+
         Cambia el estado del contrato a 29 (Finalizado), actualiza el motivo de finalización,
         crea una novedad opcional y cambia el estado del empleado a 2 (Inactivo).
-        
+
         Requiere permiso: 185 (employee.terminate_contract)
-        
+
         URL: POST /employees/{contract_code}/terminate-contract/
-        
+
         Campos requeridos en el body:
         - contract_termination_reason: ID del motivo de finalización (debe pertenecer a categoría 20)
-        
+
         Campos opcionales en el body:
         - observation: Observación para la novedad del empleado
         """
@@ -898,16 +1250,16 @@ class EmployeeViewSet(viewsets.ViewSet):
 
                 # 3. Crear novedad (siempre se crea, con o sin observación adicional)
                 observation_from_json = serializer.validated_data.get('observation')
-                
+
                 # Construir la observación completa: motivo + observación del JSON (separados por coma)
                 termination_reason_name = termination_reason.name if termination_reason else "Sin motivo especificado"
                 observation_parts = [f"Motivo: {termination_reason_name}"]
-                
+
                 if observation_from_json:
                     observation_parts.append(observation_from_json)
-                
+
                 final_observation = ", ".join(observation_parts)
-                
+
                 EmployeeNews.objects.create(
                     id_employee=employee,
                     observation=final_observation,
@@ -959,6 +1311,348 @@ class EmployeeViewSet(viewsets.ViewSet):
                 {
                     "success": False,
                     "message": "Ocurrió un error al finalizar el contrato.",
+                    "error": str(exc)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @transaction.atomic
+    @action(detail=True, methods=["post"], url_path="change-contract")
+    def change_contract(self, request, pk=None):
+        """
+        Cambia el contrato de un empleado.
+
+        Finaliza el contrato actual del empleado (contract_status = 29) y crea uno nuevo.
+        El código del nuevo contrato sigue la lógica:
+        - Si el último contrato es del año actual: incrementa el primer consecutivo
+          (CON-2025-0004-00 → CON-2025-0005-00)
+        - Si el último contrato NO es del año actual: reinicia el consecutivo
+          (CON-2025-XXXX-XX → CON-2026-0001-00)
+
+        Crea una novedad de tipo 'CAMBIO_CONTRATO' con la observación proporcionada.
+
+        No se permite cambiar el contrato si el empleado está desactivado (status=2).
+
+        Requiere permiso: 186 (employee.change_contract)
+
+        URL: POST /employees/{id_employee}/change-contract/
+
+        Campos requeridos en el body:
+        - observation: Observación sobre el cambio de contrato (obligatoria)
+        - id_employee_charge: ID del cargo del empleado
+        - contract: Array con un objeto que contiene la información del nuevo contrato
+
+        El contrato debe incluir todos los campos requeridos para la creación de un contrato,
+        aplicando las mismas validaciones.
+        """
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+            
+        # Verificar si el empleado está desactivado (status=2)
+        try:
+            employee = Employee.objects.get(id_employee=pk)
+            if employee.employee_status_id == 2:  # 2 = Inactivo
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No se puede cambiar el contrato de un empleado inactivo.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except Employee.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Empleado no encontrado"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        required_permission = 186
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"success": False, "message": "No tiene permisos para cambiar contratos de empleados."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # El id_employee viene en la URL como pk
+        employee_id = pk
+
+        if not employee_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "El ID del empleado es requerido en la URL."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Verificar que el empleado existe
+        try:
+            employee = Employee.objects.select_related("employee_status").get(pk=employee_id)
+        except Employee.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Empleado no encontrado."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Validar datos de entrada con el serializer
+        serializer = EmployeeContractChangeSerializer(
+            data=request.data,
+            context={"request": request, "employee": employee},
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "errors": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Crear el nuevo contrato y finalizar el anterior
+            result = serializer.save()
+
+            # Registrar auditoría
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+
+                # Auditoría para el contrato anterior (finalizado)
+                AuditClient(request).update(
+                    object_id=str(result.get("old_contract_code", "")),
+                    before={"contract_status": 28},
+                    after={"contract_status": 29},
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=required_permission,
+                    module="payroll",
+                    submodule="employee_contract",
+                )
+
+                # Auditoría para el nuevo contrato (creado)
+                new_contract = EmployeeContract.objects.filter(
+                    contract_code=result.get("new_contract_code")
+                ).first()
+
+                if new_contract:
+                    AuditClient(request).create(
+                        object_id=str(result.get("new_contract_code", "")),
+                        after=employee_with_contract_snapshot(employee=employee, contract=new_contract),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=required_permission,
+                        module="payroll",
+                        submodule="employee_contract",
+                    )
+
+            except Exception as audit_exc:
+                logger.warning("El servicio de auditoría falló en change_contract: %s", str(audit_exc))
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Contrato cambiado exitosamente.",
+                    "data": result
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except DRFValidationError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "errors": exc.detail
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            logger.error("Error al cambiar contrato: %s", str(exc), exc_info=True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al cambiar el contrato.",
+                    "error": str(exc)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @transaction.atomic
+    @action(detail=True, methods=["post"], url_path="generate-otro-si")
+    def generate_otro_si(self, request, pk=None):
+        """
+        Genera un "otro si" (secundary_petition) para un contrato de empleado.
+
+        Finaliza el contrato actual del empleado (contract_status = 29) y crea uno nuevo
+        con secundary_petition=True.
+
+        El código del nuevo contrato incrementa el segundo consecutivo (versión):
+        - CON-2025-0004-00 → CON-2025-0004-01
+        - CON-2025-0004-01 → CON-2025-0004-02
+        - Incluso con cambio de año: CON-2026-0004-02 → CON-2026-0004-03
+
+        El start_date se toma del último contrato del empleado (no se envía en el JSON).
+        Crea una novedad de tipo 'GENERAR_OTRO_SI' con la observación proporcionada.
+
+        NO se puede generar un otro si si el último contrato tiene contract_status = 29
+        o si el empleado está inactivo (status=2).
+
+        Requiere permiso: 187 (employee.generate_otro_si)
+
+        URL: POST /employees/{id_employee}/generate-otro-si/
+
+        Campos requeridos en el body:
+        - observation: Observación sobre el otro si (obligatoria)
+        - id_employee_charge: ID del cargo del empleado
+        - contract: Array con un objeto que contiene la información del nuevo contrato
+                   (SIN start_date, se toma del contrato anterior)
+
+        El contrato debe incluir todos los campos requeridos excepto start_date,
+        aplicando las mismas validaciones.
+        """
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"success": False, "message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+            
+        # Verificar si el empleado está desactivado (status=2)
+        try:
+            employee = Employee.objects.get(id_employee=pk)
+            if employee.employee_status_id == 2:  # 2 = Inactivo
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No se puede generar un Otro Si para un empleado inactivo.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except Employee.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Empleado no encontrado"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        required_permission = 187
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"success": False, "message": "No tiene permisos para generar otro si."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # El id_employee viene en la URL como pk
+        employee_id = pk
+
+        if not employee_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "El ID del empleado es requerido en la URL."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Verificar que el empleado existe
+        try:
+            employee = Employee.objects.select_related("employee_status").get(pk=employee_id)
+        except Employee.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Empleado no encontrado."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Validar datos de entrada con el serializer
+        serializer = EmployeeContractOtroSiSerializer(
+            data=request.data,
+            context={"request": request, "employee": employee},
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "errors": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Crear el "otro si" y finalizar el contrato anterior
+            result = serializer.save()
+
+            # Registrar auditoría
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+
+                # Auditoría para el contrato anterior (finalizado)
+                AuditClient(request).update(
+                    object_id=str(result.get("old_contract_code", "")),
+                    before={"contract_status": 28},
+                    after={"contract_status": 29},
+                    actor_id=actor_id,
+                    actor_name=actor_name,
+                    actor_role=actor_role_name,
+                    permission_id=required_permission,
+                    module="payroll",
+                    submodule="employee_contract",
+                )
+
+                # Auditoría para el nuevo contrato (otro si creado)
+                new_contract = EmployeeContract.objects.filter(
+                    contract_code=result.get("new_contract_code")
+                ).first()
+
+                if new_contract:
+                    AuditClient(request).create(
+                        object_id=str(result.get("new_contract_code", "")),
+                        after=employee_with_contract_snapshot(employee=employee, contract=new_contract),
+                        actor_id=actor_id,
+                        actor_name=actor_name,
+                        actor_role=actor_role_name,
+                        permission_id=required_permission,
+                        module="payroll",
+                        submodule="employee_contract",
+                    )
+
+            except Exception as audit_exc:
+                logger.warning("El servicio de auditoría falló en generate_otro_si: %s", str(audit_exc))
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Otro si generado exitosamente.",
+                    "data": result
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except DRFValidationError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "errors": exc.detail
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            logger.error("Error al generar otro si: %s", str(exc), exc_info=True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al generar el otro si.",
                     "error": str(exc)
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
