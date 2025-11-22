@@ -1331,6 +1331,8 @@ class EmployeeViewSet(viewsets.ViewSet):
 
         Crea una novedad de tipo 'CAMBIO_CONTRATO' con la observación proporcionada.
 
+        No se permite cambiar el contrato si el empleado está desactivado (status=2).
+
         Requiere permiso: 186 (employee.change_contract)
 
         URL: POST /employees/{id_employee}/change-contract/
@@ -1347,6 +1349,23 @@ class EmployeeViewSet(viewsets.ViewSet):
             return Response(
                 {"success": False, "message": "Usuario no autenticado"},
                 status=status.HTTP_401_UNAUTHORIZED,
+            )
+            
+        # Verificar si el empleado está desactivado (status=2)
+        try:
+            employee = Employee.objects.get(id_employee=pk)
+            if employee.employee_status_id == 2:  # 2 = Inactivo
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No se puede cambiar el contrato de un empleado inactivo.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except Employee.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Empleado no encontrado"},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         required_permission = 186
@@ -1483,7 +1502,8 @@ class EmployeeViewSet(viewsets.ViewSet):
         El start_date se toma del último contrato del empleado (no se envía en el JSON).
         Crea una novedad de tipo 'GENERAR_OTRO_SI' con la observación proporcionada.
 
-        NO se puede generar un otro si si el último contrato tiene contract_status = 29.
+        NO se puede generar un otro si si el último contrato tiene contract_status = 29
+        o si el empleado está inactivo (status=2).
 
         Requiere permiso: 187 (employee.generate_otro_si)
 
@@ -1502,6 +1522,23 @@ class EmployeeViewSet(viewsets.ViewSet):
             return Response(
                 {"success": False, "message": "Usuario no autenticado"},
                 status=status.HTTP_401_UNAUTHORIZED,
+            )
+            
+        # Verificar si el empleado está desactivado (status=2)
+        try:
+            employee = Employee.objects.get(id_employee=pk)
+            if employee.employee_status_id == 2:  # 2 = Inactivo
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No se puede generar un Otro Si para un empleado inactivo.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except Employee.DoesNotExist:
+            return Response(
+                {"success": False, "message": "Empleado no encontrado"},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         required_permission = 187
