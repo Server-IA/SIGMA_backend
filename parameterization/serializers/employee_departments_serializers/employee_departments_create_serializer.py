@@ -39,27 +39,85 @@ class EmployeeDepartmentCreateSerializer(serializers.ModelSerializer):
 
     def validate_charges(self, value):
         """
-        Validación: evitar cargos duplicados en la misma petición.
+        Validaciones:
+        - evitar cargos duplicados en la misma petición.
+        - asegurar que cada cargo incluya contract_prefix y sea único globalmente.
+        - validar que contract_prefix solo contenga letras
         """
         if not isinstance(value, list):
             return value
 
-        seen = set()
-        duplicates = []
-        for item in value:
-            name = item.get("name")
-            if not name:
-                continue
-            lname = name.strip().lower()
-            if lname in seen:
-                duplicates.append(name)
-            else:
-                seen.add(lname)
+        seen_names = set()
+        duplicate_names = []
+        seen_prefixes = set()
+        duplicate_prefixes = []
+        missing_prefix = []
+        invalid_prefix = []
+        invalid_chars = []
+        existing_prefixes = []
 
-        if duplicates:
-            raise serializers.ValidationError(
-                f"Los siguientes cargos están duplicados en la petición: {', '.join(duplicates)}"
+        for item in value:
+            name = (item.get("name") or "").strip()
+            contract_prefix = (item.get("contract_prefix") or "").strip()
+
+            if not contract_prefix:
+                missing_prefix.append(name or "Sin nombre")
+
+            if name:
+                lname = name.lower()
+                if lname in seen_names:
+                    duplicate_names.append(name)
+                else:
+                    seen_names.add(lname)
+
+            if contract_prefix:
+                # Check for whitespace
+                if any(ch.isspace() for ch in contract_prefix):
+                    invalid_prefix.append(contract_prefix)
+                    continue
+                    
+                # Check for non-letter characters
+                if not contract_prefix.isalpha():
+                    invalid_chars.append(contract_prefix)
+                    continue
+                    
+                lprefix = contract_prefix.lower()
+                if lprefix in seen_prefixes:
+                    duplicate_prefixes.append(contract_prefix)
+                else:
+                    seen_prefixes.add(lprefix)
+                    if EmployeeCharge.objects.filter(contract_prefix__iexact=contract_prefix).exists():
+                        existing_prefixes.append(contract_prefix)
+
+        errors = []
+        if missing_prefix:
+            errors.append(
+                f"Los siguientes cargos no tienen prefijo de contrato: {', '.join(missing_prefix)}"
             )
+        if duplicate_names:
+            errors.append(
+                f"Los siguientes cargos están duplicados en la petición: {', '.join(duplicate_names)}"
+            )
+        if duplicate_prefixes:
+            errors.append(
+                f"Los siguientes prefijos de contrato están duplicados en la petición: {', '.join(duplicate_prefixes)}"
+            )
+        if invalid_prefix:
+            errors.append(
+                f"Los siguientes prefijos de contrato contienen espacios y no son válidos: {', '.join(invalid_prefix)}"
+            )
+        if invalid_chars:
+            errors.append(
+                f"Los siguientes prefijos de contrato contienen caracteres inválidos (solo se permiten letras): {', '.join(invalid_chars)}"
+            )
+        if existing_prefixes:
+            errors.append(
+                f"Ya existe un cargo registrado con el prefijo de contrato: {', '.join(existing_prefixes)}"
+            )
+
+        if errors:
+            raise serializers.ValidationError(" ".join(errors))
+
         return value
 
     def create(self, validated_data):
@@ -86,6 +144,12 @@ class EmployeeDepartmentCreateSerializer(serializers.ModelSerializer):
                 name = item.get('name')
                 if not name:
                     continue
+                contract_prefix = item.get('contract_prefix')
+                if not contract_prefix:
+                    raise serializers.ValidationError(
+                        f"El cargo '{name}' no especifica contract_prefix."
+                    )
+                contract_prefix = contract_prefix.strip().upper()
 
                 # Validar que no exista en este mismo departamento
                 if EmployeeCharge.objects.filter(
@@ -99,6 +163,7 @@ class EmployeeDepartmentCreateSerializer(serializers.ModelSerializer):
                 EmployeeCharge.objects.create(
                     name=name,
                     description=item.get('description', ''),
+                    contract_prefix=contract_prefix,
                     id_employee_department=department,
                     id_statues=default_status,
                     id_responsible_user=responsible_user,

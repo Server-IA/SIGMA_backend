@@ -176,7 +176,8 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
             'trial_period_days': {'required': False, 'allow_null': True},
             'vacation_frequency_days': {'required': False, 'allow_null': True},
             'overtime_period': {'required': False, 'allow_null': True},
-            'notice_period_days': {'required': False, 'allow_null': True}
+            'notice_period_days': {'required': False, 'allow_null': True},
+            'end_date': {'required': False, 'allow_null': True}
         }
 
     def validate_id_employee_charge(self, value):
@@ -247,13 +248,11 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_start_date(self, value):
-        if value < timezone.now().date():
-            raise serializers.ValidationError("La fecha de inicio no puede ser anterior a la fecha actual.")
         return value
 
     def validate(self, data):
         # Validar fechas
-        if 'start_date' in data and 'end_date' in data:
+        if 'start_date' in data and 'end_date' in data and data['end_date'] is not None:
             if data['start_date'] >= data['end_date']:
                 raise serializers.ValidationError({"end_date": "La fecha de fin debe ser posterior a la fecha de inicio."})
                 
@@ -286,7 +285,7 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
                         "start_cumulative_vacation": f"La fecha de inicio de acumulación no puede ser anterior a la fecha de inicio del contrato ({data['start_date']})."
                     })
                 
-                if 'end_date' in data and data['start_cumulative_vacation'] > data['end_date']:
+                if 'end_date' in data and data['end_date'] is not None and data['start_cumulative_vacation'] > data['end_date']:
                     raise serializers.ValidationError({
                         "start_cumulative_vacation": f"La fecha de inicio de acumulación no puede ser posterior a la fecha de finalización del contrato ({data['end_date']})."
                     })
@@ -373,7 +372,7 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
         # Validar rangos de fechas de deducciones con respecto al contrato
         contract_start = data.get('start_date')
         contract_end = data.get('end_date')
-        if contract_start and contract_end and data.get('established_deductions'):
+        if data.get('established_deductions'):
             ded_errors = []
             for d in data.get('established_deductions', []):
                 sd = d.get('start_date_deduction')
@@ -385,16 +384,16 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
                     e['start_date_deduction'] = ["Este campo es obligatorio cuando se especifica end_date_deductions."]
                 if sd and ed:
                     # Validaciones de inicio (prioritarias)
-                    if sd < contract_start:
+                    if contract_start and sd < contract_start:
                         e['start_date_deduction'] = [f"La fecha de inicio de la deducción no puede ser anterior a la fecha de inicio del contrato ({contract_start})."]
-                    elif sd > contract_end:
+                    elif contract_end and sd > contract_end:
                         e['start_date_deduction'] = [f"La fecha de inicio de la deducción no puede ser posterior a la fecha de finalización del contrato ({contract_end})."]
 
                     # Solo si no hubo error de inicio, validar fin
                     if 'start_date_deduction' not in e:
-                        if ed < contract_start:
+                        if contract_start and ed < contract_start:
                             e['end_date_deductions'] = [f"La fecha de fin de la deducción no puede ser anterior a la fecha de inicio del contrato ({contract_start})."]
-                        elif ed > contract_end:
+                        elif contract_end and ed > contract_end:
                             e['end_date_deductions'] = [f"La fecha de fin de la deducción no puede ser posterior a la fecha de finalización del contrato ({contract_end})."]
 
                     # Solo si no hubo error de inicio ni de fin, validar orden
@@ -415,7 +414,7 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError({"established_increases": f"No puede haber dos incrementos con el mismo tipo: {increase['increase_type']}."})
                     increase_types.add(increase['increase_type'])
         # Validar rangos de fechas de incrementos con respecto al contrato
-        if contract_start and contract_end and data.get('established_increases'):
+        if data.get('established_increases'):
             inc_errors = []
             for inc in data.get('established_increases', []):
                 si = inc.get('start_date_increase')
@@ -427,16 +426,16 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
                     e['start_date_increase'] = ["Este campo es obligatorio cuando se especifica end_date_increase."]
                 if si and ei:
                     # Validaciones de inicio (prioritarias)
-                    if si < contract_start:
+                    if contract_start and si < contract_start:
                         e['start_date_increase'] = [f"La fecha de inicio del incremento no puede ser anterior a la fecha de inicio del contrato ({contract_start})."]
-                    elif si > contract_end:
+                    elif contract_end and si > contract_end:
                         e['start_date_increase'] = [f"La fecha de inicio del incremento no puede ser posterior a la fecha de finalización del contrato ({contract_end})."]
 
                     # Solo si no hubo error de inicio, validar fin
                     if 'start_date_increase' not in e:
-                        if ei < contract_start:
+                        if contract_start and ei < contract_start:
                             e['end_date_increase'] = [f"La fecha de fin del incremento no puede ser anterior a la fecha de inicio del contrato ({contract_start})."]
-                        elif ei > contract_end:
+                        elif contract_end and ei > contract_end:
                             e['end_date_increase'] = [f"La fecha de fin del incremento no puede ser posterior a la fecha de finalización del contrato ({contract_end})."]
 
                     # Solo si no hubo error de inicio ni de fin, validar orden
@@ -451,23 +450,25 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
         return data
 
     def generate_contract_code(self, employee_charge):
-        # Obtener el nombre del cargo sin espacios y en mayúsculas
-        charge_name = re.sub(r'\s+', '', employee_charge.name).upper() if employee_charge.name else 'CARGO'
-        
+        # Usar el contract_prefix del cargo (ya debe estar validado y en mayúsculas)
+        charge_prefix = (employee_charge.contract_prefix or '').strip().upper() if employee_charge else ''
+        if not charge_prefix:
+            charge_prefix = 'CARGO'
+
         # Obtener el último contrato con el mismo prefijo
         last_contract = EstablishedContract.objects.filter(
-            contract_code__startswith=f'CON-{charge_name}-'
+            contract_code__startswith=f'CON-{charge_prefix}-'
         ).order_by('-contract_code').first()
-        
+
         if last_contract:
             # Extraer el número y sumar 1
             match = re.search(r'-(\d+)$', last_contract.contract_code)
             if match:
                 next_num = int(match.group(1)) + 1
-                return f'CON-{charge_name}-{next_num:04d}'
-        
+                return f'CON-{charge_prefix}-{next_num:04d}'
+
         # Si no hay contratos previos, empezar con 1
-        return f'CON-{charge_name}-0001'
+        return f'CON-{charge_prefix}-0001'
 
     @transaction.atomic
     def create(self, validated_data):

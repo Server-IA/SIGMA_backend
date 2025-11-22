@@ -134,3 +134,45 @@ def contract_snapshot(contract):
             })
 
     return snapshot
+
+
+def employee_with_contract_snapshot(employee=None, contract=None):
+    """Genera un snapshot simplificado de un empleado y su contrato asociado."""
+
+    def safe_get(obj, attr):
+        if not obj or not hasattr(obj, attr):
+            return None
+        return getattr(obj, attr)
+
+    def safe_date(value):
+        return str(value) if value else None
+
+    employee_data = {}
+    if employee:
+        employee_data = {
+            "id_employee": safe_get(employee, "id_employee"),
+            "id_user": safe_get(employee, "id_user_id"),
+            "email": safe_get(employee, "email"),
+            "id_employee_charge": safe_get(employee, "id_employee_charge_id"),
+            "employee_status": safe_get(employee, "employee_status_id"),
+            "creation_date": safe_date(safe_get(employee, "creation_date")),
+            "modification_date": safe_date(safe_get(employee, "modification_date")),
+            "id_responsible_user": safe_get(employee, "id_responsible_user_id"),
+        }
+
+    contract_data = {}
+    if contract:
+        contract_data = {
+            "contract_code": safe_get(contract, "contract_code"),
+            "id_employee": safe_get(contract, "id_employee_id"),
+            "contract_status": safe_get(contract, "contract_status_id"),
+            "start_date": safe_date(safe_get(contract, "start_date")),
+            "end_date": safe_date(safe_get(contract, "end_date")),
+            "salary_base": safe_get(contract, "salary_base"),
+            "currency_type": safe_get(contract, "currency_type_id"),
+        }
+
+    return {
+        "employee": employee_data,
+        "contract": contract_data,
+    }
