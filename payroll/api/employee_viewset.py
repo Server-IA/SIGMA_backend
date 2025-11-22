@@ -21,6 +21,12 @@ from payroll.serializers.employee_contracts_serializers.employee_with_contract_s
     EmployeeWithContractCreateSerializer,
 )
 from payroll.serializers.employee_contracts_serializers.employee_update_serializer import EmployeeUpdateSerializer
+from payroll.serializers.employee_contracts_serializers.employee_contract_history_serializer import (
+    EmployeeContractHistorySerializer,
+)
+from payroll.serializers.employee_contracts_serializers.employee_contract_detail_history_serializer import (
+    EmployeeContractDetailHistorySerializer,
+)
 from payroll.serializers.employee_contracts_serializers.employee_list_serializer import EmployeeListSerializer
 from payroll.serializers.employee_contracts_serializers.employee_detail_serializer import EmployeeDetailSerializer
 
@@ -505,11 +511,241 @@ class EmployeeViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @action(detail=True, methods=["get"], url_path="contract-history")
+    def contract_history(self, request, pk=None):
+        """
+        Devuelve el historial de contratos de un empleado.
+        Solo muestra la última versión de cada contract_code.
+
+        Requiere permiso: 184 (employee.contract_history)
+        """
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        required_permission = 184
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para consultar el historial de contratos."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            # Verificar que el empleado existe
+            employee = Employee.objects.get(pk=pk)
+        except Employee.DoesNotExist:
+            return Response(
+                {"message": "Empleado no encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            # Obtener todos los contratos del empleado ordenados por contract_code descendente
+            all_contracts = (
+                EmployeeContract.objects.filter(id_employee_id=pk)
+                .select_related("contract_status", "id_responsible_user")
+                .order_by("-contract_code")
+            )
+
+            # Agrupar por base del contract_code y obtener solo la última versión
+            # Formato: CON-YYYY-NNNN-VV
+            # Base: CON-YYYY-NNNN (todo excepto los últimos 3 caracteres: -VV)
+            contracts_by_base = {}
+
+            for contract in all_contracts:
+                contract_code = contract.contract_code
+
+                # Extraer la base del código (todo excepto los últimos 3 caracteres: -VV)
+                # Ejemplo: CON-2025-0001-03 -> base: CON-2025-0001
+                if len(contract_code) >= 3:
+                    # Buscar el último guion antes de la versión
+                    last_dash_index = contract_code.rfind('-')
+                    if last_dash_index > 0:
+                        base_code = contract_code[:last_dash_index]
+                    else:
+                        # Si no hay guion, usar el código completo
+                        base_code = contract_code
+                else:
+                    base_code = contract_code
+
+                # Si no tenemos esta base o esta versión es más reciente, guardarla
+                if base_code not in contracts_by_base:
+                    contracts_by_base[base_code] = contract
+                else:
+                    # Comparar versiones (los últimos 2 dígitos después del último guion)
+                    current_version = self._extract_version(contract_code)
+                    existing_version = self._extract_version(contracts_by_base[base_code].contract_code)
+
+                    if current_version > existing_version:
+                        contracts_by_base[base_code] = contract
+
+            # Convertir el diccionario a lista y ordenar por creation_date descendente
+            latest_contracts = list(contracts_by_base.values())
+            latest_contracts.sort(key=lambda x: x.creation_date, reverse=True)
+
+            # Serializar los contratos
+            serializer = EmployeeContractHistorySerializer(
+                latest_contracts, many=True, context={"request": request}
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as exc:
+            logger.error("Error al obtener historial de contratos: %s", str(exc), exc_info=True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def _extract_version(self, contract_code: str) -> int:
+        """
+        Extrae el número de versión del contract_code.
+        Formato esperado: CON-YYYY-NNNN-VV
+        Retorna el número de versión como entero, o 0 si no se puede extraer.
+        """
+        try:
+            last_dash_index = contract_code.rfind('-')
+            if last_dash_index > 0 and last_dash_index < len(contract_code) - 1:
+                version_str = contract_code[last_dash_index + 1:]
+                return int(version_str)
+        except (ValueError, IndexError):
+            pass
+        return 0
+
+    def _extract_base_code(self, contract_code: str) -> str:
+        """
+        Extrae la base del contract_code (primeros 3 segmentos).
+        Formato esperado: CON-YYYY-NNNN-VV
+        Retorna: CON-YYYY-NNNN
+        """
+        try:
+            # Dividir por guiones
+            parts = contract_code.split('-')
+            if len(parts) >= 3:
+                # Tomar los primeros 3 segmentos
+                return '-'.join(parts[:3])
+            return contract_code
+        except Exception:
+            return contract_code
+
+    @action(detail=False, methods=["get"], url_path="contract-detail-history")
+    def contract_detail_history(self, request):
+        """
+        Devuelve el historial completo de un contrato específico.
+        Muestra todas las versiones del contrato con la misma base (primeros 3 segmentos).
+
+        Parámetros de consulta:
+        - contract_code: Código del contrato (ej: CON-2025-0001-05)
+
+        Requiere permiso: 184 (employee.contract_detail_history)
+        """
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        required_permission = 184
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para consultar el historial del contrato."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Obtener el contract_code de los parámetros de consulta
+        contract_code = request.query_params.get('contract_code', '').strip()
+
+        if not contract_code:
+            return Response(
+                {
+                    "success": False,
+                    "message": "El parámetro 'contract_code' es requerido."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Verificar que el contrato existe
+            try:
+                requested_contract = EmployeeContract.objects.get(contract_code=contract_code)
+            except EmployeeContract.DoesNotExist:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Contrato no encontrado."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Extraer la base del código (primeros 3 segmentos)
+            base_code = self._extract_base_code(contract_code)
+
+            # Buscar todos los contratos con la misma base
+            all_contracts = (
+                EmployeeContract.objects.filter(contract_code__startswith=f"{base_code}-")
+                .select_related("contract_status", "id_responsible_user")
+                .order_by("contract_code")  # Ordenar por código para mantener orden de versión
+            )
+
+            if not all_contracts.exists():
+                return Response(
+                    {
+                        "success": False,
+                        "message": "No se encontraron versiones del contrato."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Convertir a lista y ordenar por versión
+            contracts_list = list(all_contracts)
+            contracts_list.sort(key=lambda x: self._extract_version(x.contract_code))
+
+            # Identificar el último contrato (mayor versión)
+            latest_contract = contracts_list[-1] if contracts_list else None
+
+            # Serializar los contratos pasando el último contrato para la lógica especial
+            serializer = EmployeeContractDetailHistorySerializer(
+                contracts_list,
+                many=True,
+                context={"request": request, "latest_contract": latest_contract}
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as exc:
+            logger.error("Error al obtener historial del contrato: %s", str(exc), exc_info=True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
     @action(detail=False, methods=['get'], url_path='list')
     def list_employees(self, request):
         """
         Lista empleados con filtros, ordenamiento y paginación.
-        
+
         Query params:
         - search: Búsqueda por nombre o documento
         - search_type: "documento" o "nombre" (opcional, por defecto "nombre")
@@ -517,7 +753,7 @@ class EmployeeViewSet(viewsets.ViewSet):
         - ordering: Ordenamiento por columnas (document, name, status) con prefijo - para descendente
         - page: Número de página (por defecto 1)
         - page_size: Tamaño de página (10, 25, 50, 100, por defecto 25)
-        
+
         Requiere permiso: 183
         """
         # Verificar autenticación
@@ -622,13 +858,13 @@ class EmployeeViewSet(viewsets.ViewSet):
             if search:
                 matching_employee_ids = set()
                 search_lower = search.lower()
-                
+
                 for emp in employees_list:
                     if not emp.id_user_id or emp.id_user_id not in users_data:
                         continue
-                    
+
                     user_data = users_data[emp.id_user_id]
-                    
+
                     if search_type == "documento":
                         # Buscar por documento
                         doc_number = str(user_data.get('document_number', '')).strip()
@@ -644,7 +880,7 @@ class EmployeeViewSet(viewsets.ViewSet):
                         full_name = ' '.join([p for p in name_parts if p]).lower()
                         if search_lower in full_name:
                             matching_employee_ids.add(emp.id_employee)
-                
+
                 # Filtrar empleados que coinciden
                 employees_list = [emp for emp in employees_list if emp.id_employee in matching_employee_ids]
 
@@ -659,19 +895,19 @@ class EmployeeViewSet(viewsets.ViewSet):
                 # Ordenamiento por defecto: activos primero, luego inactivos, luego alfabético
                 active_employees = [e for e in employees_list if e.employee_status_id == 1]
                 inactive_employees = [e for e in employees_list if e.employee_status_id == 2]
-                
+
                 # Ordenar alfabéticamente por nombre
                 if users_data:
                     from service_requests.utils.external_user_helper import get_user_display_name
-                    
+
                     def get_sort_key(emp):
                         if not emp.id_user_id or emp.id_user_id not in users_data:
                             return ""
                         return get_user_display_name(users_data[emp.id_user_id]).lower()
-                    
+
                     active_employees.sort(key=get_sort_key)
                     inactive_employees.sort(key=get_sort_key)
-                
+
                 employees_list = active_employees + inactive_employees
             else:
                 # Ordenamiento por columna específica
@@ -682,17 +918,17 @@ class EmployeeViewSet(viewsets.ViewSet):
                             return ""
                         doc = str(users_data[emp.id_user_id].get('document_number', '')).lower()
                         return doc
-                    
+
                     employees_list.sort(key=get_doc_sort_key, reverse=(ordering == '-document'))
                 elif ordering in ['name', '-name']:
                     # Ordenar por nombre
                     from service_requests.utils.external_user_helper import get_user_display_name
-                    
+
                     def get_name_sort_key(emp):
                         if not emp.id_user_id or emp.id_user_id not in users_data:
                             return ""
                         return get_user_display_name(users_data[emp.id_user_id]).lower()
-                    
+
                     employees_list.sort(key=get_name_sort_key, reverse=(ordering == '-name'))
                 elif ordering in ['status', '-status']:
                     # Ordenar por estado
@@ -745,12 +981,12 @@ class EmployeeViewSet(viewsets.ViewSet):
     def retrieve_employee_detail(self, request, pk=None):
         """
         Obtiene el detalle completo de un empleado.
-        
+
         Incluye:
         - Información personal (desde servicio externo)
         - Información del contrato (cargo, departamento, estado)
         - Historial de novedades
-        
+
         Requiere permiso: 182 (employee.detail)
         """
         # Verificar autenticación
@@ -803,11 +1039,11 @@ class EmployeeViewSet(viewsets.ViewSet):
             # Obtener datos del usuario desde servicio externo si tiene id_user
             users_data = {}
             user_ids_to_fetch = []
-            
+
             # Agregar ID del empleado si tiene usuario asociado
             if employee.id_user_id:
                 user_ids_to_fetch.append(employee.id_user_id)
-            
+
             # Obtener IDs de usuarios responsables de las novedades
             news_queryset = getattr(employee, 'employee_news', None)
             if news_queryset:
@@ -816,7 +1052,7 @@ class EmployeeViewSet(viewsets.ViewSet):
                 )
                 responsible_user_ids = [uid for uid in responsible_user_ids if uid]
                 user_ids_to_fetch.extend(responsible_user_ids)
-            
+
             # Obtener todos los usuarios en batch si hay alguno
             if user_ids_to_fetch:
                 from service_requests.utils.external_user_helper import get_users_info_batch

@@ -18,11 +18,13 @@ class EmployeeListSerializer(serializers.ModelSerializer):
     charge_id = serializers.IntegerField(source='id_employee_charge.id_employee_charge', read_only=True)
     status_id = serializers.IntegerField(source='employee_status.id_statues', read_only=True)
     status_name = serializers.CharField(source='employee_status.name', read_only=True)
+    id_user = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = Employee
         fields = [
             'id_employee',
+            'id_user',
             'document_number',
             'full_name',
             'charge_name',

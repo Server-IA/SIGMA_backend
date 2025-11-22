@@ -16,7 +16,7 @@ class EmployeeNewsSerializer(serializers.ModelSerializer):
     date = serializers.DateTimeField(source='news_date', read_only=True)
     responsible_user_name = serializers.SerializerMethodField()
     description = serializers.CharField(source='observation', read_only=True)
-    action = serializers.CharField(source='news_type', read_only=True)
+    action = serializers.SerializerMethodField()
 
     class Meta:
         model = EmployeeNews
@@ -26,6 +26,10 @@ class EmployeeNewsSerializer(serializers.ModelSerializer):
             'description',
             'action',
         ]
+
+    def get_action(self, obj: EmployeeNews) -> str:
+        """Obtiene el nombre para mostrar del tipo de noticia."""
+        return obj.get_news_type_display()
 
     def get_responsible_user_name(self, obj: EmployeeNews) -> Optional[str]:
         """Obtiene el nombre del usuario responsable desde el servicio externo."""
@@ -280,10 +284,12 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
         full_name = ' '.join(name_parts) if name_parts else None
 
         return {
+            'id_user': getattr(obj, 'id_user_id', None),
             'full_name': full_name,
             'document_type': user_data.get('type_document_name') if user_data else None,
             'document_number': str(user_data.get('document_number')) if user_data and user_data.get('document_number') else None,
-            'gender': user_data.get('gender_name') if user_data else None,  # Corregido: usar gender_name en lugar de gender
+            'gender': user_data.get('gender_name') if user_data else None,  # Nombre del género
+            'gender_id': user_data.get('gender_id') or user_data.get('gender') if user_data else None,  # ID del género
             'birth_date': user_data.get('birthday') if user_data else None,  # Corregido: usar birthday en lugar de birth_date
             'email': getattr(obj, 'email', None),
             'phone': user_data.get('phone') if user_data else None,
