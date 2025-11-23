@@ -50,6 +50,12 @@ class EmployeeContract(models.Model):
     secundary_petition = models.BooleanField(null=False, blank=False, db_column="secundary_petition")
     creation_date = models.DateTimeField(db_column="creation_date", null=False, blank=False)
     id_responsible_user = models.ForeignKey("users.User", on_delete=models.PROTECT, related_name="employee_contracts_responsible", db_column="id_responsible_user", null=False, blank=False)
+    days_of_week = models.ManyToManyField(
+        "payroll.DaysOfWeek",
+        related_name="employee_contracts",
+        db_table="employee_contract_days_of_week",
+        blank=True
+    )
 
     class Meta:
         db_table = "employee_contracts"
