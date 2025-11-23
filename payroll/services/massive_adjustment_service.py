@@ -1,4 +1,5 @@
 
+from ast import parse
 import pandas as pd
 import uuid
 from datetime import datetime
@@ -37,8 +38,15 @@ class MassiveAdjustmentService:
         self.file = file
         self.fecha_desde = start_date
         self.fecha_hasta = end_date
-        self.empleados_ids = {e["id_employee"] for e in employees_ids}
-        self.documentos_empleados = {str(e["document_number"]) for e in employees_ids}
+        # Crear mapeo documento -> id_employee para búsqueda O(1)
+        self.documento_a_id = {}
+        for e in employees_ids:
+            # Normalizar documento (eliminar .0 si es float)
+            if isinstance(e["document_number"], (float, int)):
+                doc = str(int(e["document_number"]))
+            else:
+                doc = str(e["document_number"]).strip()
+            self.documento_a_id[doc] = e["id_employee"]
         self.batch_id = uuid.uuid4()
         self.user = user
         self.results = []
@@ -59,7 +67,7 @@ class MassiveAdjustmentService:
                 result = self._process_row(index + 2, row)  # +2 porque Excel empieza en 1 y tiene header
                 self.results.append(result)
                 
-                if result['status'] == 'pending':
+                if result['status'] == 'Aceptado':
                     accepted_adjustments.append(result['adjustment_data'])
             
             # 4. Guardar ajustes aceptados en BD
@@ -84,11 +92,14 @@ class MassiveAdjustmentService:
     def _read_excel(self):
         """Lee el archivo Excel"""
         try:
+            dtype_dict = {
+                'Identificación del empleado': str
+            }
             # Intentar con diferentes engines
             try:
-                df = pd.read_excel(self.file, engine='openpyxl')
+                df = pd.read_excel(self.file, engine='openpyxl', dtype=dtype_dict)
             except:
-                df = pd.read_excel(self.file, engine='xlrd')
+                df = pd.read_excel(self.file, engine='xlrd', dtype=dtype_dict)
             
             if df.empty:
                 raise ValueError("El archivo está vacío")
@@ -131,16 +142,21 @@ class MassiveAdjustmentService:
         
         # Validaciones
         errors = []
-        
         # 1. Validar que el empleado existe y está en la lista
         employee = self._validate_employee(result['employee_identification'], errors)
         
-        # 2. Validar que el tipo de ajuste exista
-        novelty = self._validate_type(result['adjustment_name'], errors)
+        
         
         # 3. Validar tipo de ajuste
         if result['adjustment_type'] not in self.VALID_ADJUSTMENT_TYPES:
             errors.append(f"Tipo de ajuste inválido: debe ser 'deduccion' o 'incremento'")
+
+        if result['adjustment_type'] in self.VALID_ADJUSTMENT_TYPES:
+            adjustment = self._validate_type(
+                result['adjustment_type'],
+                result['adjustment_name'],
+                errors
+            )
 
         # 4. Validar tipo de aplicación
         if result['application_type'] not in self.VALID_APPLICATION_TYPES:
@@ -156,12 +172,14 @@ class MassiveAdjustmentService:
             if value < 0:
                 errors.append("El valor debe ser positivo")
             
+            
             # Validar porcentaje
             if result['amount_type'] == 'porcentaje' and value > 100:
                 errors.append("El valor porcentual no puede superar el 100%")
         except (ValueError, TypeError):
             errors.append("El valor debe ser numérico")
             value = 0
+            result['amount_value'] = 0
         
         # 7. Validar cantidad
         try:
@@ -171,19 +189,16 @@ class MassiveAdjustmentService:
         except (ValueError, TypeError):
             errors.append("La cantidad debe ser numérica")
             amount = 1
+            result['amount'] = 0
         
-        # 7. Validar fecha de inicio y fin
-        start_date = self._validate_date(result['start_date_adjustment'], errors)
-        end_date = self._validate_date(result['end_date_adjustment'], errors)
-        if start_date and end_date and start_date > end_date:
-            errors.append("La fecha de inicio no puede ser mayor a la fecha de fin")
+        # 8. Validar fecha de inicio y fin
+        start_date = self._validate_date(result['start_date_adjustment'], errors, "Fecha de inicio")
+        end_date = self._validate_date(result['end_date_adjustment'], errors, "Fecha de fin")
 
-        # 8. Validar que las fechas estén dentro del rango de la nómina
-        if start_date and (start_date < self.fecha_desde or start_date > self.fecha_hasta):
-            errors.append("La fecha de inicio está fuera del rango de la nómina")
-        
-        if end_date and (end_date < self.fecha_desde or end_date > self.fecha_hasta):
-            errors.append("La fecha de fin está fuera del rango de la nómina")
+        if start_date is not None and end_date is not None:
+            print(start_date > end_date)
+            if start_date > end_date:
+                errors.append("La fecha de inicio no puede ser mayor a la fecha de fin")
 
         # 9. Validar longitud de descripción
         if len(result['description']) > 255:
@@ -197,9 +212,9 @@ class MassiveAdjustmentService:
             # Guardar datos para crear ajuste temporal
             result['adjustment_data'] = {
                 'employee': employee,
-                'adjustment_name': result['nombre_ajuste'],
-                'adjustment_type': 'deduccion' if result['tipo_ajuste'] in ['deduccion', 'deducción'] else 'incremento',
-                'amount_type': result['tipo_monto'],
+                'adjustment_name': result['adjustment_name'],
+                'adjustment_type': 'deduccion' if result['adjustment_type'] in ['deduccion', 'deducción'] else 'incremento',
+                'amount_type': result['amount_type'],
                 'amount_value': value,
                 'application_type': result['application_type'],
                 'start_date_adjustment': start_date,
@@ -217,68 +232,70 @@ class MassiveAdjustmentService:
             errors.append("Identificación del empleado es requerida")
             return None
         
-        if identificacion not in self.documentos_empleados:
+        # Buscar el ID del empleado en el mapeo
+        employee_id = self.documento_a_id.get(identificacion)
+        
+        if employee_id is None:
             errors.append(f"El empleado con documento {identificacion} no está en la lista de empleados aplicables")
             return None
         
         try:
-            # Primero verificar que el empleado esté en la lista
-            if not any(emp_id == employee.id_employee for emp_id in self.empleados_ids):
-                errors.append("El empleado no está en la lista seleccionada")
-                return None
-            
-            ## Obtener ID del empleado del listado
-            employee_id = next(
-                emp["id_employee"] for emp in self.empleados_ids
-                if str(emp["document_number"]) == identificacion
-            )
-            
-            # Luego validar que esté activo
+            # Validar que esté activo en la base de datos
             employee = Employee.objects.get(
-                id_employee=employee_id,  # Usar el ID específico
+                id_employee=employee_id,
                 employee_status_id=1
             )
             return employee
+            
         except Employee.DoesNotExist:
             errors.append(f"El empleado con documento {identificacion} no existe o no está activo")
             return None
-        
+            
     
-    def _validate_type(self, adjustment_type, errors):
+    def _validate_type(self, adjustment_type, adjustment_name, errors):
         """Valida que la novedad exista en parametrización"""
-        if not adjustment_type:
+        if not adjustment_name:
             errors.append("El nombre del ajuste es requerido")
             return None
         
+        id_category = 18 if adjustment_type == 'deduccion' else 19
+        
         try:
             adjustment = Types.objects.get(
-                name__iexact=adjustment_type,
-                id_types_categories__id_types_categories__in=[18, 19],  # Permitir categoría 18 o 19
+                name__iexact=adjustment_name,
+                id_types_categories__id_types_categories=id_category,
                 id_statues=1 # Activo
             )
             return adjustment
         except Types.DoesNotExist:
-            errors.append(f"El ajuste '{adjustment_type}' no está registrado en el sistema")
+            errors.append(f"El ajuste '{adjustment_name}' no está registrado en el sistema bajo la categoría {'deduccion' if adjustment_type == 'deduccion' else 'incremento'}")
             return None
     
-    def _validate_date(self, fecha_str, errors):
-        """Valida formato de fecha y que esté en el rango"""
-        if not fecha_str or fecha_str.lower() in ['', 'nan', 'none']:
+    from dateutil.parser import parse
+
+    def _validate_date(self, fecha_value, errors, field_name="Fecha"):
+        """Valida y normaliza la fecha (solo día/mes/año)"""
+        if fecha_value is None or pd.isna(fecha_value) or str(fecha_value).strip() == '':
             return None
         
-        # Intentar parsear fecha en formato DD/MM/AAAA
         try:
-            fecha = datetime.strptime(fecha_str, '%d/%m/%Y').date()
-            
-            # Validar que esté dentro del rango
-            if fecha < self.fecha_desde or fecha > self.fecha_hasta:
-                errors.append(f"La fecha {fecha_str} está fuera del rango de la nómina")
-                return None
-            
-            return fecha
+            fecha = datetime.strptime(fecha_value, '%Y-%m-%d %H:%M:%S')
         except ValueError:
-            errors.append(f"Fecha inválida: debe tener formato DD/MM/AAAA")
+            errors.append(f"{field_name} inválida: debe tener formato DD/MM/AAAA")
             return None
+
+        # Validar rango
+        if fecha.date() < self.fecha_desde or fecha.date() > self.fecha_hasta:
+            errors.append(
+                f"{field_name} {fecha.strftime('%d/%m/%Y')} está fuera del rango de la nómina "
+                f"({self.fecha_desde.strftime('%d/%m/%Y')} - {self.fecha_hasta.strftime('%d/%m/%Y')})"
+            )
+            return None
+
+        return fecha
+
+
+
     
     @transaction.atomic
     def _save_temporary_adjustments(self, adjustments_data):
@@ -286,9 +303,10 @@ class MassiveAdjustmentService:
         temp_ids = []
         
         for adj_data in adjustments_data:
+            print(type(self.user))
             temp_adj = TemporaryPayrollAdjustment.objects.create(
-                employee=adj_data['employee'],
-                user_creator=self.user,
+                id_employee=adj_data['employee'],
+                id_responsible_user=self.user,
                 adjustment_name=adj_data['adjustment_name'],
                 adjustment_type=adj_data['adjustment_type'],
                 amount_type=adj_data['amount_type'],
@@ -299,6 +317,8 @@ class MassiveAdjustmentService:
                 amount=adj_data['amount'],
                 description=adj_data['description'],
                 status='pending',
+                batch_id=self.batch_id,
+                expires_at=timezone.now() + timezone.timedelta(hours=24)
             )
             temp_ids.append(temp_adj.id_temp_adjustment)
         return temp_ids

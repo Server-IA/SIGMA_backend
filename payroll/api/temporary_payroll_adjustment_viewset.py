@@ -10,6 +10,8 @@ from payroll.serializers.temporary_payroll_adjustment.upload_massive_adjustments
 from payroll.services.massive_adjustment_service import MassiveAdjustmentService
 import logging
 
+from users.models.user import User
+
 logger = logging.getLogger(__name__)
 
 class TemporaryPayrollAdjustmentViewSet(viewsets.ModelViewSet):
@@ -77,6 +79,13 @@ class TemporaryPayrollAdjustmentViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         
+        responsable_user = self._get_responsible_user(request)
+        if responsable_user is None:
+            return Response(
+                {"message": "Usuario responsable no encontrado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
         try:
             # 1. Validar request
             serializer = UploadMassiveAdjustmentsSerializer(data=request.data)
@@ -88,12 +97,11 @@ class TemporaryPayrollAdjustmentViewSet(viewsets.ModelViewSet):
                 start_date=serializer.validated_data['start_date'],
                 end_date=serializer.validated_data['end_date'],
                 employees_ids=serializer.validated_data['employees'],
-                user=request.user
+                user=responsable_user
             )
 
             
             results = service.process()
-            
             # 3. Serializar respuesta
             response_serializer = UploadMassiveAdjustmentsResponseSerializer(results)
             
@@ -137,3 +145,12 @@ class TemporaryPayrollAdjustmentViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+        
+    def _get_responsible_user(self, request):
+        user_id = getattr(request.user, "id", None)
+        if not user_id:
+            return None
+        try:
+            return User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return None

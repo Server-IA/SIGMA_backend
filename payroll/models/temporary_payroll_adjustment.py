@@ -28,25 +28,16 @@ class TemporaryPayrollAdjustment(models.Model):
     ]
     
     STATUS_CHOICES = [
-        ('pending', 'Pendiente'),
+        ('pending', 'Aceptado'),
         ('confirmed', 'Confirmado'),
         ('rejected', 'Rechazado'),
     ]
     
     # Identificación
-    id_temp_adjustment = models.AutoField(primary_key=True)    
-    # Relaciones
-    employee = models.ForeignKey(
-        'Employee',
-        on_delete=models.CASCADE,
-        related_name='temp_payroll_adjustments'
-    )
-    user_creator = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='created_temp_adjustments'
-    )
+    id_temp_adjustment = models.AutoField(primary_key=True) 
+    id_employee = models.ForeignKey("payroll.Employee", on_delete=models.PROTECT, related_name="temporary_payroll_adjustments_id_employee", db_column="id_employee", null=False, blank=False)
+    id_responsible_user = models.ForeignKey('users.User', on_delete=models.PROTECT, related_name='temporary_payroll_adjustments_id_responsible_user', db_column="id_responsible_user", null=False, blank=False)
+
     
     # Datos del ajuste
     adjustment_name = models.CharField(max_length=255)  # Nombre de la novedad
@@ -55,8 +46,8 @@ class TemporaryPayrollAdjustment(models.Model):
     amount_value = models.DecimalField(max_digits=15, decimal_places=2)
     application_type = models.CharField(max_length=20, choices=APPLICATION_TYPE_CHOICES, null=False, blank=False, db_column="application_deduction_type")
     # Datos del periodo de nómina
-    start_date_adjustment = models.DateField()
-    end_date_adjustment = models.DateField()
+    start_date_adjustment = models.DateField(null=True, blank=False)
+    end_date_adjustment = models.DateField(null=True, blank=False)
     amount = models.DecimalField(max_digits=10, decimal_places=2, default=1)
     description = models.CharField(max_length=255)  # Descripción de la carga
     
