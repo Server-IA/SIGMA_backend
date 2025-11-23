@@ -154,6 +154,11 @@ class EmployeeContractCreateSerializer(serializers.ModelSerializer):
     contract_payments = EmployeeContractPaymentSerializer(many=True, required=False)
     established_deductions = EmployeeContractDeductionSerializer(many=True, required=False)
     established_increases = EmployeeContractIncreaseSerializer(many=True, required=False)
+    days_of_week = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=7),
+        required=False,
+        allow_empty=True
+    )
 
     class Meta:
         model = EmployeeContract
@@ -182,6 +187,7 @@ class EmployeeContractCreateSerializer(serializers.ModelSerializer):
             "notice_period_days",
             "established_deductions",
             "established_increases",
+            "days_of_week"
         ]
         read_only_fields = ["contract_code"]
         extra_kwargs = {
@@ -484,6 +490,13 @@ class EmployeeContractCreateSerializer(serializers.ModelSerializer):
             if inc_errors:
                 raise serializers.ValidationError({"established_increases": inc_errors})
 
+        # Validar días de la semana
+        days_of_week = data.get('days_of_week', [])
+        if days_of_week and len(days_of_week) != len(set(days_of_week)):
+            raise serializers.ValidationError({"days_of_week": "No se permiten días duplicados."})
+        if days_of_week and any(day < 1 or day > 7 for day in days_of_week):
+            raise serializers.ValidationError({"days_of_week": "Los días de la semana deben estar entre 1 y 7."})
+
         return data
 
     def generate_contract_code(self):
@@ -517,6 +530,7 @@ class EmployeeContractCreateSerializer(serializers.ModelSerializer):
         payments_data = validated_data.pop("contract_payments", [])
         deductions_data = validated_data.pop("established_deductions", [])
         increases_data = validated_data.pop("established_increases", [])
+        days_of_week = validated_data.pop('days_of_week', [1, 2, 3, 4, 5])  # Default to Monday-Friday
 
         employee = validated_data.pop("employee", None)
         employee_charge = validated_data.pop("employee_charge", None)
@@ -543,6 +557,13 @@ class EmployeeContractCreateSerializer(serializers.ModelSerializer):
         validated_data["contract_code"] = self.generate_contract_code()
 
         contract = EmployeeContract.objects.create(**validated_data)
+
+        # Asignar días de la semana
+        if days_of_week:
+            from payroll.models import DaysOfWeek
+            days = DaysOfWeek.objects.filter(id_day_of_week__in=days_of_week)
+            contract.days_of_week.set(days)
+
         self.process_contract_payments(contract, payments_data, contract.payment_frequency_type)
 
         for deduction in deductions_data:

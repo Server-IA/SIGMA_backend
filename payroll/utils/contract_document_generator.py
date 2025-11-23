@@ -65,6 +65,14 @@ class ContractDocumentGenerator:
             return str(user)
     
     @staticmethod
+    def _format_days_of_week(contract):
+        """Formatea los días de la semana del contrato."""
+        days = list(contract.days_of_week.all().order_by('id_day_of_week'))
+        if not days:
+            return "No especificado"
+        return ", ".join(day.name for day in days)
+        
+    @staticmethod
     def _format_payment_frequency_details(contract):
         """Formatea los detalles de frecuencia de pago según el tipo."""
         freq = contract.payment_frequency_type
@@ -295,10 +303,31 @@ class ContractDocumentGenerator:
             story.append(terminos_table)
             story.append(Spacer(1, 0.5 * cm))
             
-            # Sección 3: Deducciones
+            # Sección 3: Días laborables
+            story.append(Paragraph("3. DÍAS LABORABLES", styles['Heading2']))
+            story.append(Spacer(1, 0.2 * cm))
+            
+            days_text = ContractDocumentGenerator._format_days_of_week(contract)
+            days_data = [["Días laborables de la semana", days_text]]
+            
+            days_table = Table(days_data, colWidths=[available_width * 0.4, available_width * 0.6], hAlign='LEFT')
+            days_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+                ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#F5F5F5')),
+                ('FONTWEIGHT', (0, 0), (0, -1), 'BOLD'),
+            ]))
+            story.append(days_table)
+            story.append(Spacer(1, 0.5 * cm))
+            
+            # Sección 4: Deducciones
             deductions = list(contract.established_deductions.all())
             if deductions:
-                story.append(Paragraph("3. DEDUCCIONES", styles['Heading2']))
+                story.append(Paragraph("4. DEDUCCIONES", styles['Heading2']))
                 story.append(Spacer(1, 0.2 * cm))
                 
                 ded_header = [
@@ -340,10 +369,10 @@ class ContractDocumentGenerator:
                 story.append(ded_table)
                 story.append(Spacer(1, 0.5 * cm))
             
-            # Sección 4: Incrementos
+            # Sección 5: Incrementos
             increases = list(contract.established_increases.all())
             if increases:
-                story.append(Paragraph("4. INCREMENTOS", styles['Heading2']))
+                story.append(Paragraph("5. INCREMENTOS", styles['Heading2']))
                 story.append(Spacer(1, 0.2 * cm))
                 
                 inc_header = [
@@ -524,10 +553,39 @@ class ContractDocumentGenerator:
         
         doc.add_paragraph()
         
-        # Sección 3: Deducciones
+        # Sección 4: Días laborables
+        doc.add_heading('3. DÍAS LABORABLES', level=1)
+        
+        days_data = [
+            ["Días laborables de la semana", ContractDocumentGenerator._format_days_of_week(contract)]
+        ]
+        
+        days_table = doc.add_table(rows=1, cols=2)
+        days_table.style = 'Light Grid Accent 1'
+        
+        # Encabezados
+        headers = ["Campo", "Valor"]
+        for i, header in enumerate(headers):
+            cell = days_table.rows[0].cells[i]
+            cell.text = header
+            cell.paragraphs[0].runs[0].font.bold = True
+        
+        # Datos
+        for idx, (label, value) in enumerate(days_data, start=1):
+            if idx >= len(days_table.rows):
+                row_cells = days_table.add_row().cells
+            else:
+                row_cells = days_table.rows[idx].cells
+            
+            row_cells[0].text = label
+            row_cells[1].text = str(value)
+        
+        doc.add_paragraph()
+        
+        # Sección 4: Deducciones
         deductions = list(contract.established_deductions.all())
         if deductions:
-            doc.add_heading('3. DEDUCCIONES', level=1)
+            doc.add_heading('4. DEDUCCIONES', level=1)
             
             ded_table = doc.add_table(rows=len(deductions) + 1, cols=8)
             ded_table.style = 'Light Grid Accent 1'
@@ -552,10 +610,10 @@ class ContractDocumentGenerator:
             
             doc.add_paragraph()
         
-        # Sección 4: Incrementos
+        # Sección 5: Incrementos
         increases = list(contract.established_increases.all())
         if increases:
-            doc.add_heading('4. INCREMENTOS', level=1)
+            doc.add_heading('5. INCREMENTOS', level=1)
             
             inc_table = doc.add_table(rows=len(increases) + 1, cols=8)
             inc_table.style = 'Light Grid Accent 1'

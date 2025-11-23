@@ -514,6 +514,9 @@ class EstablishedContractViewSet(viewsets.ViewSet):
             # Eliminar pagos del contrato
             contract.contract_payments.all().delete()
             
+            # Eliminar relación con días de la semana (many-to-many)
+            contract.days_of_week.clear()
+            
             # Eliminar el contrato
             contract_code = contract.contract_code
             contract.delete()
