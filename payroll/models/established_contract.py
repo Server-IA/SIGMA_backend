@@ -46,7 +46,12 @@ class EstablishedContract(models.Model):
     creation_date = models.DateTimeField(db_column="creation_date", null=False, blank=False)
     modification_date = models.DateTimeField(db_column="modification_date", null=False, blank=False)
     id_responsible_user = models.ForeignKey("users.User", on_delete=models.PROTECT, related_name="established_contracts_responsible", db_column="id_responsible_user", null=False, blank=False)
-
+    days_of_week = models.ManyToManyField(
+        "payroll.DaysOfWeek",
+        related_name="contracts",
+        db_table="established_contract_days_of_week",
+        blank=True
+    )
     class Meta:
         db_table = "established_contracts"
 

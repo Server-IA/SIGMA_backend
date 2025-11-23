@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 import os
 
@@ -5,10 +6,13 @@ import requests
 from audit_sdk import AuditClient
 from django.db import transaction
 from django.utils import timezone
+from parameterization.models.employee_charges import EmployeeCharge
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.response import Response
+from django.db.models import Q
+
 
 from parameterization.models import Statues, Types
 from payroll.models import Employee, EmployeeContract, EmployeeNews
@@ -985,6 +989,121 @@ class EmployeeViewSet(viewsets.ViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(detail=False, methods=['get'], url_path='payroll-applicable-employees')
+    def list_applicable_employees(self, request):
+
+        """
+        Lista empleados aplicables para generación de nómina masiva.
+
+        Query params:
+        - cargo_id: ID del cargo a consultar (requerido)
+        - fecha_desde: Fecha de inicio del periodo en formato YYYY-MM-DD (requerido)
+        - fecha_hasta: Fecha de fin del periodo en formato YYYY-MM-DD (requerido)
+
+        Validaciones:
+        - fecha_desde debe ser menor o igual a fecha_hasta
+        - El cargo debe existir en el sistema
+        - Solo retorna empleados:
+            * En estado Activo
+            * Con contrato en el periodo seleccionado
+            * Asociados al cargo especificado
+
+        Respuesta incluye:
+        - Información básica del empleado (documento, nombre, email, cargo)
+
+        Requiere permiso: 188 (payroll.massive_payroll)
+        """
+        # Verificar autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Verificar permiso
+        required_permission = 188
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para la gestión de nómina masiva."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        
+        try:
+            # Obtener y validar parámetros de consulta
+            cargo_id = request.query_params.get('cargo_id')
+            fecha_desde_str = request.query_params.get('fecha_desde')
+            fecha_hasta_str = request.query_params.get('fecha_hasta')
+
+            if not cargo_id or not fecha_desde_str or not fecha_hasta_str:
+                return Response(
+                    {"message": "Los parámetros 'cargo_id', 'fecha_desde' y 'fecha_hasta' son requeridos."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                fecha_desde = datetime.strptime(fecha_desde_str, '%Y-%m-%d').date()
+                fecha_hasta = datetime.strptime(fecha_hasta_str, '%Y-%m-%d').date()
+            except ValueError:
+                return Response(
+                    {"message": "'fecha_desde' y 'fecha_hasta' deben tener el formato YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if fecha_desde > fecha_hasta:
+                return Response(
+                    {"message": "'fecha_desde' debe ser menor o igual a 'fecha_hasta'."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Verificar que el cargo existe
+            try:
+                EmployeeCharge.objects.get(pk=cargo_id)
+            except EmployeeCharge.DoesNotExist:
+                return Response(
+                    {"message": "El cargo especificado no existe."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+
+            applicable_employees = Employee.objects.filter(
+                employee_status_id=1,
+            ).filter(
+                employee_contracts__id_employee_charge_id=cargo_id,
+                employee_contracts__start_date__lte=fecha_hasta,
+            ).filter(
+                Q(employee_contracts__end_date__gte=fecha_desde) | 
+                Q(employee_contracts__end_date__isnull=True)
+            ).distinct()
+
+
+
+            # Serializar resultados
+            serializer = EmployeeListSerializer(
+                applicable_employees,
+                many=True,
+                context={'request': request}
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            logger.exception("Error al listar empleados")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 
     @action(detail=True, methods=['get'], url_path='detail')
     def retrieve_employee_detail(self, request, pk=None):
