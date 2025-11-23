@@ -12,7 +12,18 @@ def pytest_configure():
         _orig = getattr(JWTAuthentication, 'authenticate', None)
 
         def _fake_auth(self, request):
-            payload = {"roles": [{"permisos": [{"id": 177}]}], "id": 1000, "email": "test@example.com"}
+            payload = {
+                "roles": [{
+                    "permisos": [
+                        {"id": 177},
+                        {"id": 183},  # employee.list
+                        {"id": 184},  # employee.employee_contract_list
+                        {"id": 181},  # employee.employee_contract_detail
+                    ]
+                }],
+                "id": 1000,
+                "email": "test@example.com"
+            }
             user = JWTUser(user_id=payload.get('id', 1000), email=payload.get('email'), name=None, raw_payload=payload)
             return (user, payload)
 
