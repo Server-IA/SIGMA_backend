@@ -9,7 +9,6 @@ class EmployeeContractDeduction(models.Model):
     APPLICATION_DEDUCTION_TYPE_CHOICES = [
         ('SalarioBase', 'Salario Base'),
         ('SalarioFinal', 'Salario Final'),
-        ('SalarioPorHora', 'Salario Por Hora'),
     ]
     
     id_employee_contract_deduction = models.AutoField(primary_key=True, db_column="id_employee_contract_deduction")
