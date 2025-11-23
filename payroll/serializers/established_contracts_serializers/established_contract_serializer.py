@@ -157,6 +157,11 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
     contract_payments = ContractPaymentEstablishedContractSerializer(many=True, required=False)
     established_deductions = EstablishedDeductionSerializer(many=True, required=False)
     established_increases = EstablishedIncreaseSerializer(many=True, required=False)
+    days_of_week = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=7),
+        required=False,
+        allow_empty=True
+    )
 
     class Meta:
         model = EstablishedContract
@@ -167,7 +172,7 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
             'salary_base', 'currency_type', 'trial_period_days', 'vacation_days',
             'cumulative_vacation', 'start_cumulative_vacation', 'vacation_frequency_days',
             'maximum_disability_days', 'overtime', 'overtime_period', 'notice_period_days',
-            'established_deductions', 'established_increases'
+            'established_deductions', 'established_increases', 'days_of_week'
         ]
         read_only_fields = ['contract_code', 'creation_date', 'modification_date', 'id_responsible_user', 'established_contract_status']
         extra_kwargs = {
@@ -251,10 +256,20 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        # Validar fechas
-        if 'start_date' in data and 'end_date' in data and data['end_date'] is not None:
-            if data['start_date'] >= data['end_date']:
-                raise serializers.ValidationError({"end_date": "La fecha de fin debe ser posterior a la fecha de inicio."})
+        contract_start = data.get('start_date')
+        contract_end = data.get('end_date')
+        payment_frequency = data.get('payment_frequency_type')
+        
+        # Validar días de la semana
+        days_of_week = data.get('days_of_week', [])
+        if days_of_week and len(days_of_week) != len(set(days_of_week)):
+            raise serializers.ValidationError({"days_of_week": "No se permiten días duplicados."})
+        if days_of_week and any(day < 1 or day > 7 for day in days_of_week):
+            raise serializers.ValidationError({"days_of_week": "Los días de la semana deben estar entre 1 y 7."})
+        
+        # Validar fechas del contrato
+        if contract_end and contract_start > contract_end:
+            raise serializers.ValidationError({"end_date": "La fecha de finalización debe ser posterior a la fecha de inicio."})
                 
         # Validar campos numéricos en el contexto general
         numeric_fields = {
@@ -476,6 +491,7 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
         contract_payments_data = validated_data.pop('contract_payments', [])
         deductions_data = validated_data.pop('established_deductions', [])
         increases_data = validated_data.pop('established_increases', [])
+        days_of_week = validated_data.pop('days_of_week', [1, 2, 3, 4, 5])  # Default to Monday-Friday
         
         # Generar el código de contrato
         employee_charge = validated_data['id_employee_charge']
@@ -506,6 +522,12 @@ class EstablishedContractCreateSerializer(serializers.ModelSerializer):
         
         # Crear el contrato
         contract = EstablishedContract.objects.create(**validated_data)
+        
+        # Asignar días de la semana
+        if days_of_week:
+            from payroll.models import DaysOfWeek
+            days = DaysOfWeek.objects.filter(id_day_of_week__in=days_of_week)
+            contract.days_of_week.set(days)
         
         # Procesar pagos del contrato según la frecuencia
         self.process_contract_payments(contract, contract_payments_data, validated_data['payment_frequency_type'])

@@ -67,6 +67,11 @@ def contract_snapshot(contract):
         return str(date_obj) if date_obj else None
 
     # Get contract data
+    # Get days_of_week as a list of day numbers
+    days_of_week = []
+    if hasattr(contract, 'days_of_week') and contract.days_of_week.exists():
+        days_of_week = list(contract.days_of_week.values_list('id_day_of_week', flat=True))
+    
     snapshot = {
         # Basic Info
         'id_employee_charge': safe_get_attr(contract, 'id_employee_charge_id'),
@@ -90,6 +95,7 @@ def contract_snapshot(contract):
         'overtime': float(safe_get_attr(contract, 'overtime', 0)),
         'overtime_period': safe_get_attr(contract, 'overtime_period'),
         'notice_period_days': safe_get_attr(contract, 'notice_period_days'),
+        'days_of_week': days_of_week,
         'established_contract_status': safe_get_attr(contract, 'established_contract_status_id'),
         'id_responsible_user': safe_get_attr(contract, 'id_responsible_user_id'),
         'contract_payments': [],

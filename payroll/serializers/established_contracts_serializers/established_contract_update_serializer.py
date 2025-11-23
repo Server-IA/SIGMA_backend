@@ -3,10 +3,11 @@ from django.db import transaction
 from django.utils import timezone
 
 from payroll.models import (
-    EstablishedContract,
-    ContractPaymentsEstablishedContract,
-    EstablishedDeduction,
-    EstablishedIncrease
+    EstablishedContract, 
+    ContractPaymentsEstablishedContract, 
+    EstablishedDeduction, 
+    EstablishedIncrease,
+    DaysOfWeek
 )
 from payroll.serializers.established_contracts_serializers.established_contract_serializer import (
     EstablishedContractCreateSerializer,
@@ -37,12 +38,22 @@ class EstablishedContractUpdateSerializer(EstablishedContractCreateSerializer):
         contract_payments_data = validated_data.pop('contract_payments', None)
         deductions_data = validated_data.pop('established_deductions', None)
         increases_data = validated_data.pop('established_increases', None)
+        days_of_week = validated_data.pop('days_of_week', None)  # Get days_of_week from validated_data
 
         for field in self.Meta.read_only_fields:
             validated_data.pop(field, None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+
+        # Handle days_of_week if provided
+        if days_of_week is not None:
+            # Clear existing days
+            instance.days_of_week.clear()
+            # Add new days if any
+            if days_of_week:
+                days = DaysOfWeek.objects.filter(id_day_of_week__in=days_of_week)
+                instance.days_of_week.set(days)
 
         if contract_payments_data is not None:
             ContractPaymentsEstablishedContract.objects.filter(
