@@ -3,10 +3,19 @@ from payroll.models import (
     EstablishedContract, 
     ContractPaymentsEstablishedContract, 
     EstablishedDeduction, 
-    EstablishedIncrease
+    EstablishedIncrease,
+    DaysOfWeek
 )
 from parameterization.models import Types, Units, Statues, EmployeeCharge
 
+
+class DayOfWeekSerializer(serializers.ModelSerializer):
+    day_of_week_name = serializers.CharField(source='name', read_only=True)
+    
+    class Meta:
+        model = DaysOfWeek
+        fields = ['id_day_of_week', 'day_of_week_name']
+        
 
 class ContractPaymentSerializer(serializers.ModelSerializer):
     day_of_week_name = serializers.CharField(source='id_day_of_week.name', read_only=True, allow_null=True)
@@ -60,17 +69,16 @@ class EstablishedContractDetailSerializer(serializers.ModelSerializer):
     currency_type_name = serializers.CharField(source='currency_type.name', read_only=True)
     established_contract_status_name = serializers.CharField(source='established_contract_status.name', read_only=True)
     employee_charge_name = serializers.SerializerMethodField()
+    days_of_week = DayOfWeekSerializer(source='days_of_week.all', many=True, read_only=True)
+    contract_payments = ContractPaymentSerializer(many=True, read_only=True)
+    established_deductions = EstablishedDeductionSerializer(many=True, read_only=True)
+    established_increases = EstablishedIncreaseSerializer(many=True, read_only=True)
     
     def get_employee_charge_name(self, obj):
         try:
             return obj.id_employee_charge.name if obj.id_employee_charge else None
         except EmployeeCharge.DoesNotExist:
             return None
-    
-    # Related fields
-    contract_payments = ContractPaymentSerializer(many=True, read_only=True)
-    established_deductions = EstablishedDeductionSerializer(many=True, read_only=True)
-    established_increases = EstablishedIncreaseSerializer(many=True, read_only=True)
     
     class Meta:
         model = EstablishedContract
@@ -84,7 +92,7 @@ class EstablishedContractDetailSerializer(serializers.ModelSerializer):
             'cumulative_vacation', 'start_cumulative_vacation',
             'maximum_disability_days', 'overtime', 'overtime_period',
             'notice_period_days', 'established_contract_status',
-            'established_contract_status_name', 'contract_payments',
+            'established_contract_status_name', 'days_of_week', 'contract_payments',
             'established_deductions', 'established_increases'
         ]
         read_only_fields = ['contract_code', 'creation_date', 'modification_date']
