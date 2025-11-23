@@ -6,6 +6,7 @@ from payroll.models import (
     EmployeeContractDeduction,
     EmployeeContractIncrease,
     EmployeeContractPayment,
+    DaysOfWeek,
 )
 
 
@@ -46,6 +47,12 @@ class EmployeeContractDeductionSerializer(serializers.ModelSerializer):
         ]
 
 
+class DayOfWeekSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DaysOfWeek
+        fields = ['id_day_of_week', 'name']
+
+
 class EmployeeContractIncreaseSerializer(serializers.ModelSerializer):
     increase_type_name = serializers.CharField(source="increase_type.name", read_only=True)
 
@@ -78,6 +85,7 @@ class EmployeeContractDetailSerializer(serializers.ModelSerializer):
     employee_contract_increases = EmployeeContractIncreaseSerializer(
         many=True, read_only=True
     )
+    days_of_week = DayOfWeekSerializer(source='days_of_week.all', many=True, read_only=True)
 
     class Meta:
         model = EmployeeContract
@@ -112,6 +120,7 @@ class EmployeeContractDetailSerializer(serializers.ModelSerializer):
             "contract_status",
             "contract_status_name",
             "contract_payments",
+            "days_of_week",
             "employee_contract_deductions",
             "employee_contract_increases",
         ]
