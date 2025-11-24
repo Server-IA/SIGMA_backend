@@ -87,7 +87,7 @@ class EstablishedContractDetailSerializer(serializers.ModelSerializer):
             'contract_type', 'contract_type_name', 'start_date', 'end_date',
             'payment_frequency_type', 'minimum_hours', 'workday_type',
             'workday_type_name', 'work_mode_type', 'work_mode_type_name',
-            'salary_type', 'salary_base', 'currency_type', 'currency_type_name',
+            'salary_type', 'working_hours', 'salary_base', 'currency_type', 'currency_type_name',
             'trial_period_days', 'vacation_days', 'vacation_frequency_days',
             'cumulative_vacation', 'start_cumulative_vacation',
             'maximum_disability_days', 'overtime', 'overtime_period',

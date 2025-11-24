@@ -40,6 +40,10 @@ class EstablishedContractUpdateSerializer(EstablishedContractCreateSerializer):
         increases_data = validated_data.pop('established_increases', None)
         days_of_week = validated_data.pop('days_of_week', None)  # Get days_of_week from validated_data
 
+        # Check if salary_type is being updated to 'Por días' or 'Mensual fijo'
+        if 'salary_type' in validated_data and validated_data['salary_type'] in ['Por días', 'Mensual fijo']:
+            validated_data['working_hours'] = None
+
         for field in self.Meta.read_only_fields:
             validated_data.pop(field, None)
 
