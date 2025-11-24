@@ -10,6 +10,7 @@ class EmployeeChargeListSerializer(serializers.ModelSerializer):
         fields = [
             'id_employee_charge',
             'name',
+            'contract_prefix',
             'description',
             'departamento',
             'id_statues',
