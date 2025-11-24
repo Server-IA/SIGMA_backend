@@ -276,6 +276,7 @@ class ContractDocumentGenerator:
             
             terminos_data = [
                 ["Tipo de salario", contract.salary_type],
+                ["Horas de trabajo", str(contract.working_hours) if contract.working_hours is not None else "N/A"],
                 ["Salario base", salary_display],
                 ["Moneda", getattr(contract.currency_type, 'name', 'N/A')],
                 ["Período de prueba (días)", str(contract.trial_period_days) if contract.trial_period_days else "N/A"],
@@ -526,6 +527,7 @@ class ContractDocumentGenerator:
         
         terminos_data = [
             ["Tipo de salario", contract.salary_type],
+            ["Horas de trabajo", str(contract.working_hours) if contract.working_hours is not None else "N/A"],
             ["Salario base", salary_display],
             ["Moneda", getattr(contract.currency_type, 'name', 'N/A')],
             ["Período de prueba (días)", str(contract.trial_period_days) if contract.trial_period_days else "N/A"],
