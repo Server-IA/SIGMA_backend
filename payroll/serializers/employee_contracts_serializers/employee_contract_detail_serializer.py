@@ -105,6 +105,7 @@ class EmployeeContractDetailSerializer(serializers.ModelSerializer):
             "work_mode_type",
             "work_mode_type_name",
             "salary_type",
+            "working_hours",
             "salary_base",
             "currency_type",
             "currency_type_name",
