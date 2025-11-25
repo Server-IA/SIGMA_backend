@@ -118,9 +118,9 @@ class EmployeeListSerializer(serializers.ModelSerializer):
         user_data = self._get_external_user(user_id)
         if user_data:
             name_parts = []
-            name = user_data.get('name', '').strip()
-            first_last_name = user_data.get('first_last_name', '').strip()
-            second_last_name = user_data.get('second_last_name', '').strip()
+            name = user_data.get('name', '').strip() if user_data.get('name') else ''
+            first_last_name = user_data.get('first_last_name', '').strip() if user_data.get('first_last_name') else ''
+            second_last_name = user_data.get('second_last_name', '').strip() if user_data.get('second_last_name') else ''
 
             if name:
                 name_parts.append(name)

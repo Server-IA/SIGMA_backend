@@ -1,7 +1,7 @@
 import os
 import requests
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -85,34 +85,40 @@ def get_users_info_batch(user_ids: List[int], request=None) -> Dict[int, Dict[st
         return {}
 
 
-def get_user_display_name(user_data: Dict[str, Any]) -> str:
+def get_user_display_name(user_data: Optional[Dict[str, Any]]) -> str:
     """
     Construye el nombre completo de un usuario a partir de sus datos.
     
     Args:
-        user_data: Diccionario con datos del usuario
+        user_data: Diccionario con datos del usuario o None
         
     Returns:
-        Nombre completo formateado
+        Nombre completo formateado o cadena vacía si no hay datos
     """
     if not user_data:
-        return ""
+        return ''
     
     name_parts = []
     
     # Agregar nombre
-    name = user_data.get('name', '').strip()
-    if name:
-        name_parts.append(name)
+    name = user_data.get('name')
+    if name and isinstance(name, str):
+        name = name.strip()
+        if name:
+            name_parts.append(name)
     
     # Agregar primer apellido
-    first_last_name = user_data.get('first_last_name', '').strip()
-    if first_last_name:
-        name_parts.append(first_last_name)
+    first_last_name = user_data.get('first_last_name')
+    if first_last_name and isinstance(first_last_name, str):
+        first_last_name = first_last_name.strip()
+        if first_last_name:
+            name_parts.append(first_last_name)
     
     # Agregar segundo apellido
-    second_last_name = user_data.get('second_last_name', '').strip()
-    if second_last_name:
-        name_parts.append(second_last_name)
+    second_last_name = user_data.get('second_last_name')
+    if second_last_name and isinstance(second_last_name, str):
+        second_last_name = second_last_name.strip()
+        if second_last_name:
+            name_parts.append(second_last_name)
     
     return ' '.join(name_parts)
