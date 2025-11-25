@@ -84,6 +84,7 @@ def contract_snapshot(contract):
         'workday_type': safe_get_attr(contract, 'workday_type_id'),
         'work_mode_type': safe_get_attr(contract, 'work_mode_type_id'),
         'salary_type': safe_get_attr(contract, 'salary_type'),
+        'working_hours': float(safe_get_attr(contract, 'working_hours', 0)) if safe_get_attr(contract, 'working_hours') is not None else None,
         'salary_base': float(safe_get_attr(contract, 'salary_base', 0)),
         'currency_type': safe_get_attr(contract, 'currency_type_id'),
         'trial_period_days': safe_get_attr(contract, 'trial_period_days'),
