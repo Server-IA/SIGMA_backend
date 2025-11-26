@@ -9,6 +9,7 @@ class EmployeeNews(models.Model):
         ('GENERAR_OTRO_SI', 'Generar otro si'),
         ('CAMBIO_CONTRATO', 'Cambio de contrato'),
         ('FINALIZACION_CONTRATO', 'Finalización de contrato'),
+        ('GENERACION_NOMINA', 'Generación de nómina')
     ]
 
     id_employee_new = models.AutoField(primary_key=True)

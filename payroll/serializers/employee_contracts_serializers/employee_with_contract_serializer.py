@@ -174,6 +174,7 @@ class EmployeeContractCreateSerializer(serializers.ModelSerializer):
             "workday_type",
             "work_mode_type",
             "salary_type",
+            "working_hours",
             "salary_base",
             "currency_type",
             "trial_period_days",
@@ -197,6 +198,7 @@ class EmployeeContractCreateSerializer(serializers.ModelSerializer):
             "vacation_frequency_days": {"required": False, "allow_null": True},
             "overtime_period": {"required": False, "allow_null": True},
             "notice_period_days": {"required": False, "allow_null": True},
+            "working_hours": {"required": False, "allow_null": True},
             "end_date": {"required": False, "allow_null": True},
         }
 
@@ -259,6 +261,56 @@ class EmployeeContractCreateSerializer(serializers.ModelSerializer):
         if value is not None and value < 0:
             raise serializers.ValidationError("El período de preaviso no puede ser negativo.")
         return value
+
+    def validate_deductions(self, data):
+        """
+        Validates the deductions according to the specified rules:
+        1. For 'Porcentaje' and 'SalarioBase' deductions, sum of amount_value <= 100
+        2. For 'Porcentaje' and 'SalarioFinal' deductions, sum of amount_value <= 100
+        3. For 'fijo' and 'SalarioBase' deductions, sum of amount_value <= salary_base
+        """
+        deductions = data.get('established_deductions', [])
+        salary_base = data.get('salary_base')
+
+        # Group deductions by amount_type and application_deduction_type
+        percentage_salario_base = []
+        percentage_salario_final = []
+        fijo_salario_base = []
+
+        for deduction in deductions:
+            amount_type = deduction.get('amount_type')
+            app_type = deduction.get('application_deduction_type')
+            amount_value = deduction.get('amount_value', 0)
+
+            if amount_type == 'Porcentaje' and app_type == 'SalarioBase':
+                percentage_salario_base.append(amount_value)
+            elif amount_type == 'Porcentaje' and app_type == 'SalarioFinal':
+                percentage_salario_final.append(amount_value)
+            elif amount_type == 'fijo' and app_type == 'SalarioBase':
+                fijo_salario_base.append(amount_value)
+
+        # Validate percentage SalarioBase deductions
+        total_percentage_sb = sum(percentage_salario_base)
+        if total_percentage_sb > 100:
+            raise serializers.ValidationError({
+                'established_deductions': f"La suma de los porcentajes para deducciones de tipo 'Porcentaje' y 'SalarioBase' no puede exceder el 100%. Total actual: {total_percentage_sb}%"
+            })
+
+        # Validate percentage SalarioFinal deductions
+        total_percentage_sf = sum(percentage_salario_final)
+        if total_percentage_sf > 100:
+            raise serializers.ValidationError({
+                'established_deductions': f"La suma de los porcentajes para deducciones de tipo 'Porcentaje' y 'SalarioFinal' no puede exceder el 100%. Total actual: {total_percentage_sf}%"
+            })
+
+        # Validate fixed SalarioBase deductions
+        total_fixed_sb = sum(fijo_salario_base)
+        if salary_base is not None and total_fixed_sb > salary_base:
+            raise serializers.ValidationError({
+                'established_deductions': f"La suma de los montos fijos para deducciones de tipo 'fijo' y 'SalarioBase' no puede exceder el salario base (${salary_base:.2f}). Total actual: ${total_fixed_sb:.2f}"
+            })
+
+        return data
 
     def validate(self, data):
         if "start_date" in data and "end_date" in data and data["end_date"] is not None:
@@ -385,6 +437,28 @@ class EmployeeContractCreateSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         {"contract_payments": "Para pago mensual, la fecha de pago debe estar entre 1 y 31."}
                     )
+
+        # Validate working_hours based on salary_type
+        salary_type = data.get('salary_type')
+        working_hours = data.get('working_hours')
+
+        if salary_type == 'Por horas':
+            if working_hours is None:
+                raise serializers.ValidationError({
+                    "working_hours": "Este campo es obligatorio cuando el tipo de salario es 'Por horas'."
+                })
+            if working_hours <= 0 or working_hours >= 24:
+                raise serializers.ValidationError({
+                    "working_hours": "Las horas de trabajo deben ser mayores que 0 y menores que 24 cuando el tipo de salario es 'Por horas'."
+                })
+        else:
+            # Remove working_hours if salary_type is not 'Por horas'
+            if 'working_hours' in data:
+                data.pop('working_hours')
+
+        # Validate deductions if they exist in the data
+        if 'established_deductions' in data:
+            self.validate_deductions(data)
 
         if "established_deductions" in self.initial_data:
             deduction_types = set()
