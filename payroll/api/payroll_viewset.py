@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from payroll.models import Payroll
 from payroll.serializers.payroll_serializers.payroll_history_report_serializer import PayrollHistoryReportSerializer
 from payroll.models import Payroll, EmployeeContractDeduction, EmployeeContractIncrease
+from payroll.serializers.payroll_serializers.payroll_list_serializer import PayrollListSerializer
 from payroll.serializers.payroll_serializers.payroll_masive_generetion_serializer import PayrollMasiveGenerationSerializer
 from payroll.serializers.payroll_serializers.payroll_detail_serializer import PayrollDetailSerializer
 from payroll.services.payroll_history_service import (
@@ -446,6 +447,43 @@ class PayrollViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(detail=False, methods=["get"], url_path="list-generated")
+    def list_generated(self, request):
+        """
+        HU-NOM-005: Listar nóminas generadas.
+        Permiso requerido: 193
+        """
+
+        # -----------------------
+        # 1. Validación de permisos
+        # -----------------------
+        required_permission = 193
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"success": False, "message": "No tiene permiso para ver las nóminas generadas."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # -----------------------
+        # 2. Obtener todas las nóminas SIN filtros
+        # -----------------------
+        queryset = Payroll.objects.select_related(
+            "id_employee",
+            "id_employee__id_user",
+            "id_responsible_user",
+            "currency_type"
+        ).all()
+
+        # -----------------------
+        # 3. Serializar y responder (SIN paginación)
+        # -----------------------
+        serializer = PayrollListSerializer(queryset, many=True, context={"request": request})
+
+        return Response({
+            "success": True,
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)
 
     def _get_responsible_user(self, request):
         user_id = getattr(request.user, "id", None)
