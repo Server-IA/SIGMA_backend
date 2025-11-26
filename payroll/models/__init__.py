@@ -12,4 +12,4 @@ from .employee_news import EmployeeNews
 from .payroll import Payroll
 from .payroll_deduction import PayrollDeduction
 from .payroll_increase import PayrollIncrease
-
+from .temporary_payroll_adjustment import TemporaryPayrollAdjustment

@@ -34,6 +34,7 @@ class EmployeeContract(models.Model):
     workday_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="employee_contracts_by_workday_type", db_column="workday_type", null=True, blank=True)
     work_mode_type = models.ForeignKey("parameterization.Types", on_delete=models.PROTECT, related_name="employee_contracts_by_work_mode_type", db_column="work_mode_type", null=True, blank=True)
     salary_type = models.CharField(max_length=20, choices=SALARY_TYPE_CHOICES, null=False, blank=False, db_column="salary_type")
+    working_hours = models.FloatField(null=True, blank=True, db_column="working_hours")
     salary_base = models.FloatField(null=False, blank=False, db_column="salary_base")
     currency_type = models.ForeignKey("parameterization.Units", on_delete=models.PROTECT, related_name="employee_contracts_by_currency_type", db_column="currency_type", null=False, blank=False)
     trial_period_days = models.IntegerField(null=True, blank=True, db_column="trial_period_days")
