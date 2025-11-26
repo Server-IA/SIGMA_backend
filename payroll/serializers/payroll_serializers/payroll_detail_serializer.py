@@ -15,6 +15,7 @@ class PayrollDetailSerializer(serializers.ModelSerializer):
     document_number = serializers.SerializerMethodField()
     employee_full_name = serializers.SerializerMethodField()
     responsible_user_full_name = serializers.SerializerMethodField()
+    currency_type_name = serializers.CharField(source='currency_type.name', read_only=True)
     payroll_deductions = serializers.SerializerMethodField()
     payroll_increases = serializers.SerializerMethodField()
     
@@ -33,6 +34,8 @@ class PayrollDetailSerializer(serializers.ModelSerializer):
             'total_deductions',
             'total_increments',
             'net_pay',
+            'currency_type',
+            'currency_type_name',
             'creation_date',
             'id_responsible_user',
             'responsible_user_full_name',
@@ -42,7 +45,7 @@ class PayrollDetailSerializer(serializers.ModelSerializer):
         read_only_fields = ['id_payroll', 'start_date', 'end_date', 'id_employee', 
                           'id_employee_contract', 'base_salary', 'time_worked',
                           'total_deductions', 'total_increments', 'net_pay', 
-                          'creation_date', 'id_responsible_user']
+                          'currency_type', 'creation_date', 'id_responsible_user']
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
