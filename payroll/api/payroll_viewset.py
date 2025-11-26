@@ -34,10 +34,13 @@ class PayrollViewSet(viewsets.ModelViewSet):
         permisos_usuario = []
         for rol in user_roles:
             # Obtener permisos del rol (soporta "permisos" y "permissions")
-            perms = rol.get("permisos") or rol.get("permissions") or []
+            perms = (rol or {}).get("permisos") or (rol or {}).get("permissions") or []
             for perm in perms:
                 if isinstance(perm, dict) and "id" in perm:
-                    permisos_usuario.append(perm.get("id"))
+                    try:
+                        permisos_usuario.append(int(perm.get("id")))
+                    except (ValueError, TypeError):
+                        pass
 
         return required_permission_id in permisos_usuario
 
