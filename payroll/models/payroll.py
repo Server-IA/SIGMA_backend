@@ -15,6 +15,8 @@ class Payroll(models.Model):
     total_increments = models.FloatField(null=False, blank=False, db_column="total_increments", default=0.0)
     # Valor neto final a pagar
     net_pay = models.FloatField(null=False, blank=False, db_column="net_pay", default=0.0)
+    currency_type = models.ForeignKey("parameterization.Units", on_delete=models.PROTECT, related_name="pyroll_by_currency_type", db_column="currency_type", null=False, blank=False)
+
     creation_date = models.DateTimeField(db_column="creation_date", null=False, blank=False)
     id_responsible_user = models.ForeignKey("users.User", on_delete=models.PROTECT, related_name="payrolls_responsible", db_column="id_responsible_user", null=False, blank=False)
 
