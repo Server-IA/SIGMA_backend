@@ -54,7 +54,7 @@ class CustomerViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     def create_customer(self, request):
         """
-        Crea un nuevo cliente.
+        Crea un nuevo cliente .
         """
         # Verificar que el usuario esté autenticado
         if not request.user.is_authenticated:

@@ -1068,6 +1068,7 @@ class EmployeeViewSet(viewsets.ViewSet):
 
             applicable_employees = Employee.objects.filter(
                 employee_status_id=1,
+                employee_contracts__contract_status = 28
             ).filter(
                 employee_contracts__id_employee_charge_id=cargo_id,
                 employee_contracts__start_date__lte=fecha_hasta,
