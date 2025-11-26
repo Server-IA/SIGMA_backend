@@ -97,7 +97,6 @@ class EmployeeAdditionalIncreaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = PayrollIncrease
         fields = [
-            "employee_name",
             "increase_type",
             "amount_type",
             "amount_value",
@@ -173,9 +172,6 @@ class PayrollMasiveGenerationSerializer(serializers.Serializer):
         start = data["start_date"]
         end = data["end_date"]
 
-        request = self.context.get('request') if isinstance(self.context, dict) else None
-
-
         # Validar fechas
         if start > end:
             raise serializers.ValidationError({
@@ -204,9 +200,54 @@ class PayrollMasiveGenerationSerializer(serializers.Serializer):
         
         employee_ids = [emp_data["employee_id"] for emp_data in data["employees"]]
         existing_employee_ids = set(Employee.objects.filter(id_employee__in=employee_ids).values_list('id_employee', flat=True))
-        
+        users_employee_ids = set(Employee.objects.filter(id_employee__in=employee_ids).values_list('id_user', flat=True))
+
         # Diccionario para acumular todos los conflictos/rechazos
         rejected_employees = {}
+
+        request = self.context.get('request') if isinstance(self.context, dict) else None
+
+        base_auth_url = os.getenv('AUTH_SERVICE_URL', '').rstrip('/')
+        if base_auth_url:
+            url = f"{base_auth_url}/users/users/basic-user-list/by-ids"
+            headers = {}
+            
+            auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') if request is not None else None
+            
+            if not auth_header and hasattr(request, 'headers'):
+                auth_header = request.headers.get('Authorization')
+            if auth_header:
+                headers['Authorization'] = auth_header
+            try:
+                print("ok")
+                resp = requests.post(url, json={'ids': list(users_employee_ids)}, headers=headers, timeout=10)
+                print(resp.status_code)
+                if resp.status_code == 200:
+                    payload = resp.json() or {}
+                    users_data = payload.get('data', []) or []
+                    
+                    names_map = {}
+                    for u in users_data:
+                        user_id = u.get('id')  # id del usuario
+                        name = u.get('name') or ''
+                        fln = u.get('first_last_name') or ''
+                        sln = u.get('second_last_name') or ''
+                        full_name = ' '.join([name, fln, sln]).strip()
+                        names_map[user_id] = full_name
+
+                    print(names_map)
+                    for emp_data in data.get("employees", []):
+                        user_id = Employee.objects.filter(id_employee=emp_data["employee_id"]).values_list('id_user', flat=True).first()
+                        emp_data["full_name"] = names_map.get(user_id, "")
+                else:
+                    for emp in data.get("employees", []):
+                        emp.setdefault("full_name", "")
+            except Exception as e:
+                for emp in data.get("employees", []):
+                    emp.setdefault("full_name", "")
+                print(str(e))
+        
+        employees_map = {emp["employee_id"]: emp for emp in data.get("employees", [])}
         
         # Validar existencia de empleados
         for emp_id in employee_ids:
@@ -217,47 +258,6 @@ class PayrollMasiveGenerationSerializer(serializers.Serializer):
                     "employee_name": employee_name,
                     "reason": "El empleado no existe en el sistema."
                 }
-
-        base_auth_url = os.getenv('AUTH_SERVICE_URL', '').rstrip('/')
-        if base_auth_url:
-            url = f"{base_auth_url}/users/users/basic-user-list/by-ids"
-            headers = {}
-            
-            auth_header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION') if request is not None else None
-            if not auth_header and hasattr(request, 'headers'):
-                auth_header = request.headers.get('Authorization')
-            if auth_header:
-                headers['Authorization'] = auth_header
-            try:
-                resp = requests.post(url, json={'ids': employee_ids}, headers=headers, timeout=10)
-                if resp.status_code == 200:
-                    payload = resp.json()
-                    users_data = payload.get('data', []) or []
-                    
-                    names_map = {}
-                    for u in users_data:
-                        id = u.get('id')
-                        name = u.get('name') or ''
-                        fln = u.get('first_last_name') or ''
-                        sln = u.get('second_last_name') or ''
-                        full = ' '.join([p for p in [name, fln, sln] if p]).strip()
-                        names_map[id] = full
-
-                    # Actualizar employees_data con full_name
-                    for emp in data:
-                        emp_id = emp.get("employee_id")
-                        if emp_id in names_map:
-                            emp["full_name"] = names_map[emp_id]
-
-                else:
-                    for emp in data.get("employees", []):
-                        emp.setdefault("full_name", "")
-            except Exception:
-                for emp in data.get("employees", []):
-                    emp.setdefault("full_name", "")
-        
-        employees_map = {emp["employee_id"]: emp for emp in data.get("employees", [])}
-        
         # Validar contratos activos en cargo/departamento
         for emp_id in employee_ids:
             if emp_id in rejected_employees:
@@ -311,6 +311,7 @@ class PayrollMasiveGenerationSerializer(serializers.Serializer):
             
             if conflicting:
                 emp_data = employees_map.get(emp_id, {})
+                print(emp_data)
                 employee_name = emp_data.get("full_name") or emp_data.get("employee_name") or f"ID {emp_id}"
 
                 rejected_employees[emp_id] = {
