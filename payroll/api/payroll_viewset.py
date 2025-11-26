@@ -1,13 +1,24 @@
 import logging
+from datetime import datetime
+
+from django.http import HttpResponse
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from payroll.models import Payroll
+from payroll.serializers.payroll_serializers.payroll_history_report_serializer import PayrollHistoryReportSerializer
 from payroll.serializers.payroll_serializers.payroll_masive_generetion_serializer import PayrollMasiveGenerationSerializer
 from payroll.serializers.payroll_serializers.payroll_detail_serializer import PayrollDetailSerializer
+from payroll.services.payroll_history_service import (
+    PayrollHistoryService,
+    EmployeeNotFoundError,
+)
+from payroll.utils.audit_helpers import get_actor_info
 from users.models.user import User
+from audit_sdk import AuditClient
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +46,133 @@ class PayrollViewSet(viewsets.ModelViewSet):
                     permisos_usuario.append(perm.get("id"))
 
         return required_permission_id in permisos_usuario
+
+    @action(detail=False, methods=['post'], url_path='generate-history-report')
+    def generate_history_report(self, request):
+        """Genera y descarga el PDF del historial de nóminas de un empleado.
+
+        Requiere permiso: 194 (payroll.history_report)
+        """
+        # 1. Verificar autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # 2. Verificar permiso
+        required_permission = 194
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para generar informes de historial de nómina."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # 3. Validar entrada
+        serializer = PayrollHistoryReportSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Parámetros inválidos",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        document = data["employeeIdentification"]
+        date_from = data["dateFrom"]
+        date_to = data["dateTo"]
+
+        try:
+            # 4. Resolver empleado y user_data externo
+            employee, user_data = PayrollHistoryService.resolve_employee_by_identification(
+                document_number=document,
+                request=request,
+            )
+
+            # 5. Consultar nóminas
+            payroll_qs = PayrollHistoryService.get_payrolls_for_employee(
+                employee=employee,
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+            # 6. Construir payload para PDF
+            employee_info, payroll_items = PayrollHistoryService.build_history_payload(
+                employee=employee,
+                user_data=user_data,
+                payrolls=payroll_qs,
+            )
+
+            # 7. Obtener info de usuario que descarga
+            downloader_user = None
+            actor_id = None
+            actor_name = None
+            actor_role_name = None
+
+            if hasattr(request, 'user') and request.user.is_authenticated:
+                try:
+                    downloader_user = User.objects.get(id=request.user.id)
+                    actor_id = str(downloader_user.id)
+                    actor_name = downloader_user.get_full_name() or downloader_user.email
+                    
+                    # Obtener el rol del usuario desde el token
+                    payload = getattr(request, "auth", None) or {}
+                    user_roles = payload.get("rol") or payload.get("roles") or []
+                    if user_roles and isinstance(user_roles, list) and len(user_roles) > 0:
+                        actor_role_name = user_roles[0].get("nombre") or user_roles[0].get("name")
+                except User.DoesNotExist:
+                    pass
+
+            # 8. Registrar evento de auditoría
+            audit_client = AuditClient()
+            audit_client.log_event(
+                action="GENERATE_HISTORY_REPORT",
+                resource_type="payroll_history",
+                resource_id=f"employee_{document}",
+                actor_id=actor_id,
+                actor_name=actor_name,
+                actor_role=actor_role_name,
+                metadata={
+                    "employee_document": document,
+                    "date_from": date_from.isoformat(),
+                    "date_to": date_to.isoformat(),
+                    "payroll_count": len(payroll_items),
+                },
+            )
+
+            # 9. Generar PDF
+            pdf_bytes = PayrollHistoryService.generate_pdf(
+                employee=employee_info,
+                payroll_items=payroll_items,
+                date_from=date_from,
+                date_to=date_to,
+                downloader=downloader_user,
+            )
+
+            # 10. Crear respuesta con el PDF
+            response = HttpResponse(
+                pdf_bytes,
+                content_type="application/pdf",
+            )
+            filename = f"historial_nomina_{document}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            response["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return response
+
+        except EmployeeNotFoundError as e:
+            logger.error(f"Error generando historial de nómina: {str(e)}")
+            return Response(
+                {"message": str(e)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as e:
+            logger.exception("Error inesperado generando historial de nómina")
+            return Response(
+                {"message": "Error interno del servidor al generar el historial de nómina"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(detail=False, methods=['post'], url_path='generate-massive')
     def generate_massive(self, request):
