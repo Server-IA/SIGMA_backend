@@ -1,11 +1,17 @@
 import logging
+from datetime import datetime
+
+from django.http import HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-
+from payroll.models import Payroll, EmployeeContractDeduction, EmployeeContractIncrease
 from payroll.serializers.payroll_serializers.payroll_masive_generetion_serializer import PayrollMasiveGenerationSerializer
+from payroll.utils.payroll_document_generator import PayrollDocumentGenerator
+from payroll.utils.audit_helpers import get_actor_info
+from service_requests.utils.external_user_helper import get_users_info_batch, get_user_display_name
 from users.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -196,3 +202,126 @@ class PayrollViewSet(viewsets.ModelViewSet):
             return User.objects.get(pk=user_id)
         except User.DoesNotExist:
             return None
+
+    @action(detail=True, methods=['get'], url_path='download')
+    def download(self, request, pk=None):
+        """
+        Descarga una nómina en formato PDF.
+
+        GET /api/payroll/{id_payroll}/download/
+
+        Requiere permiso: 191 (payroll.download)
+
+        Respuestas:
+        - 200: PDF generado exitosamente
+        - 401: Usuario no autenticado
+        - 403: Sin permisos
+        - 404: Nómina no encontrada
+        - 500: Error interno
+        """
+        # Verificar autenticación
+        if not hasattr(request, 'user') or not request.user.is_authenticated:
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Verificar permiso
+        required_permission = 191
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para descargar nóminas."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            # Obtener la nómina con relaciones optimizadas
+            try:
+                payroll = Payroll.objects.select_related(
+                    'id_employee',
+                    'id_employee__id_user',
+                    'id_employee__id_employee_charge',
+                    'id_employee_contract',
+                    'id_employee_contract__id_employee_charge',
+                    'currency_type',
+                    'id_responsible_user'
+                ).prefetch_related(
+                    'payroll_deductions',
+                    'payroll_deductions__deduction_type',
+                    'payroll_increases',
+                    'payroll_increases__increase_type'
+                ).get(pk=pk)
+            except Payroll.DoesNotExist:
+                return Response(
+                    {"message": "Nómina no encontrada."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Obtener el contrato asociado
+            contract = payroll.id_employee_contract
+
+            # Obtener deducciones e incrementos del contrato
+            contract_deductions = EmployeeContractDeduction.objects.filter(
+                employee_contracts_contract_code=contract
+            ).select_related('deduction_type')
+
+            contract_increases = EmployeeContractIncrease.objects.filter(
+                employee_contracts_contract_code=contract
+            ).select_related('increase_type')
+
+            # Obtener datos del empleado desde servicio externo
+            employee = payroll.id_employee
+            employee_data = {}
+            if employee and employee.id_user_id:
+                users_data = get_users_info_batch([employee.id_user_id], request)
+                employee_data = users_data.get(employee.id_user_id, {})
+
+            # Obtener información del autor (usuario responsable)
+            author_name = None
+            responsible_user = payroll.id_responsible_user
+            if responsible_user:
+                responsible_user_id = getattr(responsible_user, 'id_user', None)
+                if responsible_user_id:
+                    author_data = get_users_info_batch([responsible_user_id], request)
+                    author_user_data = author_data.get(responsible_user_id, {})
+                    author_name = get_user_display_name(author_user_data)
+
+            # Obtener información del usuario que descarga
+            downloader_user = None
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(request.user)
+                downloader_user = actor_name
+            except Exception:
+                downloader_user = None
+
+            # Generar PDF
+            pdf_bytes = PayrollDocumentGenerator.generate_pdf(
+                payroll=payroll,
+                employee_data=employee_data,
+                contract=contract,
+                contract_increases=contract_increases,
+                contract_deductions=contract_deductions,
+                author_name=author_name,
+                downloader_user=downloader_user,
+                logo_path=None
+            )
+
+            # Generar nombre del archivo
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"nomina_{payroll.id_payroll}_{timestamp}.pdf"
+
+            # Retornar el PDF como respuesta
+            response = HttpResponse(pdf_bytes, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+
+        except Exception as exc:
+            logger.exception(f"Error generando PDF de nómina {pk}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error al generar el PDF de la nómina.",
+                    "error": str(exc)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
