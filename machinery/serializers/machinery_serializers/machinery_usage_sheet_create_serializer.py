@@ -3,7 +3,7 @@ from rest_framework.exceptions import ValidationError
 from users.models.user import User
 from machinery.models import Machinery, MachineryUsageSheet
 from parameterization.models import Types, Units, Statues, TypesCategory, StatuesCategory, UnitsCategory
-
+from django.utils import timezone
 
 class MachineryUsageSheetCreateSerializer(serializers.ModelSerializer):
     id_machinery = serializers.PrimaryKeyRelatedField(queryset=Machinery.objects.all(), required=True)
@@ -109,8 +109,27 @@ class MachineryUsageSheetCreateSerializer(serializers.ModelSerializer):
         """
         Validaciones generales del serializer
         """
+        data = super().validate(data)
+
+        acquisition_date = data.get("acquisition_date")
+        contract_end_date = data.get("contract_end_date")
         is_own = data.get('is_own', False)
-        
+
+        # Validar coherencia temporal solo si no es propia
+        if not is_own and acquisition_date and contract_end_date:
+
+            # 1) El fin de contrato NO puede ser antes de la adquisición
+            if contract_end_date < acquisition_date:
+                raise ValidationError({
+                    "contract_end_date": "La fecha de fin de contrato no puede ser anterior a la fecha de adquisición."
+                })
+
+            # 2) El fin de contrato NO puede ser anterior a hoy
+            if contract_end_date < timezone.now().date():
+                raise ValidationError({
+                    "contract_end_date": "La fecha de fin de contrato no puede ser anterior a la fecha actual."
+                })
+
         # Si la maquinaria es propia, eliminamos los campos tenancy_type y contract_end_date
         if is_own:
             if 'tenancy_type' in data:
