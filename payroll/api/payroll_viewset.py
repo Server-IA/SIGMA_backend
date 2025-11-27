@@ -56,8 +56,8 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
         return required_permission_id in permisos_usuario
 
-    @action(detail=False, methods=['post'], url_path='generate-history-report')
-    def generate_history_report(self, request):
+    @action(detail=False, methods=["post"], url_path="generate")
+    def generate(self, request):
         """Genera y descarga el PDF del historial de nóminas de un empleado.
 
         Requiere permiso: 194 (payroll.history_report)
@@ -120,54 +120,63 @@ class PayrollViewSet(viewsets.ModelViewSet):
             actor_id = None
             actor_name = None
             actor_role_name = None
+            try:
+                actor_id, actor_name, actor_role_name = get_actor_info(getattr(request, "user", None))
+                downloader_user = actor_name
+            except Exception:
+                downloader_user = None
 
-            if hasattr(request, 'user') and request.user.is_authenticated:
-                try:
-                    downloader_user = User.objects.get(id_user=request.user.id)
-                    actor_id = str(downloader_user.id_user)
-                    actor_name = downloader_user.get_full_name() or downloader_user.email
+            # 8. Generar PDF
+            from core.services.pdf_service_payroll_history import build_payroll_history_pdf
 
-                    # Obtener el rol del usuario desde el token
-                    payload = getattr(request, "auth", None) or {}
-                    user_roles = payload.get("rol") or payload.get("roles") or []
-                    if user_roles and isinstance(user_roles, list) and len(user_roles) > 0:
-                        actor_role_name = user_roles[0].get("nombre") or user_roles[0].get("name")
-                except User.DoesNotExist:
-                    pass
-
-            # 8. Registrar evento de auditoría
-            audit_client = AuditClient()
-            audit_client.log_event(
-                action="GENERATE_HISTORY_REPORT",
-                resource_type="payroll_history",
-                resource_id=f"employee_{document}",
-                actor_id=actor_id,
-                actor_name=actor_name,
-                actor_role=actor_role_name,
-                metadata={
-                    "employee_document": document,
-                    "date_from": date_from.isoformat(),
-                    "date_to": date_to.isoformat(),
-                    "payroll_count": len(payroll_items),
-                },
-            )
-
-            # 9. Generar PDF
-            pdf_bytes = PayrollHistoryService.generate_pdf(
-                employee=employee_info,
+            pdf_bytes = build_payroll_history_pdf(
+                employee_info=employee_info,
                 payroll_items=payroll_items,
+                downloader_user=downloader_user,
                 date_from=date_from,
                 date_to=date_to,
-                downloader=downloader_user,
             )
 
-            # 10. Crear respuesta con el PDF
-            response = HttpResponse(
-                pdf_bytes,
-                content_type="application/pdf",
-            )
-            filename = f"historial_nomina_{document}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            # 9. Registrar auditoría
+            try:
+                download_timestamp = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+                meta = {
+                    "action": "download",
+                    "report_type": "PAYROLL_HISTORY",
+                    "employee_identification": document,
+                    "date_from": str(date_from),
+                    "date_to": str(date_to),
+                    "download_timestamp": download_timestamp,
+                }
+
+                AuditClient(request).create(
+                    object_id=str(employee_info.get("id_employee")),
+                    after={"employee": employee_info, "meta": meta},
+                    actor_id=actor_id or "Sistema",
+                    actor_name=actor_name or "Sistema",
+                    actor_role=actor_role_name or "Usuario",
+                    permission_id=required_permission,
+                    module="payroll",
+                    submodule="payroll_history_report",
+                )
+            except Exception as audit_exc:
+                logger.warning(
+                    "El servicio de auditoría ha fallado al registrar descarga del informe de historial de nómina: %s",
+                    str(audit_exc),
+                )
+
+            # 10. Construir respuesta HTTP con PDF
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            ident_safe = employee_info.get("identification") or document
+            filename = f"Informe_Nomina_{ident_safe}_{timestamp}.pdf"
+
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="{filename}"'
+            response["Content-Length"] = len(pdf_bytes)
+            response["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response["Pragma"] = "no-cache"
+            response["Expires"] = "0"
+
             return response
 
         except EmployeeNotFoundError as e:
