@@ -56,8 +56,8 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
         return required_permission_id in permisos_usuario
 
-    @action(detail=False, methods=["post"], url_path="generate")
-    def generate(self, request):
+    @action(detail=False, methods=["post"], url_path="generate-history-report")
+    def generate_history_report(self, request):
         """Genera y descarga el PDF del historial de nóminas de un empleado.
 
         Requiere permiso: 194 (payroll.history_report)
