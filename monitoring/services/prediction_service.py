@@ -187,11 +187,20 @@ class FuelConsumptionPredictionService:
             if 'Textura' in df.columns:
                 df['Textura'] = df['Textura'].map(mapa_textura).fillna(2)  # Default: franco
             
-            df_encoded = pd.get_dummies(
-                df,
-                columns=['Implemento', 'Tipo_suelo'],
-                drop_first=True
-            )
+            # Verificar qué columnas categóricas existen antes de codificar
+            categorical_candidates = ['Implemento', 'Tipo_suelo']
+            categorical_present = [col for col in categorical_candidates if col in df.columns]
+            
+            if categorical_present:
+                logger.info(f"Codificando columnas categóricas: {categorical_present}")
+                df_encoded = pd.get_dummies(
+                    df,
+                    columns=categorical_present,
+                    drop_first=True
+                )
+            else:
+                logger.info("No se encontraron columnas categóricas para codificar")
+                df_encoded = df.copy()
             
             # Entrenar modelo
             from sklearn.model_selection import train_test_split

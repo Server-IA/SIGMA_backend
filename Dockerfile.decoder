@@ -1,0 +1,20 @@
+# Usa una imagen base de Python
+FROM python:3.11-slim
+
+# Establece el directorio de trabajo
+WORKDIR /app
+
+# Instala dependencias del sistema si fueran necesarias
+# RUN apt-get update && apt-get install -y ...
+
+# Copia el archivo de requerimientos y lo instala
+# Se copia solo el archivo de requerimientos primero para aprovechar el cache de Docker
+COPY ./fmc150_decoder/requirements.txt /app/fmc150_decoder/requirements.txt
+RUN pip install --no-cache-dir -r /app/fmc150_decoder/requirements.txt
+
+# Copia el resto de los archivos de la aplicación
+# Nota: Asumimos que los módulos necesarios (ej. fmc150_decoder) están en el contexto de build
+COPY . .
+
+# El comando para correr la aplicación será definido en docker-compose.yml
+# CMD ["uvicorn", "fmc150_decoder.main:app", "--host", "0.0.0.0", "--port", "8004"]
