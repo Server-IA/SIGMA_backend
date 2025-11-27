@@ -7,6 +7,8 @@ from machinery.serializers.machinery_serializers.machinery_usage_sheet_create_se
 from machinery.serializers.machinery_serializers.machinery_usage_sheet_update_serializer import MachineryUsageSheetUpdateSerializer
 from machinery.serializers.machinery_serializers.machinery_usage_sheet_detail_serializer import MachineryUsageSheetDetailSerializer
 from django.shortcuts import get_object_or_404
+from django.http import Http404
+
 import logging
 
 # Auditoría
