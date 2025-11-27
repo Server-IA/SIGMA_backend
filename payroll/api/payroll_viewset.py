@@ -17,6 +17,7 @@ from payroll.models import Payroll, EmployeeContractDeduction, EmployeeContractI
 from payroll.serializers.payroll_serializers.payroll_list_serializer import PayrollListSerializer
 from payroll.serializers.payroll_serializers.payroll_masive_generetion_serializer import PayrollMasiveGenerationSerializer
 from payroll.serializers.payroll_serializers.payroll_detail_serializer import PayrollDetailSerializer
+from payroll.serializers.payroll_serializers.payroll_serializers import PayrollCreateSerializer
 from payroll.services.payroll_history_service import (
     PayrollHistoryService,
     EmployeeNotFoundError,
@@ -484,6 +485,96 @@ class PayrollViewSet(viewsets.ModelViewSet):
             "success": True,
             "data": serializer.data
         }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='create-payroll')
+    def create_payroll(self, request):
+        """
+        Endpoint para crear una nueva nómina.
+        
+        Requiere permiso: 195 (payroll.create_payroll)
+        
+        Body:
+        {
+            "id_employee": 1,
+            "contract_code": "CONTRACT-001",
+            "start_date": "2025-01-01",
+            "end_date": "2025-01-31",
+            "additional_deductions": [
+                {
+                    "type": 1,
+                    "amount_type": "Porcentaje",
+                    "amount_value": 10.0,
+                    "description": "Descuento por préstamo",
+                    "application_type": "SalarioBase"
+                }
+            ],
+            "additional_increases": [
+                {
+                    "type": 1,
+                    "amount_type": "fijo",
+                    "amount_value": 100000,
+                    "description": "Bonificación",
+                    "application_type": "SalarioFinal"
+                }
+            ]
+        }
+        """
+        # Verificar autenticación
+        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Verificar permiso
+        required_permission = 195
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para crear nóminas."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Validar y procesar la solicitud
+        serializer = PayrollCreateSerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error de validación",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Crear la nómina
+            payroll = serializer.save()
+            
+            return Response(
+                {
+                    "success": True,
+                    "message": "Nómina creada exitosamente",
+                    "data": {
+                        "id": payroll.id,
+                        "employee_id": payroll.id_employee_contract.id_employee.id,
+                        "start_date": payroll.start_date,
+                        "end_date": payroll.end_date,
+                        "net_pay": payroll.net_pay
+                    }
+                },
+                status=status.HTTP_201_CREATED,
+            )
+            
+        except Exception as e:
+            logger.error(f"Error al crear nómina: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Error interno al procesar la solicitud",
+                    "error": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     def _get_responsible_user(self, request):
         user_id = getattr(request.user, "id", None)

@@ -68,6 +68,16 @@ class PayrollCreateSerializer(serializers.ModelSerializer):
         
     def validate_contract_code(self, value):
         contract = self.get_latest_contract_version(value)
+        
+        # Get the employee_id from the input data
+        employee_id = self.initial_data.get('id_employee')
+        if not employee_id:
+            raise serializers.ValidationError("Employee ID is required")
+        
+        # Verify the contract belongs to the employee
+        if contract.id_employee_id != int(employee_id):
+            raise serializers.ValidationError("The specified contract does not belong to the employee")
+        
         self.contract = contract
         return value
         
@@ -103,13 +113,13 @@ class PayrollCreateSerializer(serializers.ModelSerializer):
             return working_days / 30.0  # Convert to months
         return 0
 
-    def calculate_amount(self, item, base_amount, is_percentage=True):
+    def calculate_amount(self, item, base_amount):
         amount = item.get('amount', 1.0) or 1.0
-        if is_percentage:
+        if item.get('amount_type') == 'Porcentaje':
             return (item['amount_value'] * (base_amount / 100.0)) * amount
         return item['amount_value'] * amount
 
-    def process_deductions_increases(self, items, base_amount, application_type, is_percentage):
+    def process_deductions_increases(self, items, base_amount, application_type):
         total = 0
         results = []
         
@@ -118,7 +128,7 @@ class PayrollCreateSerializer(serializers.ModelSerializer):
                (item.get('end_date') and item['end_date'] < self.start_date):
                 continue
                 
-            amount = self.calculate_amount(item, base_amount, is_percentage)
+            amount = self.calculate_amount(item, base_amount)
             total += amount
             
             result = item.copy()
@@ -181,6 +191,37 @@ class PayrollCreateSerializer(serializers.ModelSerializer):
                 
         return items
         
+    def validate_payroll_date_overlap(self, employee, contract_base_code, start_date, end_date):
+        """
+        Valida que no exista solapamiento de fechas con otros payrolls
+        de cualquier versión del mismo contrato para el mismo empleado
+        """
+        # Extraer código base del contrato
+        match = re.match(r'^(.*?)(-\d{2})?$', contract_base_code)
+        base = match.group(1) if match else contract_base_code
+        
+        # Buscar todos los contratos con ese código base
+        related_contracts = EmployeeContract.objects.filter(
+            contract_code__startswith=f"{base}-",
+            id_employee=employee
+        )
+        
+        # Buscar payrolls existentes con esos contratos
+        overlapping_payrolls = Payroll.objects.filter(
+            id_employee=employee,
+            id_employee_contract__in=related_contracts
+        ).filter(
+            Q(start_date__lte=end_date) & Q(end_date__gte=start_date)
+        )
+        
+        if overlapping_payrolls.exists():
+            existing = overlapping_payrolls.first()
+            raise serializers.ValidationError({
+                "date_range": f"El rango de fechas se cruza con un payroll existente "
+                             f"({existing.id_employee_contract.contract_code}: "
+                             f"{existing.start_date} - {existing.end_date})"
+            })
+            
     def validate(self, data):
         # Basic validation
         if data['start_date'] >= data['end_date']:
@@ -198,6 +239,13 @@ class PayrollCreateSerializer(serializers.ModelSerializer):
             )
             
         # Validate no date range overlap with existing payrolls for the same contract (any version)
+        employee = data['id_employee']
+        self.validate_payroll_date_overlap(
+            employee,
+            data['contract_code'],
+            data['start_date'],
+            data['end_date']
+        )
         if hasattr(self, 'contract') and self.contract:
             # Get base contract code without version (everything before the last hyphen)
             contract_code_parts = self.contract.contract_code.rsplit('-', 1)
@@ -266,7 +314,7 @@ class PayrollCreateSerializer(serializers.ModelSerializer):
             'start_date': d.start_date_deduction,
             'end_date': d.end_date_deductions
         } for d in contract_deductions if d.application_deduction_type == 'SalarioBase'] + \
-        [d for d in data.get('additional_deductions', []) if d.get('application_deduction_type') == 'SalarioBase']
+        [d for d in data.get('additional_deductions', []) if d.get('application_type') == 'SalarioBase']
         
         base_increases = [{
             'type': i.increase_type_id,
@@ -277,15 +325,15 @@ class PayrollCreateSerializer(serializers.ModelSerializer):
             'start_date': i.start_date_increase,
             'end_date': i.end_date_increase
         } for i in contract_increases if i.application_increase_type == 'SalarioBase'] + \
-        [i for i in data.get('additional_increases', []) if i.get('application_increase_type') == 'SalarioBase']
+        [i for i in data.get('additional_increases', []) if i.get('application_type') == 'SalarioBase']
 
         # Calculate base amounts
         total_base_deductions, base_deduction_results = self.process_deductions_increases(
-            base_deductions, base_salary_calculated, 'SalarioBase', True
+            base_deductions, base_salary_calculated, 'SalarioBase'
         )
         
         total_base_increases, base_increase_results = self.process_deductions_increases(
-            base_increases, base_salary_calculated, 'SalarioBase', True
+            base_increases, base_salary_calculated, 'SalarioBase'
         )
 
         net_pay_salary_base = (base_salary_calculated + total_base_increases) - total_base_deductions
@@ -300,7 +348,7 @@ class PayrollCreateSerializer(serializers.ModelSerializer):
             'start_date': d.start_date_deduction,
             'end_date': d.end_date_deductions
         } for d in contract_deductions if d.application_deduction_type == 'SalarioFinal'] + \
-        [d for d in data.get('additional_deductions', []) if d.get('application_deduction_type') == 'SalarioFinal']
+        [d for d in data.get('additional_deductions', []) if d.get('application_type') == 'SalarioFinal']
         
         final_increases = [{
             'type': i.increase_type_id,
@@ -311,14 +359,14 @@ class PayrollCreateSerializer(serializers.ModelSerializer):
             'start_date': i.start_date_increase,
             'end_date': i.end_date_increase
         } for i in contract_increases if i.application_increase_type == 'SalarioFinal'] + \
-        [i for i in data.get('additional_increases', []) if i.get('application_increase_type') == 'SalarioFinal']
+        [i for i in data.get('additional_increases', []) if i.get('application_type') == 'SalarioFinal']
 
         total_final_deductions, final_deduction_results = self.process_deductions_increases(
-            final_deductions, net_pay_salary_base, 'SalarioFinal', True
+            final_deductions, net_pay_salary_base, 'SalarioFinal'
         )
         
         total_final_increases, final_increase_results = self.process_deductions_increases(
-            final_increases, net_pay_salary_base, 'SalarioFinal', True
+            final_increases, net_pay_salary_base, 'SalarioFinal'
         )
 
         # Calculate final amounts
