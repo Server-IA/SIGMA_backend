@@ -121,6 +121,10 @@ async def broadcast_processed_packet(packet: dict):
         }
 
 
+# El endpoint /api/inject-telemetry fue removido para separar completamente
+# la lógica del simulador y del decodificador de datos reales.
+
+
 @app.websocket("/ws/telemetria")
 async def websocket_endpoint_processor(
     websocket: WebSocket, 

@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from fastapi import WebSocket, WebSocketDisconnect
@@ -93,27 +94,31 @@ class ConnectionManager:
             self._stop_data_generation()
     
     async def _start_data_generation(self):
-        """Start generating telemetry data every 30 seconds and send only to processor"""
+        """
+        Inicia la generación de datos de telemetría simulada cada 5 segundos.
+        """
         if self.is_running:
             return
         
         self.is_running = True
-        logger.info("Iniciando generación de datos de telemetría cada 5 segundos (solo para procesador)...")
+        logger.info("Iniciando generación de datos de telemetría simulada cada 5 segundos...")
         
         try:
             while self.is_running and len(self.processor_connections) > 0:
                 # Generate new telemetry data
                 telemetry_packet = self.generator.generate_response()
+                telemetry_packet["is_real_data"] = False
+                telemetry_packet["source"] = "simulator"
                 
                 # Log packet info
                 imei = telemetry_packet.get("imei", "UNKNOWN")
                 timestamp = telemetry_packet.get("timestamp", "UNKNOWN")
-                logger.info(f"Generando paquete para procesador - IMEI: {imei}, TS: {timestamp}")
+                logger.info(f"Generando paquete SIMULADO para procesador - IMEI: {imei}, TS: {timestamp}")
                 
                 # Convert to JSON
                 message = json.dumps(telemetry_packet, default=str)
                 
-                # Send ONLY to processor connections (not to regular clients)
+                # Send ONLY to processor connections
                 await self._send_to_processors(message)
                 
                 # Wait 5 seconds before next transmission

@@ -77,9 +77,52 @@ services:
       AUDIT_HTTP_TIMEOUT: "1.5"
       X_CSCAPI_KEY: ${X_CSCAPI_KEY}
       WEBSOCKET_PASSWORD: ${WEBSOCKET_PASSWORD}
+      AUTH_SERVICE_URL: http://web:8000
     depends_on:
       - db
       - simulator
+    networks:
+      - shared_net
+    restart: always
+
+  fmc150_decoder:
+    build:
+      context: .
+      dockerfile: Dockerfile.decoder
+    container_name: fmc150_decoder
+    command: uvicorn fmc150_decoder.main:app --host 0.0.0.0 --port 8004 --no-access-log
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PORT: 5432
+      FMC150_HOST: 0.0.0.0
+      FMC150_PORT: 5055
+    ports:
+      - "8004:8004"  # Puerto para el servidor web/websockets
+      - "5055:5055"  # Puerto para el servidor TCP de los dispositivos
+    depends_on:
+      - db
+    networks:
+      - shared_net
+    restart: always
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok_fmc150
+    command: 
+      - "tcp"
+      - "--log=stdout"
+      - "fmc150_decoder:5055"
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    ports:
+      - "4040:4040"  # Web UI para monitorear conexiones
+    depends_on:
+      - fmc150_decoder
     networks:
       - shared_net
     restart: always
