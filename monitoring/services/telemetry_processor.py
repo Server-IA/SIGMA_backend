@@ -480,7 +480,11 @@ class TelemetryProcessor:
             ).first()
             
             if not thresholds:
+                # logger.debug(f"No hay umbrales para maquinaria {machinery.id_machinery} y parámetro {avl_id}")
                 return (False, None)
+            
+            # Debug log para ver valores
+            logger.warning(f"Check Thresholds - Param: {parameter.parameter_name} ({avl_id}), Value: {value}, Min: {thresholds.minimum_threshold}, Max: {thresholds.maximum_threshold}")
             
             # Verificar umbrales
             is_alert = False
