@@ -44,7 +44,8 @@ INSTALLED_APPS = [
     'service_requests',
     'users',
     'rest_framework',
-    'django_crontab'
+    'django_crontab',
+    'fmc150_decoder',
 ]
 
 MIDDLEWARE = [
