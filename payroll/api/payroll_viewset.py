@@ -124,7 +124,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
             if hasattr(request, 'user') and request.user.is_authenticated:
                 try:
                     downloader_user = User.objects.get(id_user=request.user.id)
-                    actor_id = str(downloader_user.id)
+                    actor_id = str(downloader_user.id_user)
                     actor_name = downloader_user.get_full_name() or downloader_user.email
 
                     # Obtener el rol del usuario desde el token
