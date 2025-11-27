@@ -7,6 +7,7 @@ from machinery.serializers.machinery_serializers.machinery_usage_sheet_create_se
 from machinery.serializers.machinery_serializers.machinery_usage_sheet_update_serializer import MachineryUsageSheetUpdateSerializer
 from machinery.serializers.machinery_serializers.machinery_usage_sheet_detail_serializer import MachineryUsageSheetDetailSerializer
 from django.shortcuts import get_object_or_404
+from django.http import Http404
 import logging
 
 # Auditoría
@@ -164,8 +165,10 @@ class MachineryUsageViewSet(viewsets.ModelViewSet):
                 return Response({"success": True, "message": "Información de uso actualizada correctamente"}, status=status.HTTP_200_OK)
 
             return Response({"success": False, "message": "Error de validación al actualizar la información de uso", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        except Http404:
+            return Response({"success": False, "message": "La ficha de uso ingresada no existe"}, status=status.HTTP_404_NOT_FOUND)
         except MachineryUsageSheet.DoesNotExist:
-            return Response({"success": False, "message": "La ficha de uso no existe"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"success": False, "message": "La ficha de uso ingresada no existe"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             logger.error(f"Error al actualizar la información de uso: {str(e)}")
             return Response({"success": False, "message": "Error al actualizar la información de uso de la maquinaria", "details": str(e)}, status=status.HTTP_400_BAD_REQUEST)
