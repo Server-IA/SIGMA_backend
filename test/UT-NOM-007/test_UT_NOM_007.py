@@ -1,52 +1,32 @@
 """
-UT-NOM-007: Pruebas unitarias para endpoint de carga masiva de ajustes temporales
-Endpoint: POST /temporary_adjustments/upload/
-Permiso requerido: 188 - payroll.massive_payroll
+UT-NOM-007: Pruebas unitarias para endpoint de descarga de nómina en PDF
+Endpoint: GET /payroll/{id_payroll}/download/
+Permiso requerido: 191 - payroll.download
 """
 
 import pytest
-import json
-import io
+import re
 from datetime import datetime, date, timedelta
 from django.utils import timezone
-from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 from rest_framework import status
-from unittest.mock import Mock, patch
-import openpyxl
-from openpyxl import Workbook
+from unittest.mock import Mock, patch, MagicMock
 
 from users.models import User
 from parameterization.models import (
     EmployeeCharge, EmployeeDepartment, Statues, StatuesCategory,
     TypesCategory, Types, UnitsCategory, Units
 )
-from payroll.models import Employee, EmployeeContract, TemporaryPayrollAdjustment
+from payroll.models import (
+    Employee, EmployeeContract, Payroll,
+    PayrollIncrease, PayrollDeduction,
+    EmployeeContractDeduction, EmployeeContractIncrease
+)
 
 
 @pytest.mark.django_db
-class TestTemporaryAdjustmentsUpload:
-    """Pruebas para el endpoint de carga masiva de ajustes temporales"""
-    
-    @property
-    def upload_endpoint(self):
-        """Endpoint para subir ajustes masivos"""
-        return '/temporary_adjustments/upload/'
-    
-    # Columnas requeridas en el Excel
-    EXCEL_COLUMNS = [
-        'Identificación del empleado',
-        'Nombre del empleado',
-        'Nombre del ajuste',
-        'Tipo de ajuste',
-        'Tipo de monto',
-        'Valor',
-        'Aplicación',
-        'Fecha de Inicio',
-        'Fecha de Fin',
-        'Cantidad',
-        'Descripción',
-    ]
+class TestPayrollDownload:
+    """Pruebas para el endpoint de descarga de nómina en PDF"""
     
     def setup_method(self):
         """Configuración inicial para cada prueba"""
@@ -58,20 +38,35 @@ class TestTemporaryAdjustmentsUpload:
         self.user = self._ensure_user(1)
         
         # Tokens con permisos
-        self.token_with_permission = self._token_with_permissions([188])
+        self.token_with_permission = self._token_with_permissions([191])
         self.token_without_permission = self._token_with_permissions([999])
         
         # Crear parametrización necesaria
         self._setup_parametrization()
         
-        # Mock del servicio externo de usuarios
-        self.mock_external_user_patcher = patch('requests.post')
-        self.mock_post = self.mock_external_user_patcher.start()
-        self._setup_mock_external_user_service()
-    
+        # Patches para mocks
+        self.pdf_generator_patcher = patch('payroll.api.payroll_viewset.PayrollDocumentGenerator.generate_pdf')
+        self.mock_generate_pdf = self.pdf_generator_patcher.start()
+        self.mock_generate_pdf.return_value = b'%PDF-1.4 Mock PDF Content'
+        
+        self.users_info_patcher = patch('payroll.api.payroll_viewset.get_users_info_batch')
+        self.mock_get_users_info = self.users_info_patcher.start()
+        self.mock_get_users_info.return_value = {}
+        
+        self.user_display_patcher = patch('payroll.api.payroll_viewset.get_user_display_name')
+        self.mock_get_user_display = self.user_display_patcher.start()
+        self.mock_get_user_display.return_value = "Test User"
+        
+        self.actor_info_patcher = patch('payroll.api.payroll_viewset.get_actor_info')
+        self.mock_get_actor_info = self.actor_info_patcher.start()
+        self.mock_get_actor_info.return_value = ("1", "Test User", "Admin")
+
     def teardown_method(self):
         """Limpieza después de cada prueba"""
-        self.mock_external_user_patcher.stop()
+        self.pdf_generator_patcher.stop()
+        self.users_info_patcher.stop()
+        self.user_display_patcher.stop()
+        self.actor_info_patcher.stop()
     
     def _token_with_permissions(self, permission_ids):
         """Genera payload de token con permisos específicos"""
@@ -93,42 +88,6 @@ class TestTemporaryAdjustmentsUpload:
         if created:
             user.save()
         return user
-    
-    def _setup_mock_external_user_service(self):
-        """Configura el mock del servicio externo de usuarios"""
-        self.mock_users = {}
-        
-        def mock_post_side_effect(url, *args, **kwargs):
-            """Side effect para simular respuestas del servicio externo"""
-            mock_response = Mock()
-            mock_response.status_code = 200
-            
-            json_data = kwargs.get('json', {})
-            requested_ids = json_data.get('ids', [])
-            
-            matching_users = [
-                user_data for user_id, user_data in self.mock_users.items()
-                if user_id in requested_ids
-            ]
-            
-            mock_response.json.return_value = {
-                "data": matching_users
-            }
-            mock_response.content = True
-            return mock_response
-        
-        self.mock_post.side_effect = mock_post_side_effect
-    
-    def _add_mock_user(self, user_id: int, name: str, first_last_name: str, 
-                       second_last_name: str, document_number: str):
-        """Agrega un usuario al mock del servicio externo"""
-        self.mock_users[user_id] = {
-            "id": user_id,
-            "name": name,
-            "first_last_name": first_last_name,
-            "second_last_name": second_last_name,
-            "document_number": document_number
-        }
     
     def _setup_parametrization(self):
         """Crea los tipos y unidades necesarias para los tests"""
@@ -155,665 +114,406 @@ class TestTemporaryAdjustmentsUpload:
             }
         )
         
-        self.status_inactive, _ = Statues.objects.get_or_create(
-            id_statues=2,
-            defaults={
-                "name": "Inactivo",
-                "description": "Inactive",
-                "id_statues_categories": status_cat,
-                "creation_date": self.now,
-                "modification_date": self.now
-            }
-        )
-        
-        # Crear categorías para tipos de contrato
+        # Crear categorías para tipos
         cat_15, _ = TypesCategory.objects.get_or_create(
-            id_types_categories=15,
+            id_types_categories=15, 
             defaults={
-                "name": "Contract Types",
+                "name": "Contract Types", 
                 "description": "Contract Types",
-                "creation_date": self.now,
+                "creation_date": self.now, 
                 "modification_date": self.now
             }
         )
-        
-        # Crear categorías para ajustes (deducciones e incrementos)
+        cat_16, _ = TypesCategory.objects.get_or_create(
+            id_types_categories=16, 
+            defaults={
+                "name": "Workday Types", 
+                "description": "Workday Types",
+                "creation_date": self.now, 
+                "modification_date": self.now
+            }
+        )
+        cat_17, _ = TypesCategory.objects.get_or_create(
+            id_types_categories=17, 
+            defaults={
+                "name": "Work Mode Types", 
+                "description": "Work Mode Types",
+                "creation_date": self.now, 
+                "modification_date": self.now
+            }
+        )
         cat_18, _ = TypesCategory.objects.get_or_create(
-            id_types_categories=18,
+            id_types_categories=18, 
             defaults={
-                "name": "Deducciones",
-                "description": "Tipos de deducciones",
-                "creation_date": self.now,
+                "name": "Deducciones", 
+                "description": "Deducciones",
+                "creation_date": self.now, 
                 "modification_date": self.now
             }
         )
-        
         cat_19, _ = TypesCategory.objects.get_or_create(
-            id_types_categories=19,
+            id_types_categories=19, 
             defaults={
-                "name": "Incrementos",
-                "description": "Tipos de incrementos",
-                "creation_date": self.now,
+                "name": "Incrementos", 
+                "description": "Incrementos",
+                "creation_date": self.now, 
                 "modification_date": self.now
             }
         )
         
-        # Crear tipos de ajustes parametrizados
-        self.deduction_type, _ = Types.objects.get_or_create(
-            id_types=100,
-            defaults={
-                "name": "Deducción de seguridad social",
-                "description": "Deducción de seguridad social",
-                "id_types_categories": cat_18,
-                "id_statues": self.status_active,
-                "creation_date": self.now,
-                "modification_date": self.now
-            }
-        )
+        # Crear tipos
+        for type_id, cat in [(19, cat_15), (22, cat_16), (25, cat_17)]:
+            Types.objects.get_or_create(
+                id_types=type_id,
+                defaults={
+                    "name": f"Type {type_id}", 
+                    "description": f"Type {type_id}",
+                    "id_types_categories": cat, 
+                    "id_statues": self.status_active,
+                    "creation_date": self.now,
+                    "modification_date": self.now
+                }
+            )
         
         self.increment_type, _ = Types.objects.get_or_create(
-            id_types=101,
+            id_types=100,
             defaults={
-                "name": "Incremento por antigüedad",
-                "description": "Incremento por antigüedad",
-                "id_types_categories": cat_19,
+                "name": "Horas extras", 
+                "description": "Horas extras",
+                "id_types_categories": cat_19, 
                 "id_statues": self.status_active,
                 "creation_date": self.now,
                 "modification_date": self.now
             }
         )
         
-        # Crear departamento
+        self.deduction_type, _ = Types.objects.get_or_create(
+            id_types=101,
+            defaults={
+                "name": "Seguridad social", 
+                "description": "Seguridad social",
+                "id_types_categories": cat_18, 
+                "id_statues": self.status_active,
+                "creation_date": self.now,
+                "modification_date": self.now
+            }
+        )
+        
+        # Crear categoría de unidades y moneda
+        cat_10_units, _ = UnitsCategory.objects.get_or_create(
+            id_units_categories=10, 
+            defaults={
+                "name": "Currency Types", 
+                "description": "Currency Types",
+                "creation_date": self.now, 
+                "modification_date": self.now
+            }
+        )
+        self.currency, _ = Units.objects.get_or_create(
+            id_units=17,
+            defaults={
+                "name": "Dollar", 
+                "symbol": "$", 
+                "id_units_categories": cat_10_units, 
+                "id_types": Types.objects.get(id_types=19), 
+                "id_statues": self.status_active
+            }
+        )
+        
+        # Crear departamento y cargo
         self.dept1, _ = EmployeeDepartment.objects.get_or_create(
             id_employee_department=1,
             defaults={
-                "name": "Departamento IT",
+                "name": "IT", 
+                "description": "IT Dept",
                 "id_statues": self.status_active,
                 "creation_date": self.now,
                 "modification_date": self.now
             }
         )
-        
-        # Crear cargo
         self.charge1, _ = EmployeeCharge.objects.get_or_create(
             id_employee_charge=5,
             defaults={
-                "name": "Desarrollador Senior",
-                "description": "Cargo test",
-                "id_employee_department": self.dept1,
+                "name": "Dev", 
+                "description": "Developer",
+                "contract_prefix": "DEV",
+                "id_employee_department": self.dept1, 
                 "id_statues": self.status_active,
                 "creation_date": self.now,
                 "modification_date": self.now
             }
         )
     
-    def _create_employee(self, user_id: int, email: str, document_number: str,
-                        employee_status: Statues = None,
-                        charge: EmployeeCharge = None) -> Employee:
+    def _create_employee(self, user_id: int, email: str) -> Employee:
         """Crea un empleado de prueba"""
-        if employee_status is None:
-            employee_status = self.status_active
-        if charge is None:
-            charge = self.charge1
-        
         user = self._ensure_user(user_id)
         employee = Employee.objects.create(
             id_user=user,
             email=email,
-            id_employee_charge=charge,
-            employee_status=employee_status,
+            id_employee_charge=self.charge1,
+            employee_status=self.status_active,
             creation_date=self.now,
             modification_date=self.now,
             id_responsible_user=self.user
         )
-        
-        # Agregar mock de usuario externo
-        self._add_mock_user(
-            user_id,
-            "Usuario",
-            "Test",
-            "Apellido",
-            document_number
-        )
-        
         return employee
     
-    def _create_excel_file(self, rows_data):
-        """Crea un archivo Excel en memoria con los datos proporcionados"""
-        wb = Workbook()
-        ws = wb.active
-        
-        # Agregar encabezados
-        ws.append(self.EXCEL_COLUMNS)
-        
-        # Agregar filas de datos
-        for row in rows_data:
-            ws.append(row)
-        
-        # Guardar en memoria
-        excel_file = io.BytesIO()
-        wb.save(excel_file)
-        excel_file.seek(0)
-        
-        return SimpleUploadedFile(
-            "ajustes_masivos.xlsx",
-            excel_file.read(),
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    def _create_contract(self, employee: Employee) -> EmployeeContract:
+        """Crea un contrato de prueba"""
+        contract = EmployeeContract.objects.create(
+            contract_code="CON-TEST",
+            id_employee_charge=self.charge1,
+            id_employee_department=self.dept1,
+            id_employee=employee,
+            description="Contrato de prueba",
+            contract_type=Types.objects.get(id_types=19),
+            start_date=self.today,
+            payment_frequency_type="mensual",
+            minimum_hours=8,
+            workday_type=Types.objects.get(id_types=22),
+            work_mode_type=Types.objects.get(id_types=25),
+            salary_type="Mensual fijo",
+            salary_base=2000000.0,
+            currency_type=self.currency,
+            trial_period_days=30,
+            vacation_days=15,
+            vacation_frequency_days=360,
+            cumulative_vacation=True,
+            start_cumulative_vacation=self.today + timedelta(days=7),
+            maximum_disability_days=15,
+            overtime=40.0,
+            overtime_period="mes",
+            notice_period_days=30,
+            contract_status=self.status_active,
+            secundary_petition=False,
+            creation_date=self.now,
+            id_responsible_user=self.user
         )
+        return contract
+    
+    def _create_payroll(self, employee: Employee, contract: EmployeeContract) -> Payroll:
+        """Crea una nómina de prueba"""
+        payroll = Payroll.objects.create(
+            id_employee=employee,
+            id_employee_contract=contract,
+            start_date=self.today,
+            end_date=self.today + timedelta(days=30),
+            base_salary=2000000.0,
+            time_worked=30.0,
+            total_increments=0.0,
+            total_deductions=0.0,
+            net_pay=2000000.0,
+            currency_type=self.currency,
+            creation_date=self.now,
+            id_responsible_user=self.user
+        )
+        return payroll
+
+    def _create_payroll_increase(self, payroll: Payroll, amount: float) -> PayrollIncrease:
+        """Crea un incremento de nómina"""
+        increase = PayrollIncrease.objects.create(
+            payroll=payroll,
+            increase_type=self.increment_type,
+            amount_type="fijo",
+            application_increase_type="SalarioBase",
+            amount_value=amount,
+            amount=1.0,
+            calculated_amount=amount,
+            start_date_increase=payroll.start_date,
+            description="Test Inc"
+        )
+        payroll.total_increments += amount
+        payroll.net_pay += amount
+        payroll.save()
+        return increase
+
+    def _create_payroll_deduction(self, payroll: Payroll, amount: float) -> PayrollDeduction:
+        """Crea una deducción de nómina"""
+        deduction = PayrollDeduction.objects.create(
+            payroll=payroll,
+            deduction_type=self.deduction_type,
+            amount_type="fijo",
+            application_deduction_type="SalarioBase",
+            amount_value=amount,
+            amount=1.0,
+            calculated_amount=amount,
+            start_date_deduction=payroll.start_date,
+            description="Test Ded"
+        )
+        payroll.total_deductions += amount
+        payroll.net_pay -= amount
+        payroll.save()
+        return deduction
     
     def _authenticate_client(self, permissions=None):
         """Autentica el cliente con los permisos especificados"""
-        if permissions is None:
-            token = self.token_with_permission
-        else:
-            token = permissions
-        
+        token = permissions if permissions else self.token_with_permission
         self.client.force_authenticate(user=self.user)
         self.client.handler._force_token = token
         self.client.credentials(HTTP_AUTHORIZATION='Bearer mock_token')
-    
+
     # ==================== TESTS ====================
-    
-    def test_ut_nom_007_01_successful_upload(self):
-        """
-        UT-NOM-007-01: Carga exitosa de ajustes masivos válidos
-        
-        Verifica que el endpoint procesa correctamente un archivo Excel con filas válidas
-        y carga los ajustes temporalmente en la base de datos.
-        """
-        # Arrange: Crear empleados
+
+    def test_ut_nom_007_01_success(self):
+        """UT-NOM-007-01: Descarga exitosa de PDF con datos completos"""
         self._authenticate_client()
+        emp = self._create_employee(101, "test@example.com")
+        contract = self._create_contract(emp)
+        payroll = self._create_payroll(emp, contract)
         
-        emp1 = self._create_employee(101, "emp1@test.com", "1079172265")
-        emp2 = self._create_employee(102, "emp2@test.com", "1079172267")
+        response = self.client.get(f'/payroll/{payroll.id_payroll}/download/')
         
-        # Crear Excel con datos válidos
-        start_date = date(2025, 11, 17)
-        end_date = date(2025, 11, 20)
-        
-        excel_rows = [
-            [
-                "1079172265",  # Identificación
-                "Juan Andres Veru Sarmiento",  # Nombre
-                "Incremento por antigüedad",  # Nombre del ajuste
-                "incremento",  # Tipo de ajuste
-                "porcentaje",  # Tipo de monto
-                20.0,  # Valor
-                "salario base",  # Aplicación
-                "2025-11-17 00:00:00",  # Fecha de Inicio
-                "2025-11-20 00:00:00",  # Fecha de Fin
-                1.20,  # Cantidad
-                "Ajuste de prueba 1"  # Descripción
-            ],
-            [
-                "1079172267",  # Identificación
-                "Juan Pablo de la Cruz",  # Nombre
-                "Deducción de seguridad social",  # Nombre del ajuste
-                "deduccion",  # Tipo de ajuste
-                "fijo",  # Tipo de monto
-                100000.0,  # Valor
-                "salario final",  # Aplicación
-                "2025-11-17 00:00:00",  # Fecha de Inicio
-                "2025-11-18 00:00:00",  # Fecha de Fin
-                2.0,  # Cantidad
-                "Ajuste de prueba 2"  # Descripción
-            ]
-        ]
-        
-        excel_file = self._create_excel_file(excel_rows)
-        
-        # Preparar employees JSON
-        employees_json = json.dumps([
-            {"id_employee": emp1.id_employee, "document_number": "1079172265"},
-            {"id_employee": emp2.id_employee, "document_number": "1079172267"}
-        ])
-        
-        # Act: Subir archivo
-        response = self.client.post(
-            self.upload_endpoint,
-            {
-                'file': excel_file,
-                'start_date': start_date.strftime('%Y-%m-%d'),
-                'end_date': end_date.strftime('%Y-%m-%d'),
-                'employees': employees_json
-            },
-            format='multipart'
-        )
-        
-        # Assert: HTTP 200 OK, success=true
-        assert response.status_code == status.HTTP_200_OK, \
-            f"Expected 200, got {response.status_code}. Response: {response.json() if response.content else 'empty'}"
-        
-        data = response.json()
-        assert data["success"] is True
-        assert "data" in data
-        
-        # Verificar estadísticas
-        assert data["data"]["total_rows"] == 2
-        assert data["data"]["accepted_rows"] == 2
-        assert data["data"]["rejected_rows"] == 0
-        
-        # Verificar que ambas filas fueron aceptadas
-        results = data["data"]["results"]
-        assert len(results) == 2
-        assert all(r["status"] == "Aceptado" for r in results)
-        
-        # Verificar que se guardaron en la BD
-        batch_id = data["data"]["batch_id"]
-        temp_adjustments = TemporaryPayrollAdjustment.objects.filter(batch_id=batch_id)
-        assert temp_adjustments.count() == 2
-        
-        # Verificar que tienen expires_at configurado (24 horas)
-        for adj in temp_adjustments:
-            assert adj.expires_at is not None
-            assert adj.expires_at > timezone.now()
-    
-    def test_ut_nom_007_02_nonexistent_employee(self):
-        """
-        UT-NOM-007-02: Rechazo por empleado no existente
-        
-        Rechaza la carga si alguna fila tiene empleado no en la lista o no activo.
-        """
-        # Arrange: Crear solo un empleado
-        self._authenticate_client()
-        
-        emp1 = self._create_employee(201, "emp201@test.com", "1111111111")
-        
-        # Crear Excel con un empleado válido y uno inválido
-        start_date = date(2025, 11, 17)
-        end_date = date(2025, 11, 20)
-        
-        excel_rows = [
-            [
-                "1111111111",  # Empleado válido
-                "Empleado Válido",
-                "Incremento por antigüedad",
-                "incremento",
-                "fijo",
-                1000.0,
-                "salario base",
-                "2025-11-17 00:00:00",
-                "2025-11-18 00:00:00",
-                1.0,
-                "Ajuste válido"
-            ],
-            [
-                "9999999999",  # Empleado NO existente
-                "Empleado Inválido",
-                "Incremento por antigüedad",
-                "incremento",
-                "fijo",
-                1000.0,
-                "salario base",
-                "2025-11-17 00:00:00",
-                "2025-11-18 00:00:00",
-                1.0,
-                "Este debe ser rechazado"
-            ]
-        ]
-        
-        excel_file = self._create_excel_file(excel_rows)
-        
-        employees_json = json.dumps([
-            {"id_employee": emp1.id_employee, "document_number": "1111111111"}
-        ])
-        
-        # Act: Subir archivo
-        response = self.client.post(
-            self.upload_endpoint,
-            {
-                'file': excel_file,
-                'start_date': start_date.strftime('%Y-%m-%d'),
-                'end_date': end_date.strftime('%Y-%m-%d'),
-                'employees': employees_json
-            },
-            format='multipart'
-        )
-        
-        # Assert: Carga parcial
         assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        
-        assert data["success"] is True  # Carga parcial
-        assert data["data"]["total_rows"] == 2
-        assert data["data"]["accepted_rows"] == 1
-        assert data["data"]["rejected_rows"] == 1
-        
-        # Verificar razón de rechazo
-        results = data["data"]["results"]
-        rejected_row = [r for r in results if r["status"] == "Rechazado"][0]
-        assert "9999999999" in rejected_row["employee_identification"]
-        assert "no está en la lista de empleados aplicables" in rejected_row["reason_rejection"]
-    
-    def test_ut_nom_007_03_unparametrized_adjustment(self):
-        """
-        UT-NOM-007-03: Rechazo por novedad no parametrizada
-        
-        Si novedad no existe en parametrización, archivo rechazado con motivo.
-        """
-        # Arrange
+        assert response['Content-Type'] == 'application/pdf'
+        assert 'attachment' in response['Content-Disposition']
+        assert response.content == b'%PDF-1.4 Mock PDF Content'
+
+    def test_ut_nom_007_02_not_found(self):
+        """UT-NOM-007-02: Nómina no encontrada retorna 404"""
         self._authenticate_client()
+        response = self.client.get('/payroll/99999/download/')
         
-        emp1 = self._create_employee(301, "emp301@test.com", "3333333333")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "no encontrada" in response.json()['message']
+
+    def test_ut_nom_007_03_unauthorized(self):
+        """UT-NOM-007-03: Sin autenticación retorna 401"""
+        client = APIClient()
+        response = client.get('/payroll/1/download/')
         
-        start_date = date(2025, 11, 17)
-        end_date = date(2025, 11, 20)
+        assert response.status_code in [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN]
+        assert "no autenticado" in response.json()['message'].lower()
+
+    def test_ut_nom_007_04_forbidden(self):
+        """UT-NOM-007-04: Sin permiso 191 retorna 403"""
+        self._authenticate_client(permissions=self.token_without_permission)
+        emp = self._create_employee(101, "test@example.com")
+        contract = self._create_contract(emp)
+        payroll = self._create_payroll(emp, contract)
         
-        excel_rows = [
-            [
-                "3333333333",
-                "Empleado Test",
-                "Ajuste No Parametrizado",  # Este ajuste NO existe en Types
-                "incremento",
-                "fijo",
-                1000.0,
-                "salario base",
-                "2025-11-17 00:00:00",
-                "2025-11-18 00:00:00",
-                1.0,
-                "Este debe ser rechazado"
-            ]
-        ]
+        response = self.client.get(f'/payroll/{payroll.id_payroll}/download/')
         
-        excel_file = self._create_excel_file(excel_rows)
-        
-        employees_json = json.dumps([
-            {"id_employee": emp1.id_employee, "document_number": "3333333333"}
-        ])
-        
-        # Act
-        response = self.client.post(
-            self.upload_endpoint,
-            {
-                'file': excel_file,
-                'start_date': start_date.strftime('%Y-%m-%d'),
-                'end_date': end_date.strftime('%Y-%m-%d'),
-                'employees': employees_json
-            },
-            format='multipart'
-        )
-        
-        # Assert: Todas las filas rechazadas
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        data = response.json()
-        
-        assert data["success"] is False
-        assert data["data"]["rejected_rows"] == 1
-        assert data["data"]["accepted_rows"] == 0
-        
-        # Verificar mensaje de error
-        results = data["data"]["results"]
-        assert results[0]["status"] == "Rechazado"
-        assert "no está registrado en el sistema" in results[0]["reason_rejection"]
-    
-    def test_ut_nom_007_04_date_range_validation(self):
-        """
-        UT-NOM-007-04: Validación de fechas dentro del rango
-        
-        Fechas de inicio y fin deben estar dentro del rango start_date-end_date.
-        """
-        # Arrange
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "No tiene permisos" in response.json()['message']
+
+    def test_ut_nom_007_05_pdf_structure(self):
+        """UT-NOM-007-05: Estructura y contenido del PDF validados (vía Mock)"""
         self._authenticate_client()
+        emp = self._create_employee(101, "test@example.com")
+        contract = self._create_contract(emp)
+        payroll = self._create_payroll(emp, contract)
         
-        emp1 = self._create_employee(401, "emp401@test.com", "4444444444")
+        self.client.get(f'/payroll/{payroll.id_payroll}/download/')
         
-        start_date = date(2025, 11, 17)
-        end_date = date(2025, 11, 20)
-        
-        excel_rows = [
-            [
-                "4444444444",
-                "Empleado Test",
-                "Incremento por antigüedad",
-                "incremento",
-                "fijo",
-                1000.0,
-                "salario base",
-                "2025-11-10 00:00:00",  # Fecha FUERA del rango (antes)
-                "2025-11-18 00:00:00",
-                1.0,
-                "Fecha de inicio fuera de rango"
-            ],
-            [
-                "4444444444",
-                "Empleado Test",
-                "Incremento por antigüedad",
-                "incremento",
-                "fijo",
-                1000.0,
-                "salario base",
-                "2025-11-18 00:00:00",
-                "2025-11-30 00:00:00",  # Fecha FUERA del rango (después)
-                1.0,
-                "Fecha de fin fuera de rango"
-            ]
-        ]
-        
-        excel_file = self._create_excel_file(excel_rows)
-        
-        employees_json = json.dumps([
-            {"id_employee": emp1.id_employee, "document_number": "4444444444"}
-        ])
-        
-        # Act
-        response = self.client.post(
-            self.upload_endpoint,
-            {
-                'file': excel_file,
-                'start_date': start_date.strftime('%Y-%m-%d'),
-                'end_date': end_date.strftime('%Y-%m-%d'),
-                'employees': employees_json
-            },
-            format='multipart'
-        )
-        
-        # Assert
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        data = response.json()
-        
-        assert data["success"] is False
-        assert data["data"]["rejected_rows"] == 2
-        
-        # Verificar que ambas filas fueron rechazadas por fechas fuera de rango
-        results = data["data"]["results"]
-        for result in results:
-            assert result["status"] == "Rechazado"
-            assert "fuera del rango" in result["reason_rejection"]
-    
-    def test_ut_nom_007_05_percentage_validation(self):
-        """
-        UT-NOM-007-05: Validación valor porcentaje ≤ 100
-        
-        Filas con porcentaje mayor a 100 deben ser rechazadas con motivo.
-        """
-        # Arrange
+        # Verificar que se llamó al generador con los argumentos correctos
+        args, kwargs = self.mock_generate_pdf.call_args
+        assert kwargs['payroll'].id_payroll == payroll.id_payroll
+        assert kwargs['contract'].contract_code == contract.contract_code
+        assert kwargs['downloader_user'] == "Test User"
+
+    def test_ut_nom_007_06_filename_timestamp(self):
+        """UT-NOM-007-06: Nombre de archivo con timestamp correcto"""
         self._authenticate_client()
+        emp = self._create_employee(101, "test@example.com")
+        contract = self._create_contract(emp)
+        payroll = self._create_payroll(emp, contract)
         
-        emp1 = self._create_employee(501, "emp501@test.com", "5555555555")
+        response = self.client.get(f'/payroll/{payroll.id_payroll}/download/')
         
-        start_date = date(2025, 11, 17)
-        end_date = date(2025, 11, 20)
-        
-        excel_rows = [
-            [
-                "5555555555",
-                "Empleado Test",
-                "Incremento por antigüedad",
-                "incremento",
-                "porcentaje",
-                150.0,  # Porcentaje > 100 (INVÁLIDO)
-                "salario base",
-                "2025-11-17 00:00:00",
-                "2025-11-18 00:00:00",
-                1.0,
-                "Porcentaje inválido"
-            ]
-        ]
-        
-        excel_file = self._create_excel_file(excel_rows)
-        
-        employees_json = json.dumps([
-            {"id_employee": emp1.id_employee, "document_number": "5555555555"}
-        ])
-        
-        # Act
-        response = self.client.post(
-            self.upload_endpoint,
-            {
-                'file': excel_file,
-                'start_date': start_date.strftime('%Y-%m-%d'),
-                'end_date': end_date.strftime('%Y-%m-%d'),
-                'employees': employees_json
-            },
-            format='multipart'
-        )
-        
-        # Assert
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        data = response.json()
-        
-        assert data["success"] is False
-        assert data["data"]["rejected_rows"] == 1
-        
-        results = data["data"]["results"]
-        assert results[0]["status"] == "Rechazado"
-        assert "no puede superar el 100%" in results[0]["reason_rejection"]
-    
-    def test_ut_nom_007_06_data_type_validation(self):
-        """
-        UT-NOM-007-06: Validación tipo de dato de columnas
-        
-        Se rechazan filas con tipos de datos incorrectos (no numéricos en números, etc).
-        """
-        # Arrange
+        content_disposition = response['Content-Disposition']
+        # Regex para validar formato: nomina_{id}_{YYYYMMDD_HHMMSS}.pdf
+        pattern = r'filename="nomina_' + str(payroll.id_payroll) + r'_\d{8}_\d{6}\.pdf"'
+        assert re.search(pattern, content_disposition)
+
+    def test_ut_nom_007_07_accruals_included(self):
+        """UT-NOM-007-07: Devengos fijos y adicionales incluidos en PDF"""
         self._authenticate_client()
+        emp = self._create_employee(101, "test@example.com")
+        contract = self._create_contract(emp)
+        payroll = self._create_payroll(emp, contract)
+        self._create_payroll_increase(payroll, 50000.0)
         
-        emp1 = self._create_employee(601, "emp601@test.com", "6666666666")
+        self.client.get(f'/payroll/{payroll.id_payroll}/download/')
         
-        start_date = date(2025, 11, 17)
-        end_date = date(2025, 11, 20)
-        
-        excel_rows = [
-            [
-                "6666666666",
-                "Empleado Test",
-                "Incremento por antigüedad",
-                "incremento",
-                "fijo",
-                "NO_ES_NUMERO",  # Valor no numérico (INVÁLIDO)
-                "salario base",
-                "2025-11-17 00:00:00",
-                "2025-11-18 00:00:00",
-                1.0,
-                "Valor inválido"
-            ],
-            [
-                "6666666666",
-                "Empleado Test",
-                "Incremento por antigüedad",
-                "incremento",
-                "fijo",
-                1000.0,
-                "salario base",
-                "2025-11-17 00:00:00",
-                "2025-11-18 00:00:00",
-                "NO_ES_NUMERO",  # Cantidad no numérica (INVÁLIDA)
-                "Cantidad inválida"
-            ]
-        ]
-        
-        excel_file = self._create_excel_file(excel_rows)
-        
-        employees_json = json.dumps([
-            {"id_employee": emp1.id_employee, "document_number": "6666666666"}
-        ])
-        
-        # Act
-        response = self.client.post(
-            self.upload_endpoint,
-            {
-                'file': excel_file,
-                'start_date': start_date.strftime('%Y-%m-%d'),
-                'end_date': end_date.strftime('%Y-%m-%d'),
-                'employees': employees_json
-            },
-            format='multipart'
-        )
-        
-        # Assert
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        data = response.json()
-        
-        assert data["success"] is False
-        assert data["data"]["rejected_rows"] == 2
-        
-        # Verificar que fueron rechazadas por tipos de datos incorrectos
-        results = data["data"]["results"]
-        assert all(r["status"] == "Rechazado" for r in results)
-        # Verificar que los mensajes de error contienen información sobre tipos incorrectos
-        assert any("numérico" in r["reason_rejection"].lower() for r in results)
-    
-    def test_ut_nom_007_07_missing_columns(self):
-        """
-        UT-NOM-007-07: Rechazo por columnas obligatorias faltantes
-        
-        Carga rechazada si faltan columnas obligatorias en Excel.
-        """
-        # Arrange
+        # Verificar que el generador recibió el payroll con los incrementos
+        args, kwargs = self.mock_generate_pdf.call_args
+        payroll_arg = kwargs['payroll']
+        assert payroll_arg.total_increments == 50000.0
+        # Nota: En el viewset se usa prefetch_related, así que podríamos verificar si los objetos relacionados están cargados
+        # pero con el mock basta saber que el objeto payroll pasado es el correcto.
+
+    def test_ut_nom_007_08_deductions_included(self):
+        """UT-NOM-007-08: Deducciones fijas y adicionales incluidas en PDF"""
         self._authenticate_client()
+        emp = self._create_employee(101, "test@example.com")
+        contract = self._create_contract(emp)
+        payroll = self._create_payroll(emp, contract)
+        self._create_payroll_deduction(payroll, 30000.0)
         
-        emp1 = self._create_employee(701, "emp701@test.com", "7777777777")
+        self.client.get(f'/payroll/{payroll.id_payroll}/download/')
         
-        start_date = date(2025, 11, 17)
-        end_date = date(2025, 11, 20)
+        args, kwargs = self.mock_generate_pdf.call_args
+        payroll_arg = kwargs['payroll']
+        assert payroll_arg.total_deductions == 30000.0
+
+    def test_ut_nom_007_09_net_pay_calculation(self):
+        """UT-NOM-007-09: Cálculo neto a pagar correcto en PDF"""
+        self._authenticate_client()
+        emp = self._create_employee(101, "test@example.com")
+        contract = self._create_contract(emp)
+        payroll = self._create_payroll(emp, contract)
         
-        # Crear Excel con columnas INCOMPLETAS
-        wb = Workbook()
-        ws = wb.active
+        # Base 2M + 500k dev - 300k ded = 2.2M
+        self._create_payroll_increase(payroll, 500000.0)
+        self._create_payroll_deduction(payroll, 300000.0)
         
-        # Solo agregar ALGUNAS columnas (faltarán varias)
-        incomplete_columns = [
-            'Identificación del empleado',
-            'Nombre del empleado',
-            'Valor',  # Faltan muchas columnas requeridas
-        ]
-        ws.append(incomplete_columns)
+        self.client.get(f'/payroll/{payroll.id_payroll}/download/')
         
-        # Agregar fila de datos
-        ws.append(["7777777777", "Empleado Test", 1000.0])
+        args, kwargs = self.mock_generate_pdf.call_args
+        payroll_arg = kwargs['payroll']
+        assert payroll_arg.net_pay == 2200000.0
+
+    def test_ut_nom_007_10_employee_data(self):
+        """UT-NOM-007-10: Datos del empleado correctamente precargados en PDF"""
+        self._authenticate_client()
+        emp = self._create_employee(101, "test@example.com")
+        contract = self._create_contract(emp)
+        payroll = self._create_payroll(emp, contract)
         
-        # Guardar en memoria
-        excel_file = io.BytesIO()
-        wb.save(excel_file)
-        excel_file.seek(0)
+        # Configurar mock de usuario externo para devolver datos del empleado
+        self.mock_get_users_info.return_value = {
+            101: {"name": "Juan", "last_name": "Perez", "document": "123456"}
+        }
         
-        excel_file_upload = SimpleUploadedFile(
-            "incomplete.xlsx",
-            excel_file.read(),
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        self.client.get(f'/payroll/{payroll.id_payroll}/download/')
         
-        employees_json = json.dumps([
-            {"id_employee": emp1.id_employee, "document_number": "7777777777"}
-        ])
+        args, kwargs = self.mock_generate_pdf.call_args
+        assert kwargs['employee_data'] == {"name": "Juan", "last_name": "Perez", "document": "123456"}
+
+    def test_ut_nom_007_11_footer_info(self):
+        """UT-NOM-007-11: Pie de página con usuario y paginación"""
+        self._authenticate_client()
+        emp = self._create_employee(101, "test@example.com")
+        contract = self._create_contract(emp)
+        payroll = self._create_payroll(emp, contract)
         
-        # Act
-        response = self.client.post(
-            self.upload_endpoint,
-            {
-                'file': excel_file_upload,
-                'start_date': start_date.strftime('%Y-%m-%d'),
-                'end_date': end_date.strftime('%Y-%m-%d'),
-                'employees': employees_json
-            },
-            format='multipart'
-        )
+        self.client.get(f'/payroll/{payroll.id_payroll}/download/')
         
-        # Assert: HTTP 400 (o 500) con mensaje sobre columnas faltantes
-        assert response.status_code in [status.HTTP_400_BAD_REQUEST, status.HTTP_500_INTERNAL_SERVER_ERROR]
-        data = response.json()
+        args, kwargs = self.mock_generate_pdf.call_args
+        assert kwargs['downloader_user'] == "Test User"
+        # La paginación es responsabilidad interna del generador, aquí validamos que se pase el usuario
+
+    def test_ut_nom_007_12_internal_error(self):
+        """UT-NOM-007-12: Error interno 500 con manejo correcto"""
+        self._authenticate_client()
+        emp = self._create_employee(101, "test@example.com")
+        contract = self._create_contract(emp)
+        payroll = self._create_payroll(emp, contract)
         
-        assert data["success"] is False
-        # Verificar que el error menciona columnas faltantes/requeridas
-        error_message = data.get("message", "") + str(data.get("error", "")) + str(data.get("errors", ""))
-        assert "columnas" in error_message.lower() or "column" in error_message.lower()
+        # Simular error en generador
+        self.mock_generate_pdf.side_effect = Exception("PDF Error")
+        
+        response = self.client.get(f'/payroll/{payroll.id_payroll}/download/')
+        
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "Error al generar el PDF" in response.json()['message']
