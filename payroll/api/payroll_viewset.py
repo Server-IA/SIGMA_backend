@@ -17,7 +17,7 @@ from payroll.models import Payroll, EmployeeContractDeduction, EmployeeContractI
 from payroll.serializers.payroll_serializers.payroll_list_serializer import PayrollListSerializer
 from payroll.serializers.payroll_serializers.payroll_masive_generetion_serializer import PayrollMasiveGenerationSerializer
 from payroll.serializers.payroll_serializers.payroll_detail_serializer import PayrollDetailSerializer
-from payroll.serializers.payroll_serializers.payroll_serializers import PayrollCreateSerializer
+from payroll.serializers.payroll_serializers.payroll_serializer import PayrollCreateSerializer
 from payroll.services.payroll_history_service import (
     PayrollHistoryService,
     EmployeeNotFoundError,
@@ -499,30 +499,36 @@ class PayrollViewSet(viewsets.ModelViewSet):
             "contract_code": "CONTRACT-001",
             "start_date": "2025-01-01",
             "end_date": "2025-01-31",
-            "additional_deductions": [
+            "additional_deductions": [  // Opcional
                 {
-                    "type": 1,
+                    "deduction_type": 1,
                     "amount_type": "Porcentaje",
-                    "amount_value": 10.0,
-                    "description": "Descuento por préstamo",
-                    "application_type": "SalarioBase"
+                    "amount_value": 5.5,
+                    "application_deduction_type": "SalarioBase",
+                    "start_date_deduction": "2025-01-01",  // Opcional
+                    "end_date_deductions": "2025-01-31",    // Opcional
+                    "description": "Descuento por préstamo", // Opcional
+                    "amount": 1                             // Opcional, por defecto 1
                 }
             ],
-            "additional_increases": [
+            "additional_increases": [  // Opcional
                 {
-                    "type": 1,
+                    "increase_type": 1,
                     "amount_type": "fijo",
                     "amount_value": 100000,
-                    "description": "Bonificación",
-                    "application_type": "SalarioFinal"
+                    "application_increase_type": "SalarioBase",
+                    "start_date_increase": "2025-01-01",    // Opcional
+                    "end_date_increase": "2025-01-31",      // Opcional
+                    "description": "Bonificación",          // Opcional
+                    "amount": 1                             // Opcional, por defecto 1
                 }
             ]
         }
         """
         # Verificar autenticación
-        if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+        if not request.user or not request.user.is_authenticated:
             return Response(
-                {"message": "Usuario no autenticado"},
+                {"success": False, "message": "Usuario no autenticado"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -530,48 +536,69 @@ class PayrollViewSet(viewsets.ModelViewSet):
         required_permission = 195
         if not self.check_permission(request, required_permission):
             return Response(
-                {"message": "No tiene permisos para crear nóminas."},
+                {"success": False, "message": "No tiene permisos para crear nóminas."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Validar y procesar la solicitud
-        serializer = PayrollCreateSerializer(data=request.data, context={'request': request})
-        if not serializer.is_valid():
+        try:
+            # Usar el nuevo serializador
+            serializer = PayrollCreateSerializer(
+                data=request.data,
+                context={'request': request}
+            )
+            serializer.is_valid(raise_exception=True)
+            payroll = serializer.save()
+
+            # Obtener datos del empleado para la respuesta
+            employee = payroll.id_employee
+            contract = payroll.id_employee_contract
+
+            # Construir respuesta
+            response_data = {
+                "success": True,
+                "message": "Nómina creada exitosamente",
+                "data": {
+                    "payroll_id": payroll.id_payroll,
+                    "employee_id": employee.id_employee,
+                    "contract_code": contract.contract_code,
+                    "start_date": payroll.start_date.isoformat(),
+                    "end_date": payroll.end_date.isoformat(),
+                    "base_salary": float(payroll.base_salary),
+                    "time_worked": float(payroll.time_worked),
+                    "total_deductions": float(payroll.total_deductions),
+                    "total_increments": float(payroll.total_increments),
+                    "net_pay": float(payroll.net_pay),
+                    "currency_type": {
+                        "id": payroll.currency_type.id_units,
+                        "name": payroll.currency_type.name
+                    },
+                    "creation_date": payroll.creation_date.isoformat(),
+                    "responsible_user": {
+                        "id": payroll.id_responsible_user.id_user,
+                        "name": ""  # We'll update this after getting user data
+                    }
+                }
+            }
+
+            return Response(response_data, status=status.HTTP_201_CREATED)
+
+        except DRFValidationError as exc:
+            logger.error(f"Error de validación al crear nómina: {str(exc)}")
             return Response(
                 {
                     "success": False,
-                    "message": "Error de validación",
-                    "errors": serializer.errors,
+                    "message": "Error de validación en los datos de la nómina",
+                    "errors": exc.detail
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        try:
-            # Crear la nómina
-            payroll = serializer.save()
-            
-            return Response(
-                {
-                    "success": True,
-                    "message": "Nómina creada exitosamente",
-                    "data": {
-                        "id": payroll.id,
-                        "employee_id": payroll.id_employee_contract.id_employee.id,
-                        "start_date": payroll.start_date,
-                        "end_date": payroll.end_date,
-                        "net_pay": payroll.net_pay
-                    }
-                },
-                status=status.HTTP_201_CREATED,
-            )
-            
-        except Exception as e:
-            logger.error(f"Error al crear nómina: {str(e)}")
+        except Exception as exc:
+            logger.exception("Error inesperado al crear nómina")
             return Response(
                 {
                     "success": False,
-                    "message": "Error interno al procesar la solicitud",
-                    "error": str(e)
+                    "message": "Ocurrió un error al procesar la solicitud de creación de nómina",
+                    "error": str(exc)
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
