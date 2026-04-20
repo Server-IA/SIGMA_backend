@@ -18,7 +18,9 @@ class PayrollDetailSerializer(serializers.ModelSerializer):
     currency_type_name = serializers.CharField(source='currency_type.name', read_only=True)
     payroll_deductions = serializers.SerializerMethodField()
     payroll_increases = serializers.SerializerMethodField()
-    
+    payment_method_name = serializers.SerializerMethodField()
+    status_id = serializers.IntegerField(source='status.id', read_only=True)
+    status_name = serializers.CharField(source='status.name', read_only=True)
     class Meta:
         model = Payroll
         fields = [
@@ -41,11 +43,16 @@ class PayrollDetailSerializer(serializers.ModelSerializer):
             'responsible_user_full_name',
             'payroll_deductions',
             'payroll_increases',
+            'payment_method',
+            'payment_method_name',
+            'status_id',
+            'status_name',
+            'date_payment',
         ]
         read_only_fields = ['id_payroll', 'start_date', 'end_date', 'id_employee', 
                           'id_employee_contract', 'base_salary', 'time_worked',
                           'total_deductions', 'total_increments', 'net_pay', 
-                          'currency_type', 'creation_date', 'id_responsible_user']
+                          'currency_type', 'creation_date', 'id_responsible_user','payment_method', 'status_id', 'date_payment']
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -56,7 +63,13 @@ class PayrollDetailSerializer(serializers.ModelSerializer):
         context = kwargs.get('context', {})
         if isinstance(context, dict) and 'users_data' in context:
             self._ext_users_cache.update(context['users_data'])
-
+            
+    def get_payment_method_name(self, obj):
+        """Obtiene el nombre del método de pago."""
+        if obj.payment_method:
+            return obj.payment_method.name  # Ajusta según el campo real de PaymentMethod
+        return None
+    
     def _get_external_user(self, user_id: Optional[int]) -> Dict[str, Any]:
         """
         Obtiene información del usuario desde el servicio externo.
