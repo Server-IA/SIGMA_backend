@@ -28,6 +28,7 @@ class PayrollListSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "currency_type_name",
+            "date_payment"
         ]
 
     # -----------------------------

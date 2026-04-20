@@ -12,6 +12,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from payroll.models import Payroll
+from service_requests.models import PaymentMethod
 from payroll.serializers.payroll_serializers.payroll_history_report_serializer import PayrollHistoryReportSerializer
 from payroll.models import Payroll, EmployeeContractDeduction, EmployeeContractIncrease
 from payroll.serializers.payroll_serializers.payroll_list_serializer import PayrollListSerializer
@@ -449,6 +450,88 @@ class PayrollViewSet(viewsets.ModelViewSet):
 
         except Exception as exc:
             logger.error("Error al serializar detalle de nómina: %s", str(exc), exc_info=True)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Ocurrió un error al procesar la solicitud.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        
+    @action(detail=True, methods=["post"], url_path="pay")
+    def pay_payroll(self, request, pk=None):
+        """
+        Endpoint para marcar una nómina como pagada.
+
+        POST /api/payroll/pay/
+
+        Requiere permiso: 193
+
+        Respuestas:
+        - 200: Nómina marcada como pagada exitosamente
+        - 400: Error de validación (e.g. nómina ya pagada)
+        - 403: Sin permisos
+        - 404: Nómina no encontrada
+        - 500: Error interno
+        """
+        # Verificar autenticación
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {"message": "Usuario no autenticado"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Verificar permiso
+        required_permission = 193
+        if not self.check_permission(request, required_permission):
+            return Response(
+                {"message": "No tiene permisos para ver nóminas o marcarlas como pagadas."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            payroll = Payroll.objects.get(pk=pk)
+        except Payroll.DoesNotExist:
+            return Response(
+                {"message": "Nómina no encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        
+        
+        if payroll.date_payment is not None:
+            return Response(
+                {"message": "La nómina ya ha sido marcada como pagada."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        method_id = request.data.get("method")
+        print("metodo: ", method_id)
+        payment_method = None
+        if method_id:
+            payment_method = PaymentMethod.objects.get(pk=method_id)
+
+        payroll.payment_method = payment_method
+        payroll.status_id = 18  # Asumiendo que el ID 18 corresponde a "Pagada" en el modelo de estados
+        try:
+            payroll.date_payment = timezone.now()
+            payroll.payment_method = payment_method if payment_method else "No especificado"
+            payroll.save()
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Nómina marcada como pagada exitosamente.",
+                    "data": {
+                        "id_payroll": payroll.id_payroll,
+                        "date_payment": payroll.date_payment.isoformat(),
+                    }
+                },
+                status=status.HTTP_200_OK,
+            )
+        
+        except Exception as exc:
+            logger.exception("Error al marcar nómina como pagada")
             return Response(
                 {
                     "success": False,
