@@ -30,3 +30,12 @@ Thumbs.db
 
 # Archivos personalizados de desarrollo (opcional)
 devserver.py
+
+# Modelos de ML y datos de entrenamiento
+models/*.pkl
+models/*.csv
+models/*.json
+models/*.txt
+# Mantener el directorio pero excluir su contenido
+models/*
+!models/.gitkeep

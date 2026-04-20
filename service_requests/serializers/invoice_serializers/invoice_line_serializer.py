@@ -12,6 +12,7 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
         queryset=apps.get_model('service_requests', 'Service').objects.all()
     )
     service_item_name = serializers.CharField(source='service_item.service_name', read_only=True)
+    service_item_description = serializers.CharField(source='service_item.description', read_only=True)
 
     quantity = serializers.DecimalField(
         max_digits=10, decimal_places=2,
@@ -60,6 +61,7 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
             'id_invoice_line',
             'service_item',
             'service_item_name',
+            'service_item_description',
             'quantity',
             'discount_percentage',
             'discount_amount',
@@ -72,7 +74,7 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
             'total_line_amount',
             'service_name',
             'code_reference',
-        'tribute_id',
+            'tribute_id',
             'invoice',
             'factus_payload',
         )
@@ -80,6 +82,7 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
             'price_unit',
             'tax_per_line_type',
             'service_name',
+            'service_item_description',
             'code_reference',
             'invoice',
             'factus_payload',
