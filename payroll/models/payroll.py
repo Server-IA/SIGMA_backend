@@ -31,6 +31,7 @@ class Payroll(models.Model):
         help_text="Método de pago (ref: PaymentMethod)",
         null=True, blank=True
     )
+    
     creation_date = models.DateTimeField(db_column="creation_date", null=False, blank=False)
     id_responsible_user = models.ForeignKey("users.User", on_delete=models.PROTECT, related_name="payrolls_responsible", db_column="id_responsible_user", null=False, blank=False)
 
