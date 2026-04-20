@@ -1,5 +1,7 @@
 from django.db import models
 
+STATUES_MODEL = 'parameterization.Statues'
+
 
 class Payroll(models.Model):
     id_payroll = models.AutoField(primary_key=True, db_column="id_payroll")
@@ -16,7 +18,19 @@ class Payroll(models.Model):
     # Valor neto final a pagar
     net_pay = models.FloatField(null=False, blank=False, db_column="net_pay", default=0.0)
     currency_type = models.ForeignKey("parameterization.Units", on_delete=models.PROTECT, related_name="pyroll_by_currency_type", db_column="currency_type", null=False, blank=False)
-
+    status = models.ForeignKey(
+        STATUES_MODEL,
+        on_delete=models.PROTECT,
+        default=16,
+        help_text='Estado actual de la factura (ref: Statues)'
+    )
+    date_payment = models.DateField(db_column="date_payment", null=True, blank=True)
+    payment_method = models.ForeignKey(
+        'service_requests.PaymentMethod',
+        on_delete=models.PROTECT,
+        help_text="Método de pago (ref: PaymentMethod)",
+        null=True, blank=True
+    )
     creation_date = models.DateTimeField(db_column="creation_date", null=False, blank=False)
     id_responsible_user = models.ForeignKey("users.User", on_delete=models.PROTECT, related_name="payrolls_responsible", db_column="id_responsible_user", null=False, blank=False)
 
