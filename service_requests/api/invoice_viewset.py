@@ -1202,3 +1202,513 @@ def download_invoice_pdf(request, id_invoice):
             content_type='application/json',
             status=500
         )
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
+    """
+    GET /sigma/economic-events/consult/{sincePeriod}/{untilPeriod}/
+
+    Endpoint protegido por JWT para obtener eventos económicos de SIGMA
+    y construir un lote AAEF con facturas y pagos/transacciones.
+
+    Ejemplo:
+    /sigma/economic-events/consult/2026-03-01/2026-03-31/
+    """
+
+    def json_response(data, http_status=200):
+        return HttpResponse(
+            json.dumps(data, ensure_ascii=False, default=str),
+            content_type="application/json",
+            status=http_status
+        )
+
+    def get_nested_value(source, path, default=None):
+        current = source or {}
+
+        for key in path:
+            if isinstance(current, dict):
+                current = current.get(key)
+            elif isinstance(current, list) and isinstance(key, int):
+                if 0 <= key < len(current):
+                    current = current[key]
+                else:
+                    return default
+            else:
+                return default
+
+            if current is None:
+                return default
+
+        return current
+
+    def to_decimal(value, default="0.00"):
+        try:
+            if value is None or value == "":
+                return Decimal(default)
+            return Decimal(str(value))
+        except Exception:
+            return Decimal(default)
+
+    def format_decimal(value):
+        try:
+            return str(to_decimal(value).quantize(Decimal("0.01")))
+        except Exception:
+            return "0.00"
+
+    def get_customer_display_name(customer):
+        if not customer:
+            return ""
+
+        legal_name = getattr(customer, "legal_entity_name", None)
+        if legal_name:
+            return legal_name
+
+        name_parts = [
+            getattr(customer, "name", None),
+            getattr(customer, "first_last_name", None),
+            getattr(customer, "second_last_name", None),
+        ]
+
+        return " ".join([str(x).strip() for x in name_parts if x]).strip()
+
+    def get_customer_document_number(customer):
+        if not customer:
+            return ""
+
+        return (
+            getattr(customer, "document_number", None)
+            or getattr(customer, "identification_number", None)
+            or getattr(customer, "nit", None)
+            or ""
+        )
+
+    def get_customer_document_type(customer):
+        if not customer:
+            return ""
+
+        type_document = getattr(customer, "type_document", None)
+        if type_document:
+            return (
+                getattr(type_document, "code", None)
+                or getattr(type_document, "name", None)
+                or str(type_document)
+            )
+
+        type_document_id = getattr(customer, "type_document_id_id", None)
+        if type_document_id:
+            return str(type_document_id)
+
+        return ""
+
+    def get_payment_method_code(payment_method_id):
+        mapping = {
+            "10": "CASH",
+            "20": "CHECK",
+            "47": "TRANSFER",
+            "48": "CARD",
+            "49": "CARD",
+        }
+
+        if payment_method_id is None:
+            return "PENDING"
+
+        return mapping.get(str(payment_method_id).strip(), "PENDING")
+
+    def get_invoice_status_aaef(invoice):
+        if getattr(invoice, "status_id", None) == 26:
+            return "PAID"
+
+        if getattr(invoice, "status_id", None) == 24:
+            return "EASER"
+
+        return "PENDING"
+
+    def get_invoice_lines_aaef(invoice):
+        result = []
+
+        api_response = getattr(invoice, "api_response", None) or {}
+        api_items = get_nested_value(api_response, ["data", "items"], []) or []
+
+        try:
+            model_lines = list(invoice.lines.all())
+        except Exception:
+            model_lines = []
+
+        max_len = max(len(model_lines), len(api_items))
+
+        for index in range(max_len):
+            model_line = model_lines[index] if index < len(model_lines) else None
+            api_item = api_items[index] if index < len(api_items) else {}
+
+            code = ""
+            name = "Concepto facturado"
+            quantity = 1
+            unit_price = None
+
+            if model_line:
+                code = getattr(model_line, "code_reference", None) or ""
+                name = getattr(model_line, "service_name", None) or name
+                quantity = getattr(model_line, "quantity", None) or quantity
+                unit_price = (
+                    getattr(model_line, "price_unit", None)
+                    or getattr(model_line, "unit_price", None)
+                )
+
+            code = code or api_item.get("code_reference") or api_item.get("code") or ""
+            name = api_item.get("name") or api_item.get("description") or name
+            description = api_item.get("note") or api_item.get("description") or name
+            quantity = api_item.get("quantity") or quantity
+
+            if unit_price is None:
+                unit_price = api_item.get("price") or api_item.get("unit_price") or 0
+
+            line_value = (
+                api_item.get("total")
+                or api_item.get("value")
+                or to_decimal(quantity) * to_decimal(unit_price)
+            )
+
+            tax_type = get_nested_value(api_item, ["tribute", "code"], None)
+            tax_rate = api_item.get("tax_rate")
+            tax_amount = api_item.get("tax_amount")
+
+            taxes = []
+
+            if tax_type or tax_rate or tax_amount:
+                taxes.append({
+                    "TaxType": tax_type or "01",
+                    "Rate": format_decimal(tax_rate or 0),
+                    "Amount": format_decimal(tax_amount or 0)
+                })
+
+            result.append({
+                "Code": str(code),
+                "Name": str(name),
+                "Description": str(description),
+                "LineType": str(name),
+                "Quantity": format_decimal(quantity),
+                "UnitPrice": format_decimal(unit_price),
+                "Value": format_decimal(line_value),
+                "Taxes": taxes
+            })
+
+        return result
+
+    def build_invoice_aaef(invoice):
+        api_response = getattr(invoice, "api_response", None) or {}
+        bill = get_nested_value(api_response, ["data", "bill"], {}) or {}
+
+        customer = getattr(invoice, "customer", None)
+
+        reference_code = getattr(invoice, "reference_code", None) or ""
+        invoice_number = getattr(invoice, "invoice_number", None) or ""
+
+        validated_at = (
+            bill.get("validated")
+            or bill.get("validated_at")
+            or getattr(invoice, "sent_at", None)
+            or getattr(invoice, "invoice_date", None)
+        )
+
+        issue_date = (
+            bill.get("created_at")
+            or getattr(invoice, "invoice_date", None)
+        )
+
+        subtotal = (
+            bill.get("taxable_amount")
+            or getattr(invoice, "total_without_taxes", None)
+            or 0
+        )
+
+        total_vat = (
+            bill.get("tax_amount")
+            or getattr(invoice, "total_taxes", None)
+            or 0
+        )
+
+        total_discounts = bill.get("discount_amount") or 0
+
+        total_payment = (
+            getattr(invoice, "amount_to_pay", None)
+            or bill.get("total")
+            or 0
+        )
+
+        return {
+            "Header": {
+                "DocumentId": reference_code,
+                "Prefix": "SIGMA-FACT",
+                "Serial": invoice_number or reference_code,
+                "Type": {
+                    "Code": get_nested_value(
+                        api_response,
+                        ["data", "bill", "document", "code"],
+                        "INVOICE"
+                    )
+                },
+                "IssueDate": issue_date,
+                "DueDate": validated_at,
+                "Status": get_invoice_status_aaef(invoice),
+                "UpdatedAt": validated_at
+            },
+            "ThirdParty": {
+                "DocumentType": get_customer_document_type(customer),
+                "DocumentNumber": get_customer_document_number(customer),
+                "Name": get_customer_display_name(customer),
+                "Email": getattr(customer, "email", None) if customer else "",
+                "Address": getattr(customer, "address", None) if customer else ""
+            },
+            "Totals": {
+                "Subtotal": format_decimal(subtotal),
+                "TotalVAT": format_decimal(total_vat),
+                "TotalWithholdings": format_decimal(
+                    getattr(invoice, "total_withholding_taxes", 0) or 0
+                ),
+                "TotalDiscounts": format_decimal(total_discounts),
+                "TotalPayment": format_decimal(total_payment),
+                "OutstandingBalance": format_decimal(
+                    getattr(invoice, "amount_to_pay", 0) or 0
+                )
+            },
+            "Lines": get_invoice_lines_aaef(invoice)
+        }
+
+    def build_transaction_aaef(invoice):
+        api_response = getattr(invoice, "api_response", None) or {}
+        bill = get_nested_value(api_response, ["data", "bill"], {}) or {}
+
+        customer = getattr(invoice, "customer", None)
+        service_request = getattr(invoice, "service_request", None)
+
+        reference_code = getattr(invoice, "reference_code", None) or ""
+
+        validated_at = (
+            bill.get("validated")
+            or bill.get("validated_at")
+            or getattr(invoice, "sent_at", None)
+            or getattr(invoice, "invoice_date", None)
+        )
+
+        if validated_at:
+            validated_date = str(validated_at)[0:10]
+        else:
+            validated_date = timezone.now().date().isoformat()
+
+        payment_method_id = None
+
+        if service_request:
+            payment_method_id = getattr(service_request, "payment_method_id", None)
+
+        if payment_method_id is None:
+            payment_method = getattr(invoice, "payment_method", None)
+            payment_method_id = (
+                getattr(payment_method, "code", None)
+                or getattr(invoice, "payment_method_id", None)
+            )
+
+        return {
+            "DocumentId": f"PAY-{reference_code}-{validated_date}",
+            "Date": validated_at,
+            "RelatedInvoiceId": reference_code,
+            "ThirdParty": {
+                "DocumentType": get_customer_document_type(customer),
+                "DocumentNumber": get_customer_document_number(customer),
+                "Name": get_customer_display_name(customer)
+            },
+            "Amount": format_decimal(getattr(invoice, "amount_to_pay", 0) or 0),
+            "Currency": "COP",
+            "Status": "COMPLETED",
+            "Notes": f"Pago asociado a factura {reference_code}",
+            "UpdatedAt": (
+                getattr(service_request, "confirmation_datetime", None)
+                if service_request
+                else validated_at
+            ),
+            "Type": {
+                "Code": "PAY"
+            },
+            "PaymentMethod": {
+                "Code": get_payment_method_code(payment_method_id)
+            }
+        }
+
+    # 1. Autenticación JWT.
+    # No se valida permiso específico por solicitud funcional.
+    jwt_auth = JWTAuthentication()
+
+    try:
+        user_data = jwt_auth.authenticate(request)
+
+        if user_data:
+            user, payload = user_data
+            request.user = user
+            request.auth = payload
+
+    except Exception as e:
+        logger.warning("[SIGMA_EVENTS] Usuario no autenticado: %s", e)
+
+        return json_response({
+            "success": False,
+            "message": "Usuario no autenticado."
+        }, 401)
+
+    if not getattr(request, "user", None) or not getattr(request.user, "is_authenticated", False):
+        return json_response({
+            "success": False,
+            "message": "Usuario no autenticado."
+        }, 401)
+
+    # 2. Tomar fechas desde la URL.
+    since_period = sincePeriod
+    until_period = untilPeriod
+
+    if not since_period or not until_period:
+        return json_response({
+            "success": False,
+            "message": "Los parámetros sincePeriod y untilPeriod son obligatorios."
+        }, 400)
+
+    # 3. Validar formato básico de fechas.
+    try:
+        from datetime import datetime
+
+        since_date = datetime.strptime(str(since_period), "%Y-%m-%d").date()
+        until_date = datetime.strptime(str(until_period), "%Y-%m-%d").date()
+    except Exception:
+        return json_response({
+            "success": False,
+            "message": "Los parámetros sincePeriod y untilPeriod deben tener formato YYYY-MM-DD."
+        }, 400)
+
+    if since_date > until_date:
+        return json_response({
+            "success": False,
+            "message": "sincePeriod no puede ser mayor que untilPeriod."
+        }, 400)
+
+    try:
+        # 4. Consultar facturas validadas en el rango.
+        # Se usa invoice_date como filtro operativo inicial.
+        invoices_queryset = (
+            Invoice.objects
+            .select_related("customer", "payment_method", "service_request")
+            .prefetch_related("lines")
+            .filter(
+                status_id=26,
+                invoice_date__gte=since_date,
+                invoice_date__lte=until_date
+            )
+            .order_by("invoice_date", "id_invoice")
+        )
+
+        invoices = list(invoices_queryset)
+
+        # 5. Construir invoices y transactions AAEF.
+        aaef_invoices = []
+        aaef_transactions = []
+
+        for invoice in invoices:
+            aaef_invoices.append(build_invoice_aaef(invoice))
+
+            service_request = getattr(invoice, "service_request", None)
+            payment_status_id = (
+                getattr(service_request, "payment_status_id", None)
+                if service_request
+                else None
+            )
+
+            # Según criterios de aceptación RF-INT-15:
+            # payment_status_id = 18 => COMPLETED.
+            # payment_status_id = 16 o 17 => excluido.
+            if str(payment_status_id) == "18":
+                aaef_transactions.append(build_transaction_aaef(invoice))
+
+        # 6. Calcular summary.
+        total_invoices = len(aaef_invoices)
+        total_transactions = len(aaef_transactions)
+        total_documents = total_invoices + total_transactions
+
+        total_gross_amount = Decimal("0.00")
+        total_taxes = Decimal("0.00")
+        total_net = Decimal("0.00")
+
+        for invoice in invoices:
+            api_response = getattr(invoice, "api_response", None) or {}
+            bill = get_nested_value(api_response, ["data", "bill"], {}) or {}
+
+            gross_value = (
+                bill.get("gross_value")
+                or bill.get("total")
+                or getattr(invoice, "amount_to_pay", 0)
+                or 0
+            )
+
+            tax_amount = (
+                bill.get("tax_amount")
+                or getattr(invoice, "total_taxes", 0)
+                or 0
+            )
+
+            amount_to_pay = getattr(invoice, "amount_to_pay", 0) or 0
+
+            total_gross_amount += to_decimal(gross_value)
+            total_taxes += to_decimal(tax_amount)
+            total_net += to_decimal(amount_to_pay)
+
+        # Se suman también las transacciones como eventos económicos independientes.
+        for trx in aaef_transactions:
+            total_gross_amount += to_decimal(trx.get("Amount"))
+            total_net += to_decimal(trx.get("Amount"))
+
+        now_utc = timezone.now().astimezone(pytz.UTC)
+
+        exchange_id = "AF-{year}-{month:02d}-{seq:05d}".format(
+            year=now_utc.year,
+            month=now_utc.month,
+            seq=int(time.time()) % 100000
+        )
+
+        aaef_payload = {
+            "metadata": {
+                "ExchangeId": exchange_id,
+                "GeneratedAt": now_utc.isoformat().replace("+00:00", "Z"),
+                "StandardVersion": "1.0",
+                "RequestedPeriod": {
+                    "From": since_period,
+                    "To": until_period
+                },
+                "SourceSystem": {
+                    "SystemName": "SIGMA",
+                    "Environment": os.getenv("DJANGO_ENV", "production")
+                },
+                "GeneratedBy": "sigma-integration-service"
+            },
+            "summary": {
+                "TotalDocuments": total_documents,
+                "TotalInvoices": total_invoices,
+                "TotalTransactions": total_transactions,
+                "TotalGrossAmount": format_decimal(total_gross_amount),
+                "TotalTaxes": format_decimal(total_taxes),
+                "TotalNet": format_decimal(total_net),
+                "Currency": "COP"
+            },
+            "invoices": aaef_invoices,
+            "transactions": aaef_transactions
+        }
+
+        return json_response({
+            "success": True,
+            "message": "Lote AAEF construido correctamente desde eventos económicos de SIGMA.",
+            "data": aaef_payload
+        }, 200)
+
+    except Exception as e:
+        logger.error("[SIGMA_EVENTS] Error construyendo lote AAEF: %s", e, exc_info=True)
+
+        return json_response({
+            "success": False,
+            "message": "Error interno al consultar eventos económicos de SIGMA.",
+            "detail": str(e)
+        }, 500)

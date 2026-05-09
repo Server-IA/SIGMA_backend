@@ -12,7 +12,7 @@ from service_requests.api.payment_method_viewset import PaymentMethodViewSet
 from service_requests.api.soil_type_viewset import SoilTypeViewSet
 from service_requests.api.texture_viewset import TextureViewSet
 from service_requests.api.implementation_viewset import ImplementationViewSet
-from .api.invoice_viewset import download_invoice_pdf
+from .api.invoice_viewset import download_invoice_pdf, consult_sigma_economic_events
 
 router = routers.DefaultRouter()
 
@@ -33,7 +33,24 @@ router.register(r'invoice-issuers', InvoiceIssuerViewSet, basename='invoice_issu
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('invoices/<int:id_invoice>/download_pdf/', download_invoice_pdf, name='invoice-download-pdf'),
+
+    path(
+        'invoices/<int:id_invoice>/download_pdf/',
+        download_invoice_pdf,
+        name='invoice-download-pdf'
+    ),
+
     # Alias para compatibilidad con URL anterior
-    path('invoices/<int:id_invoice>/download_fe_document/', download_invoice_pdf, name='invoice-download-fe-document'),
+    path(
+        'invoices/<int:id_invoice>/download_fe_document/',
+        download_invoice_pdf,
+        name='invoice-download-fe-document'
+    ),
+
+    # RF-INT-15 - Obtención de eventos económicos de SIGMA por rango
+    path(
+        'sigma/economic-events/consult/<str:sincePeriod>/<str:untilPeriod>/',
+        consult_sigma_economic_events,
+        name='sigma-economic-events-consult'
+    ),
 ]
