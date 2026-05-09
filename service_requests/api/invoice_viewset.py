@@ -1712,3 +1712,21 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
             "message": "Error interno al consultar eventos económicos de SIGMA.",
             "detail": str(e)
         }, 500)
+    
+@csrf_exempt
+@require_http_methods(["GET"])
+def health_check(request):
+    """
+    GET /health/
+
+    Endpoint simple para validar que la API está funcionando.
+    No requiere autenticación.
+    """
+    return HttpResponse(
+        json.dumps({
+            "status": "ok",
+            "message": "API funcionando correctamente"
+        }, ensure_ascii=False),
+        content_type="application/json",
+        status=200
+    )    

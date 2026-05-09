@@ -1,3 +1,4 @@
+from .api.invoice_viewset import health_check
 from django.urls import path, include
 from rest_framework import routers
 from service_requests.api.customer_viewset import CustomerViewSet
@@ -32,6 +33,13 @@ router.register(r'invoice-issuers', InvoiceIssuerViewSet, basename='invoice_issu
 
 
 urlpatterns = [
+    # Health check - Validación simple de disponibilidad de la API
+    path(
+        'health/',
+        health_check,
+        name='health-check'
+    ),
+
     path('', include(router.urls)),
 
     path(
