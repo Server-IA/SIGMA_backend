@@ -35,7 +35,7 @@ router.register(r'invoice-issuers', InvoiceIssuerViewSet, basename='invoice_issu
 urlpatterns = [
     # Health check - Validación simple de disponibilidad de la API
     path(
-        'health/',
+        'health',
         health_check,
         name='health-check'
     ),
