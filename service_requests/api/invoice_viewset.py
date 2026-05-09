@@ -1698,11 +1698,9 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
             "transactions": aaef_transactions
         }
 
-        return json_response({
-            "success": True,
-            "message": "Lote AAEF construido correctamente desde eventos económicos de SIGMA.",
-            "data": aaef_payload
-        }, 200)
+        return json_response(
+            aaef_payload
+        , 200)
 
     except Exception as e:
         logger.error("[SIGMA_EVENTS] Error construyendo lote AAEF: %s", e, exc_info=True)
