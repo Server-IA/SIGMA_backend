@@ -16,14 +16,11 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-<<<<<<< Updated upstream
 from payroll.models import Payroll
-=======
 from users.authentication import JWTAuthentication
 
 from payroll.models import Payroll, EmployeeContractDeduction, EmployeeContractIncrease
 from service_requests.models import PaymentMethod
->>>>>>> Stashed changes
 from payroll.serializers.payroll_serializers.payroll_history_report_serializer import PayrollHistoryReportSerializer
 from payroll.serializers.payroll_serializers.payroll_list_serializer import PayrollListSerializer
 from payroll.serializers.payroll_serializers.payroll_masive_generetion_serializer import PayrollMasiveGenerationSerializer
