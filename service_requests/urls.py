@@ -35,7 +35,7 @@ router.register(r'invoice-issuers', InvoiceIssuerViewSet, basename='invoice_issu
 urlpatterns = [
     # Health check - Validación simple de disponibilidad de la API
     path(
-        'health/',
+        'health',
         health_check,
         name='health-check'
     ),
@@ -57,7 +57,7 @@ urlpatterns = [
 
     # RF-INT-15 - Obtención de eventos económicos de SIGMA por rango
     path(
-        'sigma/economic-events/consult/<str:sincePeriod>/<str:untilPeriod>/',
+        'sigma/economic-events/consult/<str:sincePeriod>/<str:untilPeriod>',
         consult_sigma_economic_events,
         name='sigma-economic-events-consult'
     ),
