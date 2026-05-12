@@ -21,7 +21,7 @@ urlpatterns = [
     # RF-INT-35 - Obtención de eventos económicos de Nómina en SIGMA mediante API REST
     # GET /payroll/economic-events/consult/2025-11-01/2025-11-30/
     path(
-        'payroll/economic-events/consult/<str:sincePeriod>/<str:untilPeriod>/',
+        'payroll/economic-events/consult/<str:sincePeriod>/<str:untilPeriod>',
         consult_sigma_economic_events,
         name='sigma-payroll-economic-events-consult'
     ),

@@ -1324,6 +1324,27 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
 
         return "PENDING"
 
+    def get_service_accounting_account(model_line):
+        """
+        Obtiene la cuenta contable del concepto facturado desde:
+
+        InvoiceLine.service_item -> Service.accounting_account
+        """
+        if not model_line:
+            return ""
+
+        service_item = getattr(model_line, "service_item", None)
+
+        if not service_item:
+            return ""
+
+        accounting_account = getattr(service_item, "accounting_account", None)
+
+        if accounting_account is None:
+            return ""
+
+        return str(accounting_account).strip()
+
     def get_invoice_lines_aaef(invoice):
         result = []
 
@@ -1345,6 +1366,11 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
             name = "Concepto facturado"
             quantity = 1
             unit_price = None
+
+            # RF-INT-15:
+            # Lines.AccountingAccount[0]
+            # Sale de services.accounting_account del concepto consultado.
+            accounting_account = get_service_accounting_account(model_line)
 
             if model_line:
                 code = getattr(model_line, "code_reference", None) or ""
@@ -1387,6 +1413,11 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
                 "Name": str(name),
                 "Description": str(description),
                 "LineType": str(name),
+
+                "AccountingAccount": [
+                    accounting_account
+                ],
+
                 "Quantity": format_decimal(quantity),
                 "UnitPrice": format_decimal(unit_price),
                 "Value": format_decimal(line_value),
@@ -1437,7 +1468,7 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
         )
 
         return {
-            "Header": {
+            "Header": {                
                 "DocumentId": reference_code,
                 "Prefix": "SIGMA-FACT",
                 "Serial": invoice_number or reference_code,
@@ -1446,7 +1477,8 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
                         api_response,
                         ["data", "bill", "document", "code"],
                         "INVOICE"
-                    )
+                    ),
+                    "Name": "Factura de Venta"
                 },
                 "IssueDate": issue_date,
                 "DueDate": validated_at,
@@ -1456,6 +1488,7 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
             "ThirdParty": {
                 "DocumentType": get_customer_document_type(customer),
                 "DocumentNumber": get_customer_document_number(customer),
+                "NIT": None,
                 "Name": get_customer_display_name(customer),
                 "Email": getattr(customer, "email", None) if customer else "",
                 "Address": getattr(customer, "address", None) if customer else ""
@@ -1508,7 +1541,7 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
                 or getattr(invoice, "payment_method_id", None)
             )
 
-        return {
+        return {             
             "DocumentId": f"PAY-{reference_code}-{validated_date}",
             "Date": validated_at,
             "RelatedInvoiceId": reference_code,
@@ -1527,7 +1560,8 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
                 else validated_at
             ),
             "Type": {
-                "Code": "PAY"
+                "Code": "PAY",
+                "Name": "Pago de Factura",
             },
             "PaymentMethod": {
                 "Code": get_payment_method_code(payment_method_id)
@@ -1594,7 +1628,7 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
         invoices_queryset = (
             Invoice.objects
             .select_related("customer", "payment_method", "service_request")
-            .prefetch_related("lines")
+            .prefetch_related("lines__service_item")
             .filter(
                 status_id=26,
                 invoice_date__gte=since_date,
@@ -1680,7 +1714,9 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
                     "To": until_period
                 },
                 "SourceSystem": {
-                    "SystemName": "SIGMA",
+                    "SystemId": "sigma-prod-01",
+                    "SystemName": "Sigma",
+                    "SystemNIT": "900123456",
                     "Environment": os.getenv("DJANGO_ENV", "production")
                 },
                 "GeneratedBy": "sigma-integration-service"
@@ -1699,8 +1735,9 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
         }
 
         return json_response(
-            aaef_payload
-        , 200)
+            aaef_payload,
+            200
+        )
 
     except Exception as e:
         logger.error("[SIGMA_EVENTS] Error construyendo lote AAEF: %s", e, exc_info=True)
@@ -1710,7 +1747,7 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
             "message": "Error interno al consultar eventos económicos de SIGMA.",
             "detail": str(e)
         }, 500)
-    
+
 @csrf_exempt
 @require_http_methods(["GET"])
 def health_check(request):

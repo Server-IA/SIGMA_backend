@@ -14,6 +14,11 @@ class Service(models.Model):
     creation_date = models.DateTimeField(auto_now=True)
     modification_date = models.DateTimeField(auto_now=True)
     id_responsible_user = models.ForeignKey('users.User', on_delete=models.PROTECT, null=False, blank=False, related_name='responsible_for_services')
-    accounting_account = models.CharField(max_length=50, null=True, blank=True)
+    accounting_account = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True
+    )
+
     class Meta:
         db_table = 'services'

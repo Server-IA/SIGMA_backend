@@ -765,9 +765,6 @@ AGROFUSION_DB_ALIAS_DEFAULT = os.getenv("AGROFUSION_DB_ALIAS", "default")
 
 
 def _rf35_to_jsonable(value):
-    """
-    Convierte Decimal/date/datetime/list/dict a tipos serializables por JSON.
-    """
     if isinstance(value, Decimal):
         return float(value.quantize(Decimal("0.01")))
 
@@ -811,10 +808,6 @@ def _rf35_error(message, http_status=status.HTTP_400_BAD_REQUEST, errors=None):
 
 
 def _rf35_authenticate_request(request):
-    """
-    Autenticación JWT manual.
-    No valida permisos. Solo autenticación.
-    """
     jwt_auth = JWTAuthentication()
 
     try:
@@ -836,10 +829,6 @@ def _rf35_authenticate_request(request):
 
 
 def _rf35_load_params(request):
-    """
-    RF-INT-35 se consume por GET.
-    Las fechas llegan por path params y los extras por query string.
-    """
     params = {}
 
     for key, value in request.GET.items():
@@ -856,7 +845,6 @@ def _rf35_parse_bool(value):
         return False
 
     value_text = str(value).strip().lower()
-
     return value_text in ("1", "true", "yes", "si", "sí", "y")
 
 
@@ -934,10 +922,181 @@ def _rf35_get_connection(alias):
     return connections[alias]
 
 
+def _rf35_first_value(data, keys, default=""):
+    if not isinstance(data, dict):
+        return default
+
+    for key in keys:
+        value = data.get(key)
+
+        if value is not None and str(value).strip() != "":
+            return value
+
+    return default
+
+
+def _rf35_enrich_payrolls_with_external_users(candidate_payrolls, request):
+    """
+    Enriquece los terceros usando el mismo servicio externo que usa view_payroll_detail.
+
+    Flujo:
+    payrolls.id_employee
+    -> employees.id_user
+    -> get_users_info_batch([id_user], request)
+    """
+
+    user_ids = []
+
+    for payroll in candidate_payrolls:
+        employee_user_id = payroll.get("employee_user_id")
+
+        if employee_user_id:
+            try:
+                user_ids.append(int(employee_user_id))
+            except (TypeError, ValueError):
+                logger.warning(
+                    "[RF-INT-35][USERS] employee_user_id inválido para payroll=%s: %s",
+                    payroll.get("id_payroll"),
+                    employee_user_id
+                )
+
+    user_ids = list(dict.fromkeys(user_ids))
+
+    if not user_ids:
+        logger.warning(
+            "[RF-INT-35][USERS] No hay employee_user_id para consultar usuarios externos. Se usarán datos del JOIN local."
+        )
+        return candidate_payrolls
+
+    try:
+        from service_requests.utils.external_user_helper import get_users_info_batch
+
+        users_data = get_users_info_batch(user_ids, request) or {}
+
+        logger.info(
+            "[RF-INT-35][USERS] Respuesta get_users_info_batch para user_ids=%s: %s",
+            user_ids,
+            json.dumps(users_data, ensure_ascii=False, default=str)
+        )
+
+    except Exception as exc:
+        logger.warning(
+            "[RF-INT-35][USERS] No se pudo consultar get_users_info_batch. Se usarán datos del JOIN local. Error=%s",
+            exc,
+            exc_info=True
+        )
+        return candidate_payrolls
+
+    for payroll in candidate_payrolls:
+        employee_user_id = payroll.get("employee_user_id")
+
+        if not employee_user_id:
+            continue
+
+        try:
+            employee_user_id_int = int(employee_user_id)
+        except (TypeError, ValueError):
+            continue
+
+        user_info = (
+            users_data.get(employee_user_id_int)
+            or users_data.get(str(employee_user_id_int))
+            or {}
+        )
+
+        if not user_info:
+            logger.warning(
+                "[RF-INT-35][USERS] El servicio externo no retornó datos para user_id=%s, payroll=%s. Se conserva JOIN local.",
+                employee_user_id_int,
+                payroll.get("id_payroll")
+            )
+            continue
+
+        document_number = _rf35_first_value(
+            user_info,
+            [
+                "document_number",
+                "documentNumber",
+                "DocumentNumber",
+                "document",
+                "identification",
+                "identification_number",
+                "num_document",
+                "num_iden",
+                "username",
+            ],
+            payroll.get("employee_document_number") or ""
+        )
+
+        first_name = _rf35_first_value(
+            user_info,
+            [
+                "first_name",
+                "firstName",
+                "first_names",
+                "firstNames",
+                "names",
+                "nombres",
+                "name",
+                "nombre",
+            ],
+            payroll.get("employee_first_name") or ""
+        )
+
+        last_name = _rf35_first_value(
+            user_info,
+            [
+                "last_name",
+                "lastName",
+                "last_names",
+                "lastNames",
+                "surname",
+                "surnames",
+                "apellidos",
+                "lastname",
+            ],
+            payroll.get("employee_last_name") or ""
+        )
+
+        full_name = _rf35_first_value(
+            user_info,
+            [
+                "full_name",
+                "fullName",
+                "complete_name",
+                "completeName",
+                "display_name",
+                "displayName",
+                "nombre_completo",
+                "nombreCompleto",
+            ],
+            ""
+        )
+
+        email = _rf35_first_value(
+            user_info,
+            [
+                "email",
+                "Email",
+                "mail",
+                "correo",
+            ],
+            payroll.get("employee_email") or payroll.get("employee_email_backup") or ""
+        )
+
+        if not full_name:
+            full_name = f"{first_name or ''} {last_name or ''}".strip()
+
+        payroll["employee_document_number"] = document_number
+        payroll["employee_first_name"] = first_name
+        payroll["employee_last_name"] = last_name
+        payroll["employee_email"] = email
+        payroll["employee_full_name"] = full_name
+
+    return candidate_payrolls
+
+
 def _rf35_invoice_status_from_payroll(payroll):
-    """
-    Mapea estados Sigma hacia estado AAEF del invoice.
-    """
     try:
         status_id = int(payroll.get("status_id"))
     except (TypeError, ValueError):
@@ -957,7 +1116,7 @@ def _rf35_invoice_status_from_payroll(payroll):
 
 def _rf35_transaction_status_from_payroll(payroll):
     """
-    Mapea estados Sigma hacia estado AAEF de transaction.
+    Transactions solo se generan para nóminas pagadas.
     """
     try:
         status_id = int(payroll.get("status_id"))
@@ -967,48 +1126,116 @@ def _rf35_transaction_status_from_payroll(payroll):
     if status_id == 18:
         return "COMPLETED"
 
-    if status_id == 16:
-        return "PENDING"
-
-    if status_id == 17:
-        return "PARTIAL"
-
     return "UNKNOWN"
 
 
 def _rf35_should_build_transaction(payroll):
     """
-    Se genera transaction para todas las nóminas consultadas:
-    - 18 Pagado
-    - 16 Pendiente
-    - 17 Parcial
+    Solo genera transaction para nóminas pagadas.
+
+    Reglas:
+    - status_id = 18
+    - date_payment debe tener valor
     """
     try:
         status_id = int(payroll.get("status_id"))
     except (TypeError, ValueError):
         return False
 
-    return status_id in (16, 17, 18)
+    return status_id == 18 and bool(payroll.get("date_payment"))
 
 
-def _rf35_effective_transaction_date(payroll):
+def _rf35_base_salary_total(payroll):
     """
-    Para pagadas usa date_payment.
-    Para pendientes/parciales, si no existe date_payment, usa end_date.
+    salario_base_total = payroll.base_salary * payroll.time_worked
     """
-    return payroll.get("date_payment") or payroll.get("end_date")
+    salary_base = _rf35_decimal(
+        payroll.get("salary_base") or payroll.get("base_salary"),
+        "0.00"
+    )
+
+    time_worked = _rf35_decimal(
+        payroll.get("time_worked"),
+        "0.00"
+    )
+
+    return (salary_base * time_worked).quantize(Decimal("0.01"))
+
+
+def _rf35_base_salary_accounts(payroll):
+    """
+    Cuentas quemadas para salario base.
+
+    SIN PAGAR / PENDIENTE / PARCIAL:
+    Débito  = 510506
+    Crédito = 250505
+
+    PAGADA:
+    Débito  = 250505
+    Crédito = 111005
+    """
+    try:
+        status_id = int(payroll.get("status_id"))
+    except (TypeError, ValueError):
+        status_id = None
+
+    if status_id == 18:
+        return {
+            "debit": "250505",
+            "credit": "111005"
+        }
+
+    return {
+        "debit": "510506",
+        "credit": "250505"
+    }
+
+
+def _rf35_build_base_salary_line(payroll):
+    """
+    Concepto adicional dentro de invoice["Lines"].
+
+    AccountingAccount:
+    [0] = cuenta débito
+    [1] = cuenta crédito
+    """
+
+    salary_base = _rf35_money(
+        payroll.get("salary_base") or payroll.get("base_salary")
+    )
+
+    time_worked = _rf35_decimal(
+        payroll.get("time_worked"),
+        "0.00"
+    )
+
+    total_salary_base = _rf35_base_salary_total(payroll)
+
+    if total_salary_base <= Decimal("0.00"):
+        return None
+
+    accounts = _rf35_base_salary_accounts(payroll)
+
+    debit_account = str(accounts.get("debit") or "").strip()
+    credit_account = str(accounts.get("credit") or "").strip()
+
+    return {
+        "Code": "SALARIO_BASE",
+        "Name": "salario base",
+        "Description": "Salario base generado como base_salary * time_worked",
+        "LineType": "ingreso",
+        "AccountingAccount": [
+            debit_account,
+            credit_account
+        ],
+        "Quantity": time_worked,
+        "UnitPrice": salary_base,
+        "Value": total_salary_base,
+        "Taxes": []
+    }
 
 
 def _rf35_fetch_candidate_payrolls(connection, since_period, until_period):
-    """
-    Consulta nóminas por rango usando la estructura real actual.
-
-    Confirmado:
-    - payrolls.date_payment existe.
-    - payrolls.payment_method_id existe y referencia payment_methods.code.
-    - payrolls.status_id existe.
-    - Se consultan estados 16, 17 y 18.
-    """
     sql = """
         SELECT
             p.id_payroll,
@@ -1017,6 +1244,7 @@ def _rf35_fetch_candidate_payrolls(connection, since_period, until_period):
             p.start_date,
             p.end_date,
             p.base_salary AS salary_base,
+            p.time_worked AS time_worked,
             p.net_pay,
             p.total_increments,
             p.total_deductions,
@@ -1024,7 +1252,11 @@ def _rf35_fetch_candidate_payrolls(connection, since_period, until_period):
             p.date_payment AS date_payment,
 
             p.payment_method_id AS payment_method_id,
-            COALESCE(pm.code, p.payment_method_id, 'N/A') AS payment_method_code,
+            COALESCE(
+                NULLIF(BTRIM(pm.code), ''),
+                NULLIF(BTRIM(p.payment_method_id), ''),
+                'N/A'
+            ) AS payment_method_code,
             pm.name AS payment_method_name,
 
             p.currency_type,
@@ -1033,19 +1265,20 @@ def _rf35_fetch_candidate_payrolls(connection, since_period, until_period):
 
             ec.contract_code,
 
-            emp.email AS employee_email,
+            emp.id_user AS employee_user_id,
+            emp.email AS employee_email_backup,
 
             au.username AS employee_document_number,
             au.first_name AS employee_first_name,
             au.last_name AS employee_last_name,
-            au.email AS auth_email,
+            COALESCE(NULLIF(BTRIM(au.email), ''), emp.email) AS employee_email,
 
             un.symbol AS currency_code
 
         FROM payrolls p
 
         LEFT JOIN payment_methods pm
-            ON pm.code = p.payment_method_id
+            ON BTRIM(pm.code) = BTRIM(p.payment_method_id)
 
         LEFT JOIN statues st
             ON st.id_statues = p.status_id
@@ -1078,29 +1311,26 @@ def _rf35_fetch_candidate_payrolls(connection, since_period, until_period):
 
 
 def _rf35_validate_payroll_totals(connection, id_payroll):
-    """
-    Valida con detalle real:
-
-    SUM(payroll_increases.calculated_amount)
-    -
-    SUM(payroll_deductions.calculated_amount)
-    =
-    payrolls.net_pay
-
-    En modo normal genera advertencia si no cuadra, pero NO bloquea.
-    Solo bloquea si envías strictValidation=true.
-    """
     sql = """
         SELECT
             p.id_payroll,
             p.net_pay,
+            p.base_salary,
+            p.time_worked,
             p.total_increments,
             p.total_deductions,
+
+            COALESCE(p.base_salary, 0)
+            * COALESCE(p.time_worked, 0) AS salario_base_total,
 
             COALESCE(inc.suma_ingresos, 0) AS suma_ingresos,
             COALESCE(ded.suma_deducciones, 0) AS suma_deducciones,
 
-            COALESCE(inc.suma_ingresos, 0)
+            (
+                COALESCE(p.base_salary, 0)
+                * COALESCE(p.time_worked, 0)
+            )
+            + COALESCE(inc.suma_ingresos, 0)
             - COALESCE(ded.suma_deducciones, 0) AS neto_calculado
 
         FROM payrolls p
@@ -1144,6 +1374,9 @@ def _rf35_validate_payroll_totals(connection, id_payroll):
     return {
         "id_payroll": row.get("id_payroll"),
         "net_pay": net_pay,
+        "base_salary": _rf35_money(row.get("base_salary")),
+        "time_worked": _rf35_decimal(row.get("time_worked"), "0.00"),
+        "salario_base_total": _rf35_money(row.get("salario_base_total")),
         "total_increments": _rf35_money(row.get("total_increments")),
         "total_deductions": _rf35_money(row.get("total_deductions")),
         "suma_ingresos": _rf35_money(row.get("suma_ingresos")),
@@ -1155,16 +1388,11 @@ def _rf35_validate_payroll_totals(connection, id_payroll):
 
 def _rf35_fetch_payroll_lines(connection, id_payroll):
     """
-    Obtiene líneas de ingresos y deducciones desde payroll_increases/payroll_deductions + types.
+    AccountingAccount:
+    [0] = debit_account_code
+    [1] = credit_account_code
 
-    Estructura real confirmada:
-    - payroll_increases tiene increase_type, description, calculated_amount, id_payroll.
-    - payroll_deductions tiene deduction_type, description, calculated_amount, id_payroll.
-    - types tiene id_types, name, description.
-    - types NO tiene debit_account_code ni credit_account_code.
-
-    Por eso debit_account_code y credit_account_code se retornan como NULL.
-    El JSON final enviará AccountingAccount como [].
+    Si alguna cuenta no existe, queda como "".
     """
     sql = """
         SELECT
@@ -1172,8 +1400,10 @@ def _rf35_fetch_payroll_lines(connection, id_payroll):
             t.id_types AS code,
             t.name AS name,
             COALESCE(NULLIF(pi.description, ''), t.description, t.name) AS description,
-            CAST(NULL AS VARCHAR) AS debit_account_code,
-            CAST(NULL AS VARCHAR) AS credit_account_code,
+
+            NULLIF(BTRIM(t.debit_account_code), '') AS debit_account_code,
+            NULLIF(BTRIM(t.credit_account_code), '') AS credit_account_code,
+
             pi.calculated_amount AS calculated_amount
         FROM payroll_increases pi
         LEFT JOIN types t
@@ -1187,8 +1417,10 @@ def _rf35_fetch_payroll_lines(connection, id_payroll):
             t.id_types AS code,
             t.name AS name,
             COALESCE(NULLIF(pd.description, ''), t.description, t.name) AS description,
-            CAST(NULL AS VARCHAR) AS debit_account_code,
-            CAST(NULL AS VARCHAR) AS credit_account_code,
+
+            NULLIF(BTRIM(t.debit_account_code), '') AS debit_account_code,
+            NULLIF(BTRIM(t.credit_account_code), '') AS credit_account_code,
+
             pd.calculated_amount AS calculated_amount
         FROM payroll_deductions pd
         LEFT JOIN types t
@@ -1202,25 +1434,40 @@ def _rf35_fetch_payroll_lines(connection, id_payroll):
 
 
 def _rf35_build_lines(raw_lines):
+    """
+    Construye líneas AAEF.
+
+    AccountingAccount siempre tiene dos posiciones:
+    [0] débito
+    [1] crédito
+
+    Si falta una cuenta, queda "".
+    """
     lines = []
 
     for item in raw_lines:
         line_type = item.get("line_type")
         amount = _rf35_money(item.get("calculated_amount"))
-        name = item.get("name") or str(item.get("code") or "")
+
+        code = str(item.get("code") or "")
+        name = item.get("name") or code
         description = item.get("description") or name
 
-        if line_type == "ingreso":
-            accounting_account = item.get("debit_account_code")
-        else:
-            accounting_account = item.get("credit_account_code")
+        debit_account = item.get("debit_account_code")
+        credit_account = item.get("credit_account_code")
+
+        debit_account = str(debit_account).strip() if debit_account else ""
+        credit_account = str(credit_account).strip() if credit_account else ""
 
         lines.append({
-            "Code": str(item.get("code") or ""),
+            "Code": code,
             "Name": name,
             "Description": description,
             "LineType": line_type,
-            "AccountingAccount": [str(accounting_account)] if accounting_account else [],
+            "AccountingAccount": [
+                debit_account,
+                credit_account
+            ],
             "Quantity": 1,
             "UnitPrice": amount,
             "Value": amount,
@@ -1231,9 +1478,6 @@ def _rf35_build_lines(raw_lines):
 
 
 def _rf35_build_fallback_lines(payroll):
-    """
-    Construye líneas mínimas cuando payroll_increases/payroll_deductions no tienen detalle.
-    """
     lines = []
 
     total_increments = _rf35_money(payroll.get("total_increments"))
@@ -1245,25 +1489,31 @@ def _rf35_build_fallback_lines(payroll):
             "Name": "Total ingresos nómina",
             "Description": "Total de ingresos tomado desde payrolls.total_increments",
             "LineType": "ingreso",
-            "AccountingAccount": [],
+            "AccountingAccount": [
+                "",
+                ""
+            ],
             "Quantity": 1,
             "UnitPrice": total_increments,
             "Value": total_increments,
             "Taxes": []
         })
 
-    if total_deductions > Decimal("0.00"):
-        lines.append({
-            "Code": "TOTAL_DEDUCCIONES",
-            "Name": "Total deducciones nómina",
-            "Description": "Total de deducciones tomado desde payrolls.total_deductions",
-            "LineType": "deduccion",
-            "AccountingAccount": [],
-            "Quantity": 1,
-            "UnitPrice": total_deductions,
-            "Value": total_deductions,
-            "Taxes": []
-        })
+    # if total_deductions > Decimal("0.00"):
+    #     lines.append({
+    #         "Code": "TOTAL_DEDUCCIONES",
+    #         "Name": "Total deducciones nómina",
+    #         "Description": "Total de deducciones tomado desde payrolls.total_deductions",
+    #         "LineType": "deduccion",
+    #         "AccountingAccount": [
+    #             "",
+    #             ""
+    #         ],
+    #         "Quantity": 1,
+    #         "UnitPrice": total_deductions,
+    #         "Value": total_deductions,
+    #         "Taxes": []
+    #     })
 
     return lines
 
@@ -1289,10 +1539,6 @@ def _rf35_get_table_columns(connection, table_name):
 
 
 def _rf35_dynamic_insert(connection, table_name, data):
-    """
-    Inserta solo las columnas existentes en la tabla.
-    Si la tabla o columnas no existen, no rompe el flujo.
-    """
     columns = _rf35_get_table_columns(connection, table_name)
 
     if not columns:
@@ -1337,9 +1583,6 @@ def _rf35_dynamic_insert(connection, table_name, data):
 
 
 def _rf35_get_existing_idempotency_keys(connection, idempotency_keys):
-    """
-    Busca idempotency_key en af_audit_receipts si existe la tabla y columna.
-    """
     if not idempotency_keys:
         return set()
 
@@ -1424,13 +1667,37 @@ def _rf35_build_invoice(payroll, lines):
 
     first_name = payroll.get("employee_first_name") or ""
     last_name = payroll.get("employee_last_name") or ""
-    employee_name = f"{first_name} {last_name}".strip()
 
     document_number = payroll.get("employee_document_number") or ""
-    employee_email = payroll.get("auth_email") or payroll.get("employee_email") or ""
+    employee_email = payroll.get("employee_email") or payroll.get("employee_email_backup") or ""
+
+    employee_name = (
+        payroll.get("employee_full_name")
+        or f"{first_name} {last_name}".strip()
+        or f"Empleado {document_number}".strip()
+    )
 
     invoice_status = _rf35_invoice_status_from_payroll(payroll)
     net_pay = _rf35_money(payroll.get("net_pay"))
+
+    base_salary_line = _rf35_build_base_salary_line(payroll)
+
+    final_lines = []
+
+    if base_salary_line:
+        final_lines.append(base_salary_line)
+
+    final_lines.extend(lines or [])
+
+    base_salary_total = Decimal("0.00")
+
+    if base_salary_line:
+        base_salary_total = _rf35_money(base_salary_line.get("Value"))
+
+    subtotal = (
+        base_salary_total
+        + _rf35_money(payroll.get("total_increments"))
+    ).quantize(Decimal("0.01"))
 
     return {
         "Header": {
@@ -1448,23 +1715,31 @@ def _rf35_build_invoice(payroll, lines):
             "Email": employee_email
         },
         "Totals": {
-            "Subtotal": _rf35_money(payroll.get("total_increments")),
+            "Subtotal": subtotal,
             "TotalVAT": Decimal("0.00"),
             "TotalWithholdings": _rf35_money(payroll.get("total_deductions")),
             "TotalDiscounts": Decimal("0.00"),
             "TotalPayment": net_pay,
             "OutstandingBalance": Decimal("0.00") if invoice_status == "PAID" and payroll.get("date_payment") else net_pay
         },
-        "Lines": lines
+        "Lines": final_lines
     }
 
 
 def _rf35_build_transaction(payroll, issuer_info):
+    """
+    Construye transaction solo para nómina pagada.
+    Debe usar date_payment.
+    """
     id_payroll = payroll.get("id_payroll")
     id_employee_contract = payroll.get("id_employee_contract")
 
-    effective_payment_date = _rf35_effective_transaction_date(payroll)
-    payment_date = _rf35_date_iso(effective_payment_date)
+    if not payroll.get("date_payment"):
+        raise ValueError(
+            f"La nómina {id_payroll} está marcada para transaction pero no tiene date_payment."
+        )
+
+    payment_date = _rf35_date_iso(payroll.get("date_payment"))
 
     invoice_document_id = f"{id_employee_contract}-{id_payroll}"
     payment_document_id = f"PAY-{id_employee_contract}-{id_payroll}-{payment_date}"
@@ -1485,7 +1760,7 @@ def _rf35_build_transaction(payroll, issuer_info):
         },
         "Amount": _rf35_money(payroll.get("net_pay")),
         "Currency": payroll.get("currency_code") or "COP",
-        "Status": _rf35_transaction_status_from_payroll(payroll),
+        "Status": "COMPLETED",
         "Notes": (
             f"Contrato: {id_employee_contract} | "
             f"Período: {_rf35_date_iso(payroll.get('start_date'))} / {_rf35_date_iso(payroll.get('end_date'))}"
@@ -1522,7 +1797,11 @@ def _rf35_build_metadata(params, exchange_id, since_period, until_period):
 
 def _rf35_build_summary(included_payrolls, invoices, transactions):
     total_gross = sum(
-        (_rf35_money(item.get("total_increments")) for item in included_payrolls),
+        (
+            _rf35_base_salary_total(item)
+            + _rf35_money(item.get("total_increments"))
+            for item in included_payrolls
+        ),
         Decimal("0.00")
     )
 
@@ -1589,11 +1868,6 @@ def _rf35_build_accounting_headers(request, params):
 
 
 def _rf35_send_to_accounting(request, params, aaef_payload):
-    """
-    Envío opcional al sistema contable.
-    Para activarlo:
-    ?send_to_accounting=true
-    """
     health_url = (
         params.get("accounting_health_url")
         or params.get("accountingHealthUrl")
@@ -1726,6 +2000,11 @@ def consult_sigma_economic_events(request, sincePeriod=None, untilPeriod=None):
             until_period
         )
 
+        candidate_payrolls = _rf35_enrich_payrolls_with_external_users(
+            candidate_payrolls,
+            request
+        )
+
         possible_idempotency_keys = []
 
         for payroll in candidate_payrolls:
@@ -1733,7 +2012,7 @@ def consult_sigma_economic_events(request, sincePeriod=None, untilPeriod=None):
             possible_idempotency_keys.append(f"{exchange_id}:{invoice_document_id}")
 
             if _rf35_should_build_transaction(payroll):
-                payment_date = _rf35_date_iso(_rf35_effective_transaction_date(payroll))
+                payment_date = _rf35_date_iso(payroll.get("date_payment"))
                 payment_document_id = f"PAY-{payroll.get('id_employee_contract')}-{payroll.get('id_payroll')}-{payment_date}"
                 possible_idempotency_keys.append(f"{exchange_id}:{payment_document_id}")
 
@@ -1753,11 +2032,7 @@ def consult_sigma_economic_events(request, sincePeriod=None, untilPeriod=None):
             id_employee_contract = payroll.get("id_employee_contract")
 
             invoice_document_id = f"{id_employee_contract}-{id_payroll}"
-            payment_date = _rf35_date_iso(_rf35_effective_transaction_date(payroll))
-            payment_document_id = f"PAY-{id_employee_contract}-{id_payroll}-{payment_date}"
-
             invoice_key = f"{exchange_id}:{invoice_document_id}"
-            payment_key = f"{exchange_id}:{payment_document_id}"
 
             if invoice_key in existing_keys:
                 excluded_item = {
@@ -1780,8 +2055,11 @@ def consult_sigma_economic_events(request, sincePeriod=None, untilPeriod=None):
                     "id_payroll": id_payroll,
                     "document_id": invoice_document_id,
                     "reason": "NET_PAY_VALIDATION_WARNING",
-                    "message": "La validación de suma de conceptos no coincide, pero el documento se incluirá porque strictValidation=false.",
+                    "message": "La validación de salario base + ingresos - deducciones no coincide, pero el documento se incluirá porque strictValidation=false.",
                     "net_pay": validation["net_pay"],
+                    "base_salary": validation["base_salary"],
+                    "time_worked": validation["time_worked"],
+                    "salario_base_total": validation["salario_base_total"],
                     "suma_ingresos": validation["suma_ingresos"],
                     "suma_deducciones": validation["suma_deducciones"],
                     "neto_calculado": validation["neto_calculado"],
@@ -1804,7 +2082,7 @@ def consult_sigma_economic_events(request, sincePeriod=None, untilPeriod=None):
                 if strict_validation:
                     excluded_item = warning_item.copy()
                     excluded_item["reason"] = "NET_PAY_VALIDATION_FAILED"
-                    excluded_item["message"] = "La validación de suma de conceptos no coincide y strictValidation=true."
+                    excluded_item["message"] = "La validación de salario base + ingresos - deducciones no coincide y strictValidation=true."
 
                     excluded.append(excluded_item)
 
@@ -1849,12 +2127,14 @@ def consult_sigma_economic_events(request, sincePeriod=None, untilPeriod=None):
 
                 lines = _rf35_build_fallback_lines(payroll)
 
-            if not lines:
+            invoice_payload = _rf35_build_invoice(payroll, lines)
+
+            if not invoice_payload.get("Lines"):
                 excluded_item = {
                     "id_payroll": id_payroll,
                     "document_id": invoice_document_id,
                     "reason": "PAYROLL_WITHOUT_LINES",
-                    "message": "La nómina no tiene líneas de detalle ni totales suficientes para construir líneas fallback."
+                    "message": "La nómina no tiene líneas de detalle, salario base ni totales suficientes para construir líneas fallback."
                 }
 
                 excluded.append(excluded_item)
@@ -1871,8 +2151,6 @@ def consult_sigma_economic_events(request, sincePeriod=None, untilPeriod=None):
 
                 continue
 
-            invoice_payload = _rf35_build_invoice(payroll, lines)
-
             invoices.append(invoice_payload)
             included_payrolls.append(payroll)
 
@@ -1885,27 +2163,86 @@ def consult_sigma_economic_events(request, sincePeriod=None, untilPeriod=None):
                 payload=invoice_payload
             )
 
-            if _rf35_should_build_transaction(payroll) and payment_key not in existing_keys:
-                transaction_payload = _rf35_build_transaction(payroll, issuer_info)
+            # transaction_allowed = _rf35_should_build_transaction(payroll)
 
-                transactions.append(transaction_payload)
+            payment_date_raw = payroll.get("date_payment")
 
-                _rf35_register_audit_receipt(
-                    agrofusion_connection,
-                    exchange_id,
-                    payment_document_id,
-                    payment_key,
-                    "BUILT",
-                    payload=transaction_payload
-                )
+            payment_date_value = (
+                payment_date_raw.date()
+                if hasattr(payment_date_raw, "date")
+                else payment_date_raw
+            )
+
+            transaction_allowed = (
+                _rf35_should_build_transaction(payroll)
+                and payment_date_value is not None
+                and since_period <= payment_date_value <= until_period
+            )
+
+            if transaction_allowed:
+                payment_date = _rf35_date_iso(payroll.get("date_payment"))
+                payment_document_id = f"PAY-{id_employee_contract}-{id_payroll}-{payment_date}"
+                payment_key = f"{exchange_id}:{payment_document_id}"
+
+                if payment_key not in existing_keys:
+                    transaction_payload = _rf35_build_transaction(payroll, issuer_info)
+
+                    transactions.append(transaction_payload)
+
+                    _rf35_register_audit_receipt(
+                        agrofusion_connection,
+                        exchange_id,
+                        payment_document_id,
+                        payment_key,
+                        "BUILT",
+                        payload=transaction_payload
+                    )
+                else:
+                    warning_item = {
+                        "id_payroll": id_payroll,
+                        "document_id": payment_document_id,
+                        "status_id": payroll.get("status_id"),
+                        "status_name": payroll.get("status_name"),
+                        "date_payment": payment_date,
+                        "reason": "DUPLICATE_TRANSACTION_IDEMPOTENCY_KEY",
+                        "message": "No se genera transaction porque ya existe una transaction con el mismo ExchangeId + DocumentId."
+                    }
+
+                    warnings.append(warning_item)
+
+                    _rf35_register_audit_receipt(
+                        agrofusion_connection,
+                        exchange_id,
+                        invoice_document_id,
+                        invoice_key,
+                        "TRANSACTION_SKIPPED",
+                        payload=warning_item,
+                        error_message=warning_item["message"]
+                    )
             else:
+                try:
+                    status_id_int = int(payroll.get("status_id"))
+                except (TypeError, ValueError):
+                    status_id_int = None
+
+                if status_id_int != 18:
+                    reason = "PAYROLL_NOT_PAID_TRANSACTION_SKIPPED"
+                    message = "No se genera transaction porque la nómina no está pagada. Solo status_id=18 genera transaction."
+                elif not payroll.get("date_payment"):
+                    reason = "PAID_PAYROLL_WITHOUT_DATE_PAYMENT"
+                    message = "No se genera transaction porque la nómina está pagada pero no tiene date_payment."
+                else:
+                    reason = "TRANSACTION_NOT_CREATED"
+                    message = "No se genera transaction por una condición no controlada."
+
                 warning_item = {
                     "id_payroll": id_payroll,
-                    "document_id": payment_document_id,
+                    "document_id": None,
                     "status_id": payroll.get("status_id"),
                     "status_name": payroll.get("status_name"),
-                    "reason": "TRANSACTION_NOT_CREATED",
-                    "message": "No se genera transaction porque el estado no está mapeado o ya existe una transaction con el mismo ExchangeId + DocumentId."
+                    "date_payment": _rf35_date_iso(payroll.get("date_payment")),
+                    "reason": reason,
+                    "message": message
                 }
 
                 warnings.append(warning_item)
