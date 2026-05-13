@@ -1630,8 +1630,7 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
             Invoice.objects
             .select_related("customer", "payment_method", "service_request")
             .prefetch_related("lines__service_item")
-            .filter(
-                status_id=26,
+            .filter(                
                 invoice_date__gte=since_date,
                 invoice_date__lte=until_date
             )
