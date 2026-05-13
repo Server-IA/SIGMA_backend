@@ -1414,7 +1414,7 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
                 "Description": str(description),
                 "LineType": str(name),
 
-                "AccountingAccount": [
+                "accounting_account": [
                     accounting_account
                 ],
 
@@ -1486,9 +1486,9 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
                 "UpdatedAt": validated_at
             },
             "ThirdParty": {
+                "NIT": "",
                 "DocumentType": get_customer_document_type(customer),
                 "DocumentNumber": get_customer_document_number(customer),
-                "NIT": None,
                 "Name": get_customer_display_name(customer),
                 "Email": getattr(customer, "email", None) if customer else "",
                 "Address": getattr(customer, "address", None) if customer else ""
@@ -1546,6 +1546,7 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
             "Date": validated_at,
             "RelatedInvoiceId": reference_code,
             "ThirdParty": {
+                "NIT": "",
                 "DocumentType": get_customer_document_type(customer),
                 "DocumentNumber": get_customer_document_number(customer),
                 "Name": get_customer_display_name(customer)

@@ -1224,7 +1224,7 @@ def _rf35_build_base_salary_line(payroll):
         "Name": "salario base",
         "Description": "Salario base generado como base_salary * time_worked",
         "LineType": "ingreso",
-        "AccountingAccount": [
+        "accounting_account": [
             debit_account,
             credit_account
         ],
@@ -1464,7 +1464,7 @@ def _rf35_build_lines(raw_lines):
             "Name": name,
             "Description": description,
             "LineType": line_type,
-            "AccountingAccount": [
+            "accounting_account": [
                 debit_account,
                 credit_account
             ],
@@ -1489,7 +1489,7 @@ def _rf35_build_fallback_lines(payroll):
             "Name": "Total ingresos nómina",
             "Description": "Total de ingresos tomado desde payrolls.total_increments",
             "LineType": "ingreso",
-            "AccountingAccount": [
+            "accounting_account": [
                 "",
                 ""
             ],
@@ -1704,15 +1704,21 @@ def _rf35_build_invoice(payroll, lines):
             "DocumentId": document_id,
             "Prefix": "NOM",
             "Serial": str(id_payroll),
+            "Type": {
+                    "Code": "03",
+                    "Name": "Honorarios"
+                },
             "IssueDate": _rf35_date_iso(payroll.get("start_date")),
             "DueDate": _rf35_date_iso(payroll.get("end_date")),
-            "Status": invoice_status
+            "Status": invoice_status,
+            "UpdatedAt": _rf35_date_iso(payroll.get("end_date")),
         },
         "ThirdParty": {
+            "NIT": "",
             "DocumentNumber": str(document_number),
             "DocumentType": "CC",
             "Name": employee_name,
-            "Email": employee_email
+            "Email": employee_email,            
         },
         "Totals": {
             "Subtotal": subtotal,
