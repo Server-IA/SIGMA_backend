@@ -1320,7 +1320,7 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
             return "PAID"
 
         if getattr(invoice, "status_id", None) == 24:
-            return "EASER"
+            return "PENDING"
 
         return "PENDING"
 
