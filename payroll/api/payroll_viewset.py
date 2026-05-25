@@ -888,7 +888,7 @@ def _rf35_date_iso(value):
 
 
 def _rf35_now_iso():
-    return timezone.now().isoformat()
+    return datetime.now().date().isoformat()
 
 
 def _rf35_build_exchange_id(params):
