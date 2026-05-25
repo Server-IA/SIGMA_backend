@@ -1313,7 +1313,7 @@ def consult_sigma_economic_events(request, sincePeriod, untilPeriod):
         if payment_method_id is None:
             return "PENDING"
 
-        return mapping.get(str(payment_method_id).strip(), "PENDING")
+        return mapping.get(str(payment_method_id).strip(), "CASH")
 
     def get_invoice_status_aaef(invoice):
         if getattr(invoice, "status_id", None) == 26:
